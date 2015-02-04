@@ -37,7 +37,7 @@ pro aztrack,year,month,day,hours,elevation,ra,dec,az,utout, $
 	if not keyword_set(raMin) then raMin = 30.
 	if not keyword_set(raMax) then raMax = 300.
 	if not keyword_set(gbMin) then gbMin = 17.
-	if not keyword_set(seed) then seed = !NULL
+	;if not keyword_set(seed) then seed = !NULL
 	alt = elevation
 	; convert the exposure start times to julian dates
 	jdcnv,year,month,day,hours,julian
