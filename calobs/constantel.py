@@ -46,7 +46,7 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
 	decMax = 85*u.degree
 	offsetScale *= u.degree
 	#
-	nAz = 1000
+	nAz = 100
 	altaz = coo.AltAz(alt=np.repeat(fixedElevation,nAz),
 	                  az=np.linspace(0,360,nAz)*u.degree,
 	                  obstime=startTime,location=kpno)
@@ -139,7 +139,7 @@ def plot_season(airmass=1.4,**kwargs):
 		for j,t in enumerate(alltracks[ut]):
 			print '%s %3d %7.2f %7.2f %7.2f' % \
 			       (ut,j,t['coords'].dec[0].value,t['coords'].dec[-1].value,
-			        (t['ut'][-1]-t['ut'][0]).to(u.minute))
+			        (t['ut'][-1]-t['ut'][0]).to(u.minute).value)
 	return alltracks
 
 def formatut(ut,full=False):
