@@ -85,6 +85,18 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
 def airmass2el(airmass):
 	return 90 - np.degrees(np.arccos(1/airmass))
 
+def plot_gal_bound(gb=17,c='r'):
+	gl = np.linspace(-180,180,100) * u.degree
+	gb = np.repeat(gb,len(gl)) *u.degree
+	gbound = coo.SkyCoord(gl,gb,coo.Galactic)
+	bound = gbound.transform_to(coo.FK5)
+	plt.plot(bound.ra,bound.dec,c=c)
+
+def plot_desi_tiles():
+	tiles = fits.getdata('desi-tiles.fits')
+	ii = np.where((tiles.IN_DESI > 0)  & (tiles.DEC > 30))[0]
+	plt.scatter(tiles.RA[ii],tiles.DEC[ii],c='0.2',marker='+',s=10)
+
 def plot_season(airmass=1.4,**kwargs):
 	'''Plot the pointings for the bright-time calibration strategy at
 	   fixed airmass using bright time observing dates in 2015.
@@ -110,9 +122,7 @@ def plot_season(airmass=1.4,**kwargs):
 	alltracks = {}
 	shotTime = 100. #exposureTime + overheadTime
 	if os.path.exists('desi-tiles.fits'):
-		tiles = fits.getdata('desi-tiles.fits')
-		ii = np.where((tiles.IN_DESI > 0)  & (tiles.DEC > 30))[0]
-		plt.scatter(tiles.RA[ii],tiles.DEC[ii],c='0.2',marker='+',s=10)
+		plot_desi_tiles()
 	for utdate,c in zip(utdates,itertools.cycle('rgbcymk')):
 		alltracks[utdate] = []
 		uttime = utStart
