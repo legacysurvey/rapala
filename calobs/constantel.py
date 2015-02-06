@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 
+import os
 import itertools
 import numpy as np
 from scipy.interpolate import interp1d
+from astropy.io import fits
 from astropy.time import Time
 import astropy.coordinates as coo
 from astropy import units as u
 
 import matplotlib.pyplot as plt
+
+utcOffset = -7*u.hour
 
 # Generate a track of exposures at constant elevation. The track moves
 # in increasing azimuth, except for a random frequency of negative
@@ -38,7 +42,6 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
             jumpFrac=0.1,offsetScale=3.0):
 	kpno = coo.EarthLocation(lat=31.9583*u.degree,lon=-111.5967*u.degree,
 	                         height=2120*u.m)
-	utcOffset = -7*u.hour
 	duration = duration*u.hour
 	fixedElevation = fixedElevation*u.degree
 	gbMin = 17*u.degree
@@ -60,7 +63,8 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
 	i = ii[0]
 	#
 	az = altaz[i].az
-	track = [cel[i]]
+	coords = [cel[i]]
+	azimuths = [az]
 	times = [startTime]
 	while times[-1]-startTime < duration:
 		dAz = offsetScale*np.random.rand()
@@ -73,9 +77,10 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
 		g = a.transform_to(coo.Galactic)
 		if c.dec < decMin or c.dec > decMax or g.b < gbMin:
 			break
-		track.append(c)
+		coords.append(c)
+		azimuths.append(az)
 		times.append(t)
-	return dict(coords=coo.SkyCoord(track),ut=times)
+	return dict(coords=coo.SkyCoord(coords),ut=times,azimuths=azimuths)
 
 def airmass2el(airmass):
 	return 90 - np.degrees(np.arccos(1/airmass))
@@ -104,6 +109,10 @@ def plot_season(airmass=1.4,**kwargs):
 	utBreak = kwargs.get('utBreak',('05:00','10:00'))
 	alltracks = {}
 	shotTime = 100. #exposureTime + overheadTime
+	if os.path.exists('desi-tiles.fits'):
+		tiles = fits.getdata('desi-tiles.fits')
+		ii = np.where((tiles.IN_DESI > 0)  & (tiles.DEC > 30))[0]
+		plt.scatter(tiles.RA[ii],tiles.DEC[ii],c='0.2',marker='+',s=10)
 	for utdate,c in zip(utdates,itertools.cycle('rgbcymk')):
 		alltracks[utdate] = []
 		uttime = utStart
@@ -127,7 +136,7 @@ def plot_season(airmass=1.4,**kwargs):
 				continue
 			nfail = 0
 			plt.plot(track['coords'].ra.value,track['coords'].dec.value,
-			         '%ss-'%c)
+			         c=c,marker='o',mfc='none',ms=4,mec=c)
 			uttime += trackdur
 			alltracks[utdate].append(track)
 			print uttime,trackdur.to(u.minute)
@@ -150,23 +159,32 @@ def formatut(ut,full=False):
 	else:
 		return utd,''.join(utt.split(':')[:2])
 
-def dump_track(track,exposureTime,filt):
+def dump_track(track,exposureTime,filt,nowrite):
 	from itertools import count
 	utdate,utstr = formatut(track['ut'][0])
-	scriptf = open('basscal_%s_%s_%s.txt' % (utdate,utstr,filt),'w')
-	logf = open('basscal_%s_%s_%s.log' % (utdate,utstr,filt),'w')
-	for i,ut,c in zip(count(),track['ut'],track['coords']):
+	if not nowrite:
+		scriptf = open('basscal_%s_%s_%s.txt' % (utdate,utstr,filt),'w')
+		logf = open('basscal_%s_%s_%s.log' % (utdate,utstr,filt),'w')
+	for i,ut,c,az in zip(count(),track['ut'],track['coords'],track['azimuths']):
 		imtitle = 'cal%s%s%s_%02d' % (utdate,utstr,filt,i)
 		# have to cut off last digit in dec for Bok
 		cstr = c.to_string('hmsdms',sep='',precision=2)[:-1]
-		scriptf.write("obs %.1f object '%s' 1 %s %s 2000.0\r\n" % 
-		              (exposureTime,imtitle,filt,cstr))
+		if not nowrite:
+			scriptf.write("obs %.1f object '%s' 1 %s %s 2000.0\r\n" % 
+			              (exposureTime,imtitle,filt,cstr))
 		cstr = c.to_string('hmsdms',sep=':',precision=2)
-		logf.write('%s   %s   %s\n' % (formatut(ut,True)[1],imtitle,cstr))
-	scriptf.close()
-	logf.close()
+		if not nowrite:
+			logf.write('%s MST  %s UT   %s   %s   %5.2f\n' % 
+			           (formatut(ut+utcOffset,True)[1],formatut(ut,True)[1],
+			            imtitle,cstr,az.value))
+		print '%s MST   %s UT   %s   %s   %5.2f' %  \
+		           (formatut(ut+utcOffset,True)[1],formatut(ut,True)[1],
+		            imtitle,cstr,az.value)
+	if not nowrite:
+		scriptf.close()
+		logf.close()
 
-def make_track(*args,**kwargs):
+def make_track(startTime,**kwargs):
 	airmass = kwargs.get('airmass',1.4)
 	exposureTime = kwargs.get('exposureTime',50.)
 	overheadTime = kwargs.get('overheadTime',50.)
@@ -174,15 +192,6 @@ def make_track(*args,**kwargs):
 	offsetScale = kwargs.get('offsetScale',3.0)
 	jumpFrac = kwargs.get('jumpFrac',0.1)
 	filt = kwargs.get('filt','g')
-	if len(args)==1:
-		t = Time.now()
-		startTime = Time(t.iso.split()[0]+' '+args[0])
-	elif len(args)==2:
-		utdate,uttime = args
-		utdate = utdate[:4]+'-'+utdate[4:6]+'-'+utdate[6:]
-		startTime = Time(utdate+' '+uttime,format='iso')
-	else:
-		raise ValueError
 	shotTime = exposureTime + overheadTime
 	elevation = airmass2el(airmass)
 	print
@@ -192,32 +201,68 @@ def make_track(*args,**kwargs):
 	print '  random params: offsetScale=%.1f deg, jumpFrac=%.1f' % \
 	            (offsetScale,jumpFrac)
 	print '  elevation is %.1f degrees' % elevation
-	print '  start execution at ',startTime,' UT'
+	print '  start execution at ',startTime+utcOffset,' MST'
 	print
 	track = aztrack(startTime,shotTime,duration,
 	                elevation,offsetScale=offsetScale,jumpFrac=jumpFrac)
-	dump_track(track,exposureTime,filt)
+	if track is not None:
+		dump_track(track,exposureTime,filt,kwargs.get('nowrite',False))
 	return track
 
 if __name__=='__main__':
-	import sys,getopt
-	try:
-		opts,args = getopt.getopt(sys.argv[1:],
-		                          "a:d:e:o:",
-		                         ['airmass=','duration=',
-		                          'exposureTime=','filt=',
-		                          'overheadTime=',])
-	except getopt.GetoptError as err:
-		print str(err)
-		sys.exit(2)
-	kwargs = {}
-	for k,v in opts:
-		kwargs[k.lstrip('--')] = float(v)
-	t = make_track(*args,**kwargs)
-#	ntry = 0
-#	while ntry < 10:
-#		t = make_track(*args,**kwargs)
-#		if t is not None:
-#			break
-#		ntry += 1
+	import sys,argparse
+	parser = argparse.ArgumentParser()
+	parser.add_argument('utdate',nargs='?',default=None,
+	                    help="UT date of observation, in format YYYYMMDD "+
+	                         "[default: today's date]")
+	parser.add_argument('uttime',#nargs='?',default='+5',
+	              help="UT time of observation, in format HH:MM[:SS] "+
+	                   "or offset from current time in minutes, e.g., "+
+	                   "'+5' mean 5 minutes from now")# [this is the default]")
+	parser.add_argument("-a","--airmass",type=float,default=1.4,
+	              help="airmass of observation [default=1.4]")
+	parser.add_argument("-d","--duration",type=float,default=1.0,
+	              help="duration of observation in hours [default=1.0]")
+	parser.add_argument("-e","--exposureTime",type=float,default=50,
+	              help="exposure time in seconds [default=50]")
+	parser.add_argument("-f","--filt",default='g',
+	              help="filter name [default=g]")
+	parser.add_argument("-o","--overheadTime",type=float,default=50,
+	              help="overhead time in seconds [default=50]")
+	parser.add_argument("--offsetScale",type=float,default=3.0,
+	              help="scale of random offsets in degrees [default=3]")
+	parser.add_argument("--jumpFrac",type=float,default=0.1,
+	              help="fraction of offsets to be negative in azimuth "+
+	                   "[default=0.1]")
+	parser.add_argument("--nowrite",action="store_true",
+	              help="skip writing output files, just dump to screen")
+	args = parser.parse_args()
+	# determine the starting time for the sequence
+	t = Time.now()
+	if args.utdate is None:
+		utdate = t.iso.split()[0]
+	else:
+		utdate = args.utdate[:4]+'-'+args.utdate[4:6]+'-'+args.utdate[6:]
+	if args.uttime.startswith('+'):
+		dt = float(args.uttime[1:]) * u.minute
+		print 'dt = ',dt
+		startTime = t + dt
+	else:
+		startTime = Time(utdate+' '+args.uttime,format='iso')
+	# convert the optional arguments to a dictionary and pass to make_track
+	opts = vars(args)
+	ignore = opts.pop('utdate')
+	ignore = opts.pop('uttime')
+	kwargs = { k : opts[k] for k in opts if opts[k] != None }
+	# loop a few times in case the random starting point results in a failed
+	# sequence (i.e., goes out of bounds), or if the track fails otherwise
+	# (e.g., if no part of the footprint is visible at the specified airmass
+	#  for the specified observing time)
+	# [it would be better to recognize the latter case and give up]
+	ntry = 0
+	while ntry < 10:
+		t = make_track(startTime,**kwargs)
+		if t is not None:
+			break
+		ntry += 1
 
