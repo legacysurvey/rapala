@@ -12,6 +12,47 @@ from astropy import units as u
 import matplotlib.pyplot as plt
 
 utcOffset = -7*u.hour
+decMin = 30*u.degree
+decMax = 85*u.degree
+
+def get_desi_tiles():
+	tiles = fits.getdata('desi-tiles.fits')
+	ii = np.where((tiles.IN_DESI > 0)  & (tiles.DEC > 30))[0]
+	return tiles[ii]
+
+def get_desi_bounds():
+	tiles = get_desi_tiles()
+	stripewidth = 10.0
+	pad = 5.0
+	decedges = np.arange(25,95,stripewidth)
+	ii = np.digitize(tiles.DEC,decedges)
+	nbins = len(decedges)-1
+	ramin = [tiles.RA[ii==i+1].min() for i in range(nbins)]
+	ramax = [tiles.RA[ii==i+1].max() for i in range(nbins)]
+	ramin = np.array(ramin+[120]) - pad
+	ramax = np.array(ramax+[250]) + pad
+	decbins = decedges + stripewidth/2
+	#
+	dec1 = np.arange(30,86.5,1.0) * u.degree
+	ra1 = np.empty_like(dec1)
+	ra2 = np.empty_like(dec1)
+	for i in range(len(dec1)):
+		j = int((dec1[i] - decMin).value//stripewidth)
+		y0,y1 = decbins[[j,j+1]] * u.degree
+		x0,x1 = ramin[[j,j+1]] * u.degree
+		ra1[i] = x0 + ((x1-x0)/(y1-y0))*(dec1[i]-y0)
+		x0,x1 = ramax[[j,j+1]] * u.degree
+		ra2[i] = x0 + ((x1-x0)/(y1-y0))*(dec1[i]-y0)
+	return dict(decStripe=dec1,raMin=ra1,raMax=ra2)
+
+def in_desi_bounds(ra,dec,bounds):
+	try:
+		ii = np.digitize(dec,bounds['decStripe'])
+	except ValueError:
+		ii = np.where((dec > bounds['decStripe'][:-1]) & 
+		              (dec < bounds['decStripe'][1:]))[0] + 1
+	return ( (ra > bounds['raMin'][ii-1]) & (ra < bounds['raMax'][ii-1]) &
+	         (dec > decMin) & (dec < decMax) )
 
 # Generate a track of exposures at constant elevation. The track moves
 # in increasing azimuth, except for a random frequency of negative
@@ -44,24 +85,22 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
 	                         height=2120*u.m)
 	duration = duration*u.hour
 	fixedElevation = fixedElevation*u.degree
-	gbMin = 17*u.degree
-	decMin = 30*u.degree
-	decMax = 85*u.degree
 	offsetScale *= u.degree
-	#
+	# find positions within the azimuth track at the given elevation
+	# that are within the survey footprint
 	nAz = 100
 	altaz = coo.AltAz(alt=np.repeat(fixedElevation,nAz),
 	                  az=np.linspace(0,360,nAz)*u.degree,
 	                  obstime=startTime,location=kpno)
-	gal = altaz.transform_to(coo.Galactic)
 	cel = altaz.transform_to(coo.FK5)
-	ii = np.where((gal.b > gbMin) & 
-	              (cel.dec > decMin) & (cel.dec < decMax))[0]
+	bounds = get_desi_bounds()
+	ii = np.where(in_desi_bounds(cel.ra,cel.dec,bounds))[0]
 	if len(ii)==0:
 		return None
+	# pick the starting point randomly from the list of valid positions
 	np.random.shuffle(ii)
 	i = ii[0]
-	#
+	# now build up the track by making random azimuthal offsets
 	az = altaz[i].az
 	coords = [cel[i]]
 	azimuths = [az]
@@ -74,8 +113,8 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
 		t = times[-1] + shotTime * u.second
 		a = coo.AltAz(alt=fixedElevation,az=az,obstime=t,location=kpno)
 		c = a.transform_to(coo.FK5)
-		g = a.transform_to(coo.Galactic)
-		if c.dec < decMin or c.dec > decMax or g.b < gbMin:
+		# stop if this move takes the track out of bounds
+		if not in_desi_bounds(c.ra,c.dec,bounds):
 			break
 		coords.append(c)
 		azimuths.append(az)
@@ -93,9 +132,8 @@ def plot_gal_bound(gb=17,c='r'):
 	plt.plot(bound.ra,bound.dec,c=c)
 
 def plot_desi_tiles():
-	tiles = fits.getdata('desi-tiles.fits')
-	ii = np.where((tiles.IN_DESI > 0)  & (tiles.DEC > 30))[0]
-	plt.scatter(tiles.RA[ii],tiles.DEC[ii],c='0.2',marker='+',s=10)
+	tiles = get_desi_tiles()
+	plt.scatter(tiles.RA,tiles.DEC,c='0.2',marker='+',s=10)
 
 def plot_season(airmass=1.4,**kwargs):
 	'''Plot the pointings for the bright-time calibration strategy at
