@@ -54,6 +54,10 @@ def in_desi_bounds(ra,dec,bounds):
 	return ( (ra > bounds['raMin'][ii-1]) & (ra < bounds['raMax'][ii-1]) &
 	         (dec > decMin) & (dec < decMax) )
 
+def get_kpno():
+	return coo.EarthLocation(lat=31.9583*u.degree,lon=-111.5967*u.degree,
+	                         height=2120*u.m)
+
 # Generate a track of exposures at constant elevation. The track moves
 # in increasing azimuth, except for a random frequency of negative
 # azimuth moves.
@@ -81,8 +85,7 @@ def in_desi_bounds(ra,dec,bounds):
 #
 def aztrack(startTime,shotTime,duration,fixedElevation,
             jumpFrac=0.1,offsetScale=3.0):
-	kpno = coo.EarthLocation(lat=31.9583*u.degree,lon=-111.5967*u.degree,
-	                         height=2120*u.m)
+	kpno = get_kpno()
 	duration = duration*u.hour
 	fixedElevation = fixedElevation*u.degree
 	offsetScale *= u.degree
@@ -134,6 +137,26 @@ def plot_gal_bound(gb=17,c='r'):
 def plot_desi_tiles():
 	tiles = get_desi_tiles()
 	plt.scatter(tiles.RA,tiles.DEC,c='0.2',marker='+',s=10)
+
+def desi_airmasses():
+	tiles = get_desi_tiles()
+	utStart = '02:00'
+	utEnd = '13:00'
+	dt = 0.2 * u.hour
+	kpno = get_kpno()
+	ntiles = len(tiles)
+	tiles = coo.SkyCoord(tiles.RA*u.degree,tiles.DEC*u.degree,coo.FK5)
+	for month in range(2,8):
+		tStart = Time('2015-%02d-03 %s' % (month,utStart))
+		tEnd = Time('2015-%02d-03 %s' % (month,utEnd))
+		t = tStart
+		while t<tEnd:
+			bokframe = coo.AltAz(obstime=t,location=kpno)
+			a = tiles.transform_to(bokframe)
+			print a.az.value
+			print t
+			t += dt
+		break
 
 def plot_season(airmass=1.4,**kwargs):
 	'''Plot the pointings for the bright-time calibration strategy at
