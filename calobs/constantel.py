@@ -127,6 +127,9 @@ def aztrack(startTime,shotTime,duration,fixedElevation,
 def airmass2el(airmass):
 	return 90 - np.degrees(np.arccos(1/airmass))
 
+def el2airmass(el):
+	return 1/np.cos(np.radians(90-el))
+
 def plot_gal_bound(gb=17,c='r'):
 	gl = np.linspace(-180,180,100) * u.degree
 	gb = np.repeat(gb,len(gl)) *u.degree
@@ -142,21 +145,28 @@ def desi_airmasses():
 	tiles = get_desi_tiles()
 	utStart = '02:00'
 	utEnd = '13:00'
-	dt = 0.2 * u.hour
+	dt = 0.1 * u.hour
 	kpno = get_kpno()
 	ntiles = len(tiles)
 	tiles = coo.SkyCoord(tiles.RA*u.degree,tiles.DEC*u.degree,coo.FK5)
-	for month in range(2,8):
+	seczbins = np.arange(1.0,2.11,0.1)
+	nbins = len(seczbins)
+	months = np.arange(2,8)
+	tatsecz = np.zeros((ntiles,len(months),nbins)) * u.hour
+	for mes,month in enumerate(months):
 		tStart = Time('2015-%02d-03 %s' % (month,utStart))
 		tEnd = Time('2015-%02d-03 %s' % (month,utEnd))
 		t = tStart
+		print 'calculating for ',tStart
 		while t<tEnd:
 			bokframe = coo.AltAz(obstime=t,location=kpno)
 			a = tiles.transform_to(bokframe)
-			print a.az.value
-			print t
+			airmass = el2airmass(a.az.value)
+			ii = np.digitize(airmass,seczbins) - 1
+			g = np.where((ii>=0)&(ii<nbins-1))[0]
+			tatsecz[g,mes,ii[g]] += dt
 			t += dt
-		break
+	return dict(tiles=tiles,seczbins=seczbins,tatsecz=tatsecz)
 
 def plot_season(airmass=1.4,**kwargs):
 	'''Plot the pointings for the bright-time calibration strategy at
