@@ -141,7 +141,7 @@ def plot_desi_tiles():
 	tiles = get_desi_tiles()
 	plt.scatter(tiles.RA,tiles.DEC,c='0.2',marker='+',s=10)
 
-def desi_airmasses():
+def calc_desi_airmasses():
 	tiles = get_desi_tiles()
 	utStart = '02:00'
 	utEnd = '13:00'
@@ -153,20 +153,71 @@ def desi_airmasses():
 	nbins = len(seczbins)
 	months = np.arange(2,8)
 	tatsecz = np.zeros((ntiles,len(months),nbins)) * u.hour
+	if save_hourlies:
+		ntimes = 12
+		seczs = np.zeros((ntiles,len(months),ntimes))
+		els = np.zeros((ntiles,len(months),ntimes))
 	for mes,month in enumerate(months):
-		tStart = Time('2015-%02d-03 %s' % (month,utStart))
-		tEnd = Time('2015-%02d-03 %s' % (month,utEnd))
+		tStart = Time('2015-%02d-03 %s' % (month,utStart),
+		              format='iso',scale='utc')
+		tEnd = Time('2015-%02d-03 %s' % (month,utEnd),
+		            format='iso',scale='utc')
 		t = tStart
 		print 'calculating for ',tStart
+		j = 0
 		while t<tEnd:
 			bokframe = coo.AltAz(obstime=t,location=kpno)
 			a = tiles.transform_to(bokframe)
-			airmass = el2airmass(a.az.value)
+			airmass = el2airmass(a.alt.value)
 			ii = np.digitize(airmass,seczbins) - 1
 			g = np.where((ii>=0)&(ii<nbins-1))[0]
 			tatsecz[g,mes,ii[g]] += dt
+			if save_hourlies:
+				if j%10==0:
+					seczs[:,mes,j//10] = airmass
+					els[:,mes,j//10] = a.alt.value
+			j += 1
 			t += dt
+	if save_hourlies:
+		return dict(tiles=tiles,seczbins=seczbins,tatsecz=tatsecz,
+		            seczs=seczs,els=els)
 	return dict(tiles=tiles,seczbins=seczbins,tatsecz=tatsecz)
+
+def plot_desi_airmasses(amdata=None,decrange=None):
+	if amdata is None:
+		amdata = calc_desi_airmasses()
+	ntot = len(amdata['tiles'])
+	if decrange is not None:
+		tt = np.where((amdata['tiles'].dec.value >= decrange[0]) &
+		              (amdata['tiles'].dec.value <  decrange[1]))[0]
+		ntot = len(tt)
+	else:
+		tt = np.arange(ntot)
+	# sum up over the observing season
+	tsum = amdata['tatsecz'][tt].sum(axis=1).value
+	# cumulative time below each airmass value
+	tcum = tsum.cumsum(axis=1)
+	#
+	hours = np.arange(0.01,51,2)
+	plt.figure(figsize=(8,5))
+	plt.subplots_adjust(0.07,0.09,0.98,0.93)
+	for j,secz in enumerate(amdata['seczbins']):
+		ii = np.digitize(tcum[:,j],hours) - 1
+		ii = ii[np.where((ii>0) & (ii<len(hours)))]
+		if len(ii)==0:
+			continue
+		ntilehrs = np.bincount(ii)
+		cumfrac = np.cumsum((ntilehrs/float(ntot))[::-1])[::-1]
+		plt.plot(hours[:len(ntilehrs)],cumfrac,label='%.1f'%(secz+0.1))
+	plt.legend(loc='lower left',ncol=2,prop={'size':11})
+	if decrange is None:
+		plt.title('all declinations')
+	else:
+		plt.title('%d $<$ dec $<$ %d' % decrange)
+	plt.xlim(0,50.2)
+	plt.ylim(0,1.01)
+	plt.xlabel('min hours below airmass')
+	plt.ylabel('fraction of DESI tiles')
 
 def plot_season(airmass=1.4,**kwargs):
 	'''Plot the pointings for the bright-time calibration strategy at
