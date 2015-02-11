@@ -3,7 +3,6 @@
 import os
 import itertools
 import numpy as np
-from scipy.interpolate import interp1d
 from astropy.io import fits
 from astropy.time import Time
 import astropy.coordinates as coo
