@@ -247,7 +247,7 @@ def plot_season(**kwargs):
 			m = Basemap(projection='aeqd',width=127,height=68,
 			            lon_0=-195,lat_0=61,celestial=True,rsphere=180./np.pi,
 			            resolution=None)
-			m.drawparallels(np.arange(-30,90,15),
+			m.drawparallels(np.arange(-30,90,15),latmax=85,
 			                labels=[False,False,True,False])
 			m.drawmeridians(np.arange(0,360,30.),latmax=85,
 			                fmt=lambda m: '%g' % (m%360),
