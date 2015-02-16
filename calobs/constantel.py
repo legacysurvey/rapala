@@ -83,7 +83,7 @@ def get_kpno():
 #  seed: fix the random seed for the track
 #
 def aztrack(startTime,shotTime,duration,fixedElevation,
-            jumpFrac=0.1,offsetScale=3.0):
+            jumpFrac=0.1,offsetScale=3.0,**ignore_kwargs):
 	kpno = get_kpno()
 	duration = duration*u.hour
 	fixedElevation = fixedElevation*u.degree
@@ -136,9 +136,12 @@ def plot_gal_bound(gb=17,c='r'):
 	bound = gbound.transform_to(coo.FK5)
 	plt.plot(bound.ra,bound.dec,c=c)
 
-def plot_desi_tiles():
+def plot_desi_tiles(ax,sphere):
 	tiles = get_desi_tiles()
-	plt.scatter(tiles.RA,tiles.DEC,c='0.2',marker='+',s=10)
+	if sphere:
+		ax.scatter(tiles.RA,tiles.DEC,c='0.2',marker='+',s=10,latlon=True)
+	else:
+		ax.scatter(tiles.RA,tiles.DEC,c='0.2',marker='+',s=10)
 
 def calc_desi_airmasses():
 	tiles = get_desi_tiles()
@@ -218,11 +221,12 @@ def plot_desi_airmasses(amdata=None,decrange=None):
 	plt.xlabel('min hours below airmass')
 	plt.ylabel('fraction of DESI tiles')
 
-def plot_season(airmass=1.4,**kwargs):
+def plot_season(**kwargs):
 	'''Plot the pointings for the bright-time calibration strategy at
 	   fixed airmass using bright time observing dates in 2015.
 	   kwargs:
-	     airmass: fixed airmass for tracks (default 1.4)
+	     airmass: fixed airmass(es) for tracks (default [1.25,1.65]
+	     airmass_frac
 	     minDuration: which is the minimum time for a track in hours 
 	                  (i.e., don't include tracks shorter than minDuration)
 	                  the default is 0.25 == 15 minutes
@@ -234,7 +238,31 @@ def plot_season(airmass=1.4,**kwargs):
 	               set to (np.inf,None) to never take a break
 	     additional kwargs go to calc_az_track()
 	'''
+	sphere = kwargs.get('sphere',True)
+	if sphere:
+		try:
+			from mpl_toolkits.basemap import Basemap
+			plt.figure(figsize=(11,6))
+			plt.subplots_adjust(0.08,0.08,0.94,0.94)
+			m = Basemap(projection='aeqd',width=127,height=68,
+			            lon_0=-195,lat_0=61,celestial=True,rsphere=180./np.pi,
+			            resolution=None)
+			m.drawparallels(np.arange(-30,90,15),
+			                labels=[False,False,True,False])
+			m.drawmeridians(np.arange(0,360,30.),latmax=85,
+			                fmt=lambda m: '%g' % (m%360),
+			                labels=[True,True,False,True])
+			ax = m
+		except ImportError:
+			print 'cannot do spherical projection without Basemap libraries'
+			sphere = False
+	if not sphere:
+		plt.figure(figsize=(14,7))
+		ax = plt.subplot(111)
+	showtiles =  kwargs.get('showtiles',True)
 	utdates = ['20150203','20150305','20150402','20150505','20150706']
+	airmass = np.array(kwargs.get('airmass',[1.25,1.65]))
+	airmass_frac = np.array(kwargs.get('airmass_frac',[0.9,0.1]))
 	elevation = airmass2el(airmass)
 	minDuration = kwargs.get('minDuration',15*u.minute)
 	utStart = kwargs.get('utStart','02:00')
@@ -242,8 +270,8 @@ def plot_season(airmass=1.4,**kwargs):
 	utBreak = kwargs.get('utBreak',('05:00','10:00'))
 	alltracks = {}
 	shotTime = 100. #exposureTime + overheadTime
-	if os.path.exists('desi-tiles.fits'):
-		plot_desi_tiles()
+	if showtiles and os.path.exists('desi-tiles.fits'):
+		plot_desi_tiles(ax,sphere)
 	for utdate,c in zip(utdates,itertools.cycle('rgbcymk')):
 		alltracks[utdate] = []
 		uttime = utStart
@@ -256,7 +284,8 @@ def plot_season(airmass=1.4,**kwargs):
 		while uttime < utend and nfail < 5:
 			# random duration between 1/2 hour and 1.5 hours
 			duration = 0.5 + np.random.rand()
-			track = aztrack(uttime,shotTime,duration,elevation,**kwargs)
+			j = np.random.randint(2)
+			track = aztrack(uttime,shotTime,duration,elevation[j],**kwargs)
 			if track is None:
 				nfail += 1
 				continue
@@ -266,11 +295,17 @@ def plot_season(airmass=1.4,**kwargs):
 				nfail += 1
 				continue
 			nfail = 0
-			plt.plot(track['coords'].ra.value,track['coords'].dec.value,
-			         c=c,marker='o',mfc='none',ms=4,mec=c)
+			if sphere:
+				m.plot(track['coords'].ra.value,track['coords'].dec.value,
+				       c=c,marker='o',mfc='none',ms=4,mec=c,
+				       ls=['-','--'][j],latlon=True)
+			else:
+				plt.plot(track['coords'].ra.value,track['coords'].dec.value,
+				         c=c,marker='o',mfc='none',ms=4,mec=c,
+				         ls=['-','--'][j])
 			uttime += trackdur
 			alltracks[utdate].append(track)
-			print uttime,trackdur.to(u.minute)
+			print uttime,trackdur.to(u.minute),airmass[j]
 			if uttime > utbreak[0] and utskip:
 				# skip a chunk in the middle of the night
 				uttime = utbreak[1]
