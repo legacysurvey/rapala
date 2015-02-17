@@ -351,7 +351,7 @@ def dump_track(track,exposureTime,filt,nowrite):
 		logf.close()
 
 def make_track(startTime,**kwargs):
-	airmass = kwargs.get('airmass',1.4)
+	airmass = kwargs.get('airmass',1.25)
 	exposureTime = kwargs.get('exposureTime',50.)
 	overheadTime = kwargs.get('overheadTime',50.)
 	duration = kwargs.get('duration',1.0)
@@ -385,8 +385,8 @@ if __name__=='__main__':
 	              help="UT time of observation, in format HH:MM[:SS] "+
 	                   "or offset from current time in minutes, e.g., "+
 	                   "'+5' mean 5 minutes from now")# [this is the default]")
-	parser.add_argument("-a","--airmass",type=float,default=1.4,
-	              help="airmass of observation [default=1.4]")
+	parser.add_argument("-a","--airmass",type=float,default=1.25,
+	              help="airmass of observation [default=1.25]")
 	parser.add_argument("-d","--duration",type=float,default=1.0,
 	              help="duration of observation in hours [default=1.0]")
 	parser.add_argument("-e","--exposureTime",type=float,default=50,
