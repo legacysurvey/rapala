@@ -360,6 +360,8 @@ def make_track(startTime,**kwargs):
 	filt = kwargs.get('filt','g')
 	shotTime = exposureTime + overheadTime
 	elevation = airmass2el(airmass)
+	if filt not in ['g','bokr']:
+		raise ValueError('Filter must be "g" or "bokr"')
 	print
 	print 'Constructing track at airmass=%.2f' % airmass
 	print '  Duration: %.1f hr with exposure time = %.1fs (overhead %.1fs)' % \
