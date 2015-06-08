@@ -43,7 +43,7 @@ def boklog(utdate,logdir='./'):
 			if np.abs(airmass-h['AIRMASS']) > 0.1:
 				print airmass,h['AIRMASS'],h['ELEVAT']
 				raise ValueError
-		logf.write('%20s %s %6s %5.1f %7s %15s %6.3f\n' %
+		logf.write('%10s %14s %6s %5.1f %7s %25s %6.3f\n' %
 		           (fn,h['UT'],filt,h['EXPTIME'],
 		            imageType,objname,airmass))
 		sys.stdout.write("\r%d/%d" % (i+1,nfiles))
@@ -52,7 +52,8 @@ def boklog(utdate,logdir='./'):
 	print
 
 def log_all(logdir='./'):
-	utdates = [os.path.basename(d) for d in glob.glob(data_dir+'201?????')]
+	utdates = [os.path.basename(d) 
+	                for d in glob.glob(os.path.join(data_dir,'201?????'))]
 	utdates.sort()
 	for utdate in utdates:
 		print 'generating log for ',utdate,'...'
