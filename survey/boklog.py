@@ -10,8 +10,8 @@ from collections import OrderedDict
 data_dir = os.environ.get('BOKDATADIR',
                      '/global/project/projectdirs/cosmo/staging/bok')
 
-def boklog(utdate):
-	files = glob.glob(data_dir+utdate+'/'+'*.fits.gz')
+def boklog(utdate,logdir='./'):
+	files = glob.glob(os.path.join(data_dir,utdate,'d????.????.fits.gz'))
 	files.sort()
 	logfn = logdir+'bass.%s.log' % utdate
 	if os.path.exists(logfn) or len(files)==0:
@@ -51,19 +51,19 @@ def boklog(utdate):
 	logf.close()
 	print
 
-def log_all():
+def log_all(logdir='./'):
 	utdates = [os.path.basename(d) for d in glob.glob(data_dir+'201?????')]
 	utdates.sort()
 	for utdate in utdates:
 		print 'generating log for ',utdate,'...'
-		boklog(utdate)
+		boklog(utdate,logdir)
 
 def load_Bok_log(utdate,logdir='./'):
 	'''Load an observing log from a single night.'''
 	return np.loadtxt(logdir+'bass.%s.log'%utdate,
-	                  dtype=[('fileName','S30'),('utStart','S12'),
+	                  dtype=[('fileName','S10'),('utStart','S12'),
 	                         ('filter','S8'),('expTime','f4'),('imType','S7'),
-	                         ('objectName','S15'),('airmass','f4')])
+	                         ('objectName','S25'),('airmass','f4')])
 
 def load_Bok_logs(logdir='./'):
 	'''Load all of the Bok observing logs.'''
