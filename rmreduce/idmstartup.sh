@@ -1,0 +1,8 @@
+#!/bin/bash
+
+export BOK90PRIMEDIR=$HOME/sdss3/bokrm
+export IDL_PATH=+$BOK90PRIMEDIR/pro:$IDL_PATH
+
+export BOK90PRIMERAWDIR=$HOME/bok
+export BOK90PRIMEOUTDIR=$GSCRATCH/rmreduce
+
