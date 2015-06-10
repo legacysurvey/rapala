@@ -42,17 +42,17 @@ function read_log, utdate, all=all
 	readcol,logfn, $
 	        fn,ut,filter,exptime,imtype,objname,airmass, $
 	        format='A,A,A,F,A,A,F'
-	nents = n_elements(fn)
+	w = where(strmid(fn,0,1) ne '#',nents)
 	log = replicate({logent, fn:'',ut:'',filter:'',exptime:0.0, $
 	                         imtype:'',objname:'',airmass:0.0, $
 	                         reject:0},nents)
-	log.fn = fn
-	log.ut = ut
-	log.filter = filter
-	log.exptime = exptime
-	log.imtype = imtype
-	log.objname = objname
-	log.airmass = airmass
+	log.fn = fn[w]
+	log.ut = ut[w]
+	log.filter = filter[w]
+	log.exptime = exptime[w]
+	log.imtype = imtype[w]
+	log.objname = objname[w]
+	log.airmass = airmass[w]
 	; XXX temporary - should be read from file
 ;	reject_list = replicate({rejent, utdate:'',fn:''},2)
 ;	reject_list[0].utdate = '20140114'
@@ -221,8 +221,8 @@ pro reduce_night, utdate, filters=filters, $
 			frgname = 0
 			;Fringe is superflat
 			flatname=outdir+'superflt_'+filters[i]+'.fits'
-			nsci=n_elements(sci_ims)
-			bok4_mkfrg,sci_ims[0:nsci-1:4],flatname, $
+			nsci=min([n_elements(sci_ims),30])
+			bok4_mkfrg,sci_ims[0:nsci-1],flatname, $
 				bpmname=outdir+'/bpm.fits',$
 				outdir=outdir+'ccdproc1',skipifexists=skipifexists
 			
@@ -236,7 +236,7 @@ pro reduce_night, utdate, filters=filters, $
 		bok4_combineccds, sci_ims, $
 		               outdir=outdir, skipifexists=skipifexists
 
-		residual=datadir+['xmap.fits','ymap.fits']
+;		residual=datadir+['xmap.fits','ymap.fits']
 
 ;		bok_astrom,sci_ims,sdssfn=datadir+'sdss.fits',$
 ;			ucac4fn=datadir+'ucac4.fits', $

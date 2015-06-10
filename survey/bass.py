@@ -64,6 +64,9 @@ def build_obsdb():
 	print 'ingested %d observed tiles' % nobs
 	fits.writeto(os.path.join(bass_dir,obsdb_file),obsdb,clobber=True)
 
+def load_obsdb():
+	return fits.getdata(os.path.join(bass_dir,obsdb_file))
+
 def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 	if observed:
 		tiledb = fits.getdata(os.path.join(bass_dir,obsdb_file))

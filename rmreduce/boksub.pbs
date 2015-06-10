@@ -1,11 +1,14 @@
 #PBS -q regular
 #PBS -l mppwidth=1
-#PBS -l walltime=10:00:00
-
-module load idl
+#PBS -m n
+#PBS -l walltime=05:00:00
+#PBS -j oe
+#PBS -V
 
 cd $PBS_O_WORKDIR
-source idmstartup.sh
+
+export BOK90PRIMERAWDIR=$HOME/bok
+export BOK90PRIMEOUTDIR=$GSCRATCH/rmreduce
 
 MYIDL_DIR=$HOME/soft/idl
 export IDLUTILS_DIR=$MYIDL_DIR/idlutils
@@ -13,13 +16,16 @@ export IDLSPEC2D_DIR=$MYIDL_DIR/idlspec2d
 export XIDL_DIR=$MYIDL_DIR/xidl
 export IDL_PATH=+$MYIDL_DIR:$IDL_PATH
 
-aprun -n 1 idl < scripts/ut20150212.pro
-#aprun -n 1 idl < scripts/ut20150315.pro
+export BOK90PRIMEDIR=$HOME/sdss3/bokrm
+export IDL_PATH=$BOK90PRIMEDIR/pro:$IDL_PATH
+
+#aprun -n 1 idl < scripts/ut20150212.pro
+aprun -n 1 idl < scripts/ut20150315.pro
 #aprun -n 1 idl < scripts/ut20150316.pro
 #aprun -n 1 idl < scripts/ut20150321.pro
 #aprun -n 1 idl < scripts/ut20150323.pro
 #aprun -n 1 idl < scripts/ut20150324.pro
 #aprun -n 1 idl < scripts/ut20150424.pro
-#aprun -n 1 idl < scripts/ut20150508.pro
-#aprun -n 1 idl < scripts/ut20150509.pro
+##aprun -n 1 idl < scripts/ut20150508.pro
+##aprun -n 1 idl < scripts/ut20150509.pro
 
