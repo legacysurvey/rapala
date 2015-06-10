@@ -64,19 +64,77 @@ def build_obsdb():
 	print 'ingested %d observed tiles' % nobs
 	fits.writeto(os.path.join(bass_dir,obsdb_file),obsdb,clobber=True)
 
+def load_tiledb():
+	return fits.getdata(os.path.join(bass_dir,tiledb_file))
+
 def load_obsdb():
 	return fits.getdata(os.path.join(bass_dir,obsdb_file))
 
 def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 	if observed:
-		tiledb = fits.getdata(os.path.join(bass_dir,obsdb_file))
+		tiledb = load_tiledb()
 		ii = np.where((tiledb['ra']>ra1) & (tiledb['ra']<ra2) &
 		              (tiledb['dec']>dec1) & (tiledb['dec']<dec2))[0]
 	else:
-		tiledb = fits.getdata(os.path.join(bass_dir,tiledb_file))
+		tiledb = load_obsdb()
 		ii = np.where((tiledb['TRA']>ra1) & (tiledb['TRA']<ra2) &
 		              (tiledb['TDEC']>dec1) & (tiledb['TDEC']<dec2))[0]
 	return tiledb[ii]
+
+def obs_summary(doplot=False,saveplot=False):
+	from collections import defaultdict
+	tiledb = load_tiledb()
+	obsdb = load_obsdb()
+	tid = np.array([int(tid) for tid in tiledb['TID']])
+	nobs = np.zeros((tiledb.size,3),dtype=int)
+	tileList = {1:defaultdict(list),2:defaultdict(list),3:defaultdict(list)}
+	for n,row in enumerate(obsdb):
+		if row['tileId']>0:
+			try:
+				i = np.where(tid==row['tileId'])[0][0]
+			except:
+				print 'tile ',row['tileId'],' is not in db'
+				continue
+			nobs[i,row['ditherId']-1] += 1
+			tileList[row['ditherId']][row['tileId']].append(n)
+	print 'total tiles: '
+	for i in range(3):
+		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]))
+	print 'unique tiles: '
+	for i in range(3):
+		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]>0))
+	print 'any dither: ',np.sum(np.any(nobs>0,axis=1))
+	print 'repeats: '
+	for i in range(3):
+		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]>1))
+	print 'total repeats: ',np.sum(nobs>1)
+	if doplot:
+		import matplotlib.pyplot as plt
+		from matplotlib.backends.backend_pdf import PdfPages
+		if saveplot:
+			pdf = PdfPages('bass_coverage.pdf')
+		for j in range(3):
+			fig = plt.figure(figsize=(10,6))
+			plt.subplots_adjust(0.03,0.05,0.98,0.95)
+			sz = 5 if saveplot else 20
+			plt.scatter(tiledb['TRA']/15,tiledb['TDEC'],marker='s',
+			            c=np.choose(nobs[:,j],
+			                        ['0.9','c','DarkCyan','b','purple','m']),
+			            edgecolor='none',s=sz)
+			plt.plot([13+5./6,14+45./60,14+45./60,13+5./6,13+5./6],
+			         [50.7,50.7,56.2,56.2,50.7],c='k')
+			plt.plot([14.37,14.62,14.62,14.37,14.37],
+			         [32.5,32.5,36.1,36.1,32.5],c='k')
+			plt.xlim(20,5.9)
+			plt.ylim(29.7,58)
+			plt.title('dither %d total %d unique %d repeats %d' %
+			          (j+1,np.sum(nobs[:,j]),np.sum(nobs[:,j]>0),
+			           np.sum(nobs[:,j]>1)))
+			if saveplot:
+				pdf.savefig(fig,orientation='landscape')
+		if saveplot:
+			pdf.close()
+	return nobs,tileList
 
 def cfhtw3_tiles(observed=True):
 	w3west,w3east = 15*(13.+50/60.), 15*(14+45./60)
