@@ -136,21 +136,4 @@ def obs_summary(doplot=False,saveplot=False):
 			pdf.close()
 	return nobs,tileList
 
-def cfhtw3_tiles(observed=True):
-	w3west,w3east = 15*(13.+50/60.), 15*(14+45./60)
-	w3south,w3north = 50.7, 56.2
-	return region_tiles(w3west,w3east,w3south,w3north,observed=observed)
-
-def ndwfs_tiles(observed=True):
-	ndwest,ndeast = 15*14.37, 15*14.62
-	ndsouth,ndnorth = 32.5, 36.1
-	return region_tiles(ndwest,ndeast,ndsouth,ndnorth,observed=observed)
-
-def check_fields_list():
-	files = [ t['utDate']+'/'+t['fileName']+'.fits.gz'
-	                 for tiles in [cfhtw3_tiles(),ndwfs_tiles()] 
-	                      for t in tiles ]
-	with open('checkfields_tiles.txt','w') as f:
-		f.write('\n'.join(sorted(files)))
-
 
