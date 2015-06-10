@@ -44,7 +44,7 @@ def solve_bass_tile(utDate,fileName,ra,dec,raw=False):
 				continue
 			solvecmd = solveargs + ['--wcs',wcsfn,imagepath]
 			subprocess.call(solvecmd)
-			subprocess.call(['missfits','-c','missfits.cfg',imagepath])
+			subprocess.call(['missfits','-c','config/missfits.cfg',imagepath])
 
 def solve_bass_tile_byid(tileId,ditherId,imageNum=-1,raw=False):
 	obsdb = bass.load_obsdb()
