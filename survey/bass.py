@@ -12,6 +12,8 @@ except:
 	print 'must set env variables BASSDIR and BASSDATA'
 	raise ImportError
 
+rdxdir = os.path.join(os.environ['GSCRATCH'],'rmreduce')
+
 tiledb_file = 'bass-newtiles-indesi.fits'
 obsdb_file = 'bass-newtiles-observed.fits'
 
@@ -72,11 +74,11 @@ def load_obsdb():
 
 def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 	if observed:
-		tiledb = load_tiledb()
+		tiledb = load_obsdb()
 		ii = np.where((tiledb['ra']>ra1) & (tiledb['ra']<ra2) &
 		              (tiledb['dec']>dec1) & (tiledb['dec']<dec2))[0]
 	else:
-		tiledb = load_obsdb()
+		tiledb = load_tiledb()
 		ii = np.where((tiledb['TRA']>ra1) & (tiledb['TRA']<ra2) &
 		              (tiledb['TDEC']>dec1) & (tiledb['TDEC']<dec2))[0]
 	return tiledb[ii]

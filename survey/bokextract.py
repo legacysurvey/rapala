@@ -4,6 +4,8 @@ import os
 import glob
 import subprocess
 
+from bass import rdxdir
+
 def sextract(imagepath):
 	catpath = imagepath.replace('.fits','.cat.fits')
 	if os.path.exists(catpath):
@@ -13,8 +15,7 @@ def sextract(imagepath):
 	subprocess.call(cmd)
 
 def sextract_all():
-	rdxdir = os.path.join(os.environ['GSCRATCH'],'rmreduce')
-	files = sorted(glob.glob(os.path.join(rdxdir,'2015*','ccdproc3',
+	files = sorted(glob.glob(os.path.join(rdxdir,'201504*','ccdproc3',
 	                                      'd????.????_ccd?.wcs')))
 	for f in files:
 		sextract(f.replace('.wcs','.fits'))

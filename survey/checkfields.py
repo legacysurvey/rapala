@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 import fitsio
 
@@ -21,6 +22,8 @@ def check_fields_list():
 	                      for t in tiles ]
 	with open('checkfields_tiles.txt','w') as f:
 		f.write('\n'.join(sorted(files)))
+
+ndwfs_starfile = '/global/scratch2/sd/imcgreer/ndwfs/starcat.fits'
 
 def select_ndwfs_stars():
 	ndwfsdir = '/global/scratch2/sd/imcgreer/ndwfs/DR3/matchedFITS/'
@@ -51,6 +54,62 @@ def select_ndwfs_stars():
 			stars['autoMagErr'][:,j] = cat['MAGERR_AUTO']
 		starcat.append(stars)
 	starcat = np.concatenate(starcat)
-	ff = fitsio.FITS('/global/scratch2/sd/imcgreer/ndwfs/starcat.fits','rw')
-	ff.write(starcat,clobber=True)
+	fitsio.write(ndwfs_starfile,starcat,clobber=True)
+
+def srcor(ra1,dec1,ra2,dec2,sep):
+	from astropy.coordinates import SkyCoord,match_coordinates_sky
+	from astropy import units as u
+	c1 = SkyCoord(ra1,dec1,unit=(u.degree,u.degree))
+	c2 = SkyCoord(ra2,dec2,unit=(u.degree,u.degree))
+	idx,d2d,d3c = match_coordinates_sky(c1,c2)
+	ii = np.where(d2d.arcsec < sep)[0]
+	return ii,idx[ii]
+
+def match_ndwfs_stars(matchRad=2.5):
+	stars = fitsio.read(ndwfs_starfile)
+	tiles = ndwfs_tiles(observed=True)
+	dtype = stars.dtype.descr + \
+	           [('g_number','f4'),('g_ra','f8'),('g_dec','f8'),
+	            ('g_autoMag','f4'),('g_autoMagErr','f4'),
+	            ('g_autoFlux','f4'),('g_autoFluxErr','f4'),
+	            ('g_elongation','f4'),('g_ellipticity','f4'),
+	            ('g_flags','i4'),('g_fluxRad','f4'),
+	            ('g_utDate','S8'),('g_expTime','f4'),
+	            ('g_tileId','i4'),('g_ditherId','i4'),('g_ccdNum','i4')]
+	skeys = ['NUMBER','ALPHA_J2000','DELTA_J2000','MAG_AUTO','MAGERR_AUTO',
+	         'FLUX_AUTO','FLUXERR_AUTO','ELONGATION','ELLIPTICITY',
+	         'FLAGS','FLUX_RADIUS']
+	tkeys = ['utDate','expTime','tileId','ditherId']
+	matches = []
+	for ti,t in enumerate(tiles):
+		print 'matching tile %d/%d' % (ti+1,len(tiles))
+		for ccdNum in range(1,5):
+			catpath = os.path.join(bass.rdxdir,t['utDate'],'ccdproc3',
+			                       t['fileName']+'_ccd%d.cat.fits'%ccdNum)
+			if not os.path.exists(catpath):
+				print ' ... %s does not exist, skipping' % catpath
+				continue
+			cat = fitsio.read(catpath)
+			ii = np.where( (stars['ra']>cat['ALPHA_J2000'].min()-1e-3) &
+			               (stars['ra']<cat['ALPHA_J2000'].max()+1e-3) &
+			               (stars['dec']>cat['DELTA_J2000'].min()-1e-3) &
+			               (stars['dec']<cat['DELTA_J2000'].max()+1e-3) )[0]
+			if len(ii)==0:
+				continue
+			m1,m2 = srcor(stars['ra'][ii],stars['dec'][ii],
+			              cat['ALPHA_J2000'],cat['DELTA_J2000'],2.5)
+			print '  ccd%d %d/%d' % (ccdNum,len(m1),len(ii)),
+			matches.extend( [ tuple(stars[i]) +
+			                  tuple([cat[k][j] for k in skeys]) +
+			                  tuple([t[k] for k in tkeys]) + (ccdNum,)
+			                     for i,j in zip(ii[m1],m2) ] )
+		print ' total ',len(matches)
+	matches = np.array(matches,dtype=dtype)
+	print 'finished with ',matches.size
+	fitsio.write('ndwfs_match.fits',matches,clobber=True)
+
+if __name__=='__main__':
+	import sys
+	if sys.argv[1]=='match_ndwfs':
+		match_ndwfs_stars()
 

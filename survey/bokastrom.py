@@ -8,8 +8,6 @@ import bass
 pxscl = 0.45
 cfgpath = '/project/projectdirs/desi/users/imcgreer/astrometry-index-4200/cfg'
 
-rdxdir = os.path.join(os.environ['GSCRATCH'],'rmreduce')
-
 def solve_bass_tile(utDate,fileName,ra,dec,raw=False):
 	solveargs = ['solve-field','--config',cfgpath]
 	solveargs += ['--ra','%.7f'%ra,'--dec','%.7f'%dec,'--radius','1.0']
@@ -32,7 +30,7 @@ def solve_bass_tile(utDate,fileName,ra,dec,raw=False):
 			print ' '.join(solvecmd)
 	else:
 		for ccdNum in range(1,5):
-			imagepath = os.path.join(rdxdir,utDate,'ccdproc3',
+			imagepath = os.path.join(bass.rdxdir,utDate,'ccdproc3',
 			                         fileName+'_ccd%d.fits'%ccdNum)
 			if not os.path.exists(imagepath):
 				print utDate,fileName,' ccd #',ccdNum,
