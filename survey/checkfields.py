@@ -5,6 +5,7 @@ import numpy as np
 import fitsio
 
 import bass
+import bokextract
 
 def cfhtw3_tiles(observed=True):
 	w3west,w3east = 15*(13.+50/60.), 15*(14+45./60)
@@ -107,6 +108,79 @@ def match_ndwfs_stars(matchRad=2.5):
 	matches = np.array(matches,dtype=dtype)
 	print 'finished with ',matches.size
 	fitsio.write('ndwfs_match.fits',matches,clobber=True)
+
+from astropy.io import fits
+
+def srcorXY(x1,y1,x2,y2,maxrad):
+	sep = sqrt( (x1[:,np.newaxis]-x2[np.newaxis,:])**2 + 
+	            (y1[:,np.newaxis]-y2[np.newaxis,:])**2 )
+	ii = sep.argmin(axis=1)
+	m1 = np.arange(len(x1))
+	jj = np.where(sep[m1,ii] < maxrad)[0]
+	return m1[jj],ii[jj]
+
+def fake_sdss_stars_on_tile(stars,tile,
+	                        nresample=100,magrange=(22.5,23.7),
+	                        stampSize=25,margin=50,keepfakes=False):
+	pixlo = lambda _x: _x-stampSize/2
+	pixhi = lambda _x: _x-stampSize/2 + stampSize
+	fakemags = np.zeros(nresample*4,dtype=np.float32)
+	fakesnr = -np.ones_like(fakemags)
+	for ccdNum in range(1,5):
+		catpath = os.path.join(bass.rdxdir,tile['utDate'],'ccdproc3',
+		                       tile['fileName']+'_ccd%d.cat.fits'%ccdNum)
+		if not os.path.exists(catpath):
+			print ' ... %s does not exist, skipping' % catpath
+			continue
+		cat = fitsio.read(catpath)
+		impath = os.path.join(bass.rdxdir,tile['utDate'],'ccdproc3',
+		                      tile['fileName']+'_ccd%d.fits'%ccdNum)
+		fakeim = fits.open(impath)
+		im = fakeim[0].data
+		nY,nX = im.shape
+		ii = np.where( (stars['ra']>cat['ALPHA_J2000'].min()+1e-3) &
+		               (stars['ra']<cat['ALPHA_J2000'].max()-1e-3) &
+		               (stars['dec']>cat['DELTA_J2000'].min()+1e-3) &
+		               (stars['dec']<cat['DELTA_J2000'].max()-1e-3) )[0]
+		if len(ii)==0:
+			print 'no stars found on ccd #',ccdNum
+			continue
+		m1,m2 = srcor(stars['ra'][ii],stars['dec'][ii],
+		              cat['ALPHA_J2000'],cat['DELTA_J2000'],2.5)
+		jj = np.where(cat['FLAGS'][m2] == 0)[0]
+		rindx = np.random.choice(len(jj),size=nresample,replace=True)
+		fakemag = magrange[0] + \
+		             (magrange[1]-magrange[0])*np.random.random(nresample)
+		fscale = 10**(-0.4*(fakemag-stars['psfMag_g'][ii[m1[jj[rindx]]]]))
+		fakex = np.random.randint(margin,nX-margin,nresample)
+		fakey = np.random.randint(margin,nY-margin,nresample)
+		for x,y,fx,fy,fscl in zip(cat['X_IMAGE'][m2[jj[rindx]]],
+		                          cat['Y_IMAGE'][m2[jj[rindx]]],
+		                          fakex,fakey,fscale):
+			stamp = im[pixlo(y):pixhi(y),pixlo(x):pixhi(x)]
+			im[pixlo(fy):pixhi(fy),pixlo(fx):pixhi(fx)] += fscl*stamp
+		fakeimpath = impath.replace('.fits','_fake.fits')
+		fakecatpath = fakeimpath.replace('.fits','.cat.fits')
+		fakeim.writeto(fakeimpath,clobber=True)
+		bokextract.sextract(fakeimpath)
+		fakecat = fitsio.read(fakecatpath)
+		q1,q2 = srcorXY(fakex,fakey,fakecat['X_IMAGE'],fakecat['Y_IMAGE'],3.0)
+		snr = fakecat['FLUX_AUTO'][q2] / fakecat['FLUXERR_AUTO'][q2]
+		fakemags[nresample*(ccdNum-1):nresample*ccdNum] = fakemag
+		fakesnr[nresample*(ccdNum-1):nresample*ccdNum][q1] = snr
+		if not keepfakes:
+			os.unlink(fakeimpath)
+			os.unlink(fakecatpath)
+	return fakemags,fakesnr
+
+def fake_ndwfs_stars(gmax=18.5,**kwargs):
+	stars = fitsio.read('/global/scratch2/sd/imcgreer/ndwfs/sdss_bootes_gstars.fits')
+	stars = stars[stars['psfMag_g']<gmax]
+	tiles = ndwfs_tiles(observed=True)
+	for ti,tile in enumerate(tiles):
+		print 'faking stars in tile tile %d/%d' % (ti+1,len(tiles))
+		fake_sdss_stars_on_tile(stars,tile,**kwargs)
+		break
 
 if __name__=='__main__':
 	import sys
