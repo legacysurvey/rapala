@@ -12,7 +12,10 @@ except:
 	print 'must set env variables BASSDIR and BASSDATA'
 	raise ImportError
 
-rdxdir = os.path.join(os.environ['GSCRATCH'],'rmreduce')
+try:
+	rdxdir = os.path.join(os.environ['GSCRATCH'],'rmreduce')
+except:
+	rdxdir = None
 
 tiledb_file = 'bass-newtiles-indesi.fits'
 obsdb_file = 'bass-newtiles-observed.fits'

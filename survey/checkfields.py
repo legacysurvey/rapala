@@ -2,6 +2,8 @@
 
 import os
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import fitsio
 
 import bass
@@ -107,6 +109,40 @@ def match_ndwfs_stars(matchRad=2.5):
 	matches = np.array(matches,dtype=dtype)
 	print 'finished with ',matches.size
 	fitsio.write('ndwfs_match.fits',matches,clobber=True)
+
+def ndwfs_depth():
+	m = fitsio.read('ndwfs_match.fits')
+	m = m[ ( np.all(m['autoMag'][:,:2]> 0,axis=1) &
+	         np.all(m['autoMag'][:,:2]<30,axis=1) ) ]
+	Bw = m['autoMag'][:,0]
+	Bw_minus_R = m['autoMag'][:,0] - m['autoMag'][:,1]
+	NDWFSg = np.choose(Bw_minus_R <= 1.45, 
+	                   [ Bw - (0.23*Bw_minus_R + 0.25),
+	                     Bw - (0.38*Bw_minus_R + 0.05) ])
+	gSNR = m['g_autoFlux'] / m['g_autoFluxErr']
+	plt.figure(figsize=(10,8))
+	plt.subplots_adjust(0.07,0.07,0.97,0.96,0.27,0.27)
+	for i in range(4):
+		ax = plt.subplot(2,2,i+1)
+		if i==0:
+			ii = np.where(m['g_ditherId'] > 0)[0]
+		else:
+			ii = np.where(m['g_ditherId'] == i)[0]
+		ax.hexbin(NDWFSg,np.log10(gSNR),bins='log',cmap=plt.cm.Blues)
+		ax.axhline(np.log10(5.0),c='r',lw=1.3,alpha=0.7)
+		ax.set_xlim(17.2,24.5)
+		ax.set_ylim(np.log10(2),np.log10(500))
+		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.2))
+		ax.yaxis.set_major_locator(ticker.FixedLocator(np.log10(
+		      [2,5,10,20,50,100,200])))
+		ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+		      lambda x,pos: '%d' % np.round(10**x)))
+		ax.set_xlabel('NDWFS g-ish mag')
+		ax.set_ylabel('BASS AUTO flux/err')
+		if i==0:
+			ax.set_title('all tiles')
+		else:
+			ax.set_title('P%d tiles' % i)
 
 if __name__=='__main__':
 	import sys
