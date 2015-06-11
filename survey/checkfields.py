@@ -24,6 +24,18 @@ def ndwfs_tiles(observed=True):
 	ndsouth,ndnorth = 32.5, 36.1
 	return bass.region_tiles(ndwest,ndeast,ndsouth,ndnorth,observed=observed)
 
+def panstarrs_md_tiles(observed=True):
+	tiles = {}
+	for field,ra,dec in [('MD03',130.592,+44.317),
+                         ('MD05',161.917,+58.083),
+                         ('MD06',185.000,+47.117),
+                         ('MD07',213.704,+53.083),
+                         ('MD08',242.787,+54.950)]:
+		dra = 3.5/np.cos(np.radians(dec))
+		tiles[field] = bass.region_tiles(ra-dra,ra+dra,dec-3.5,dec+3.5,
+		                                 observed=observed)
+	return tiles
+
 def check_fields_list():
 	files = [ t['utDate']+'/'+t['fileName']+'.fits.gz'
 	                 for tiles in [cfhtw3_tiles(),ndwfs_tiles()] 
@@ -184,6 +196,23 @@ def match_cfhtls_stars(matchRad=2.5,survey='wide'):
 		fname = 'cfhtlsdeep'
 	matches = match_objects(stars,tiles)
 	fitsio.write('%s_match.fits'%fname,matches,clobber=True)
+
+
+
+
+##############################################################################
+#                                                                            #
+#                         Pan-STARRS Medium Deeps                            #
+#                                                                            #
+##############################################################################
+
+def match_ps1mds(matchRad=2.5):
+	raise NotImplementedError
+	pstiles = panstarrs_md_tiles(observed=True)
+	for field,tiles in pstiles.items():
+		stars = fitsio.read(ps1md_starfile(field))
+		matches = match_objects(stars,tiles)
+		fitsio.write('ps1%s_match.fits'%field,matches,clobber=True)
 
 
 
