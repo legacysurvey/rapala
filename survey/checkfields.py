@@ -53,8 +53,8 @@ def srcor(ra1,dec1,ra2,dec2,sep):
 	return ii,idx[ii]
 
 def srcorXY(x1,y1,x2,y2,maxrad):
-	sep = sqrt( (x1[:,np.newaxis]-x2[np.newaxis,:])**2 + 
-	            (y1[:,np.newaxis]-y2[np.newaxis,:])**2 )
+	sep = np.sqrt( (x1[:,np.newaxis]-x2[np.newaxis,:])**2 + 
+	               (y1[:,np.newaxis]-y2[np.newaxis,:])**2 )
 	ii = sep.argmin(axis=1)
 	m1 = np.arange(len(x1))
 	jj = np.where(sep[m1,ii] < maxrad)[0]
@@ -241,7 +241,8 @@ def fake_sdss_stars_on_tile(stars,tile,
 		cat = fitsio.read(catpath)
 		impath = os.path.join(bass.rdxdir,tile['utDate'],'ccdproc3',
 		                      tile['fileName']+'_ccd%d.fits'%ccdNum)
-		fakeim = fits.open(impath)
+		_impath = impath.replace('.fits','_pv.fits')
+		fakeim = fits.open(_impath)
 		im = fakeim[0].data
 		nY,nX = im.shape
 		ii = np.where( (stars['ra']>cat['ALPHA_J2000'].min()+1e-3) &
@@ -268,7 +269,7 @@ def fake_sdss_stars_on_tile(stars,tile,
 		fakeimpath = impath.replace('.fits','_fake.fits')
 		fakecatpath = fakeimpath.replace('.fits','.cat.fits')
 		fakeim.writeto(fakeimpath,clobber=True)
-		bokextract.sextract(fakeimpath)
+		bokextract.sextract(fakeimpath,frompv=False)
 		fakecat = fitsio.read(fakecatpath)
 		q1,q2 = srcorXY(fakex,fakey,fakecat['X_IMAGE'],fakecat['Y_IMAGE'],3.0)
 		snr = fakecat['FLUX_AUTO'][q2] / fakecat['FLUXERR_AUTO'][q2]
@@ -279,9 +280,9 @@ def fake_sdss_stars_on_tile(stars,tile,
 			os.unlink(fakecatpath)
 	return fakemags,fakesnr
 
-def fake_ndwfs_stars(gmax=18.5,**kwargs):
+def fake_ndwfs_stars(grange=(16.0,18.0),**kwargs):
 	stars = fitsio.read('/global/scratch2/sd/imcgreer/ndwfs/sdss_bootes_gstars.fits')
-	stars = stars[stars['psfMag_g']<gmax]
+	stars = stars[(stars['psfMag_g']>grange[0])&(stars['psfMag_g']<grange[1])]
 	tiles = ndwfs_tiles(observed=True)
 	for ti,tile in enumerate(tiles):
 		print 'faking stars in tile tile %d/%d' % (ti+1,len(tiles))
