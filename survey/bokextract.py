@@ -15,15 +15,15 @@ def sextract(imagepath,frompv=True,redo=False):
 	cmd = ['sex','-c','config/default.sex','-CATALOG_NAME',catpath,_imagepath]
 	subprocess.call(cmd)
 
-def sextract_all():
+def sextract_all(**kwargs):
 	files = sorted(glob.glob(os.path.join(rdxdir,'2015????','ccdproc3',
 	                                      'd????.????_ccd?.wcs')))
 	for f in files:
-		sextract(f.replace('.wcs','.fits'))
+		sextract(f.replace('.wcs','.fits'),**kwargs)
 
 
 if __name__=='__main__':
 	import sys
 	redo = 'redo' in sys.argv[1:]
-	sextract_all()
+	sextract_all(redo=redo)
 
