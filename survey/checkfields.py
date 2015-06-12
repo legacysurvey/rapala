@@ -61,14 +61,14 @@ def srcorXY(x1,y1,x2,y2,maxrad):
 	return m1[jj],ii[jj]
 
 def match_objects(objs,tiles):
-	dtype = objs.dtype.descr + \
-	           [('g_number','f4'),('g_ra','f8'),('g_dec','f8'),
-	            ('g_autoMag','f4'),('g_autoMagErr','f4'),
-	            ('g_autoFlux','f4'),('g_autoFluxErr','f4'),
-	            ('g_elongation','f4'),('g_ellipticity','f4'),
-	            ('g_flags','i4'),('g_fluxRad','f4'),
-	            ('g_utDate','S8'),('g_expTime','f4'),
+	objpars = [('g_number','f4'),('g_ra','f8'),('g_dec','f8'),
+	           ('g_autoMag','f4'),('g_autoMagErr','f4'),
+	           ('g_autoFlux','f4'),('g_autoFluxErr','f4'),
+	           ('g_elongation','f4'),('g_ellipticity','f4'),
+	           ('g_flags','i4'),('g_fluxRad','f4')]
+	tilepars = [('g_utDate','S8'),('g_expTime','f4'),
 	            ('g_tileId','i4'),('g_ditherId','i4'),('g_ccdNum','i4')]
+	dtype = objs.dtype.descr + objpars + tilepars
 	skeys = ['NUMBER','ALPHA_J2000','DELTA_J2000','MAG_AUTO','MAGERR_AUTO',
 	         'FLUX_AUTO','FLUXERR_AUTO','ELONGATION','ELLIPTICITY',
 	         'FLAGS','FLUX_RADIUS']
@@ -83,10 +83,10 @@ def match_objects(objs,tiles):
 				print ' ... %s does not exist, skipping' % catpath
 				continue
 			cat = fitsio.read(catpath)
-			ii = np.where( (objs['ra']>cat['ALPHA_J2000'].min()-1e-3) &
-			               (objs['ra']<cat['ALPHA_J2000'].max()+1e-3) &
-			               (objs['dec']>cat['DELTA_J2000'].min()-1e-3) &
-			               (objs['dec']<cat['DELTA_J2000'].max()+1e-3) )[0]
+			ii = np.where( (objs['ra']>cat['ALPHA_J2000'].min()+3e-3) &
+			               (objs['ra']<cat['ALPHA_J2000'].max()-3e-3) &
+			               (objs['dec']>cat['DELTA_J2000'].min()+3e-3) &
+			               (objs['dec']<cat['DELTA_J2000'].max()-3e-3) )[0]
 			if len(ii)==0:
 				continue
 			m1,m2 = srcor(objs['ra'][ii],objs['dec'][ii],
@@ -96,7 +96,12 @@ def match_objects(objs,tiles):
 			                  tuple([cat[k][j] for k in skeys]) +
 			                  tuple([t[k] for k in tkeys]) + (ccdNum,)
 			                     for i,j in zip(ii[m1],m2) ] )
-		print ' total ',len(matches)
+			uu = np.delete(np.arange(len(ii)),m1)
+			matches.extend( [ tuple(objs[i]) +
+			                  tuple([0]*len(skeys)) + 
+			                  tuple([t[k] for k in tkeys]) + (ccdNum,)
+			                     for i in ii[uu] ] )
+		print
 	matches = np.array(matches,dtype=dtype)
 	print 'finished with ',matches.size
 	return matches
@@ -120,7 +125,7 @@ def select_ndwfs_stars():
 		rfits = fitsio.FITS(ndwfsdir+catfn('R'))
 		bfits = fitsio.FITS(ndwfsdir+catfn('Bw'))
 		ifits = fitsio.FITS(ndwfsdir+catfn('I'))
-		w = rfits[1].where('FWHM_IMAGE < 7 && MAG_AUTO < 24.7 && FLAGS == 0')
+		w = rfits[1].where('FWHM_IMAGE < 7 && MAG_AUTO < 24.0 && FLAGS == 0')
 		print len(w)
 		rcat = rfits[1].read(rows=w,columns=rcols)
 		bcat = bfits[1].read(rows=w,columns=cols)
@@ -145,24 +150,29 @@ def match_ndwfs_stars(matchRad=2.5):
 	fitsio.write('ndwfs_match.fits',matches,clobber=True)
 
 def ndwfs_depth():
-	m = fitsio.read('ndwfs_match.fits')
-	m = m[ ( np.all(m['autoMag'][:,:2]> 0,axis=1) &
-	         np.all(m['autoMag'][:,:2]<30,axis=1) ) ]
-	Bw = m['autoMag'][:,0]
-	Bw_minus_R = m['autoMag'][:,0] - m['autoMag'][:,1]
+	ndwfsm = fitsio.read('ndwfs_match.fits')
+	Bw = ndwfsm['autoMag'][:,0]
+	Bw_minus_R = ndwfsm['autoMag'][:,0] - ndwfsm['autoMag'][:,1]
 	NDWFSg = np.choose(Bw_minus_R <= 1.45, 
 	                   [ Bw - (0.23*Bw_minus_R + 0.25),
 	                     Bw - (0.38*Bw_minus_R + 0.05) ])
-	gSNR = m['g_autoFlux'] / m['g_autoFluxErr']
+	#
+	m = np.where( np.all(ndwfsm['autoMag'][:,:2]> 0,axis=1) &
+	              np.all(ndwfsm['autoMag'][:,:2]<30,axis=1) &
+	              (ndwfsm['g_autoFlux']>0) & 
+	              (ndwfsm['g_autoFluxErr']>0) )[0]
+	gSNR = ndwfsm['g_autoFlux'][m] / ndwfsm['g_autoFluxErr'][m]
+	#
 	plt.figure(figsize=(10,8))
 	plt.subplots_adjust(0.07,0.07,0.97,0.96,0.27,0.27)
 	for i in range(4):
 		ax = plt.subplot(2,2,i+1)
 		if i==0:
-			ii = np.where(m['g_ditherId'] > 0)[0]
+			ii = np.where(ndwfsm['g_ditherId'][m] > 0)[0]
 		else:
-			ii = np.where(m['g_ditherId'] == i)[0]
-		ax.hexbin(NDWFSg,np.log10(gSNR),bins='log',cmap=plt.cm.Blues)
+			ii = np.where(ndwfsm['g_ditherId'][m] == i)[0]
+		ax.hexbin(NDWFSg[m[ii]],np.log10(gSNR[ii]),
+		          bins='log',cmap=plt.cm.Blues)
 		ax.axhline(np.log10(5.0),c='r',lw=1.3,alpha=0.7)
 		ax.set_xlim(17.2,24.5)
 		ax.set_ylim(np.log10(2),np.log10(500))
@@ -177,6 +187,36 @@ def ndwfs_depth():
 			ax.set_title('all tiles')
 		else:
 			ax.set_title('P%d tiles' % i)
+	#
+	mbins = np.arange(18.,24.01,0.1)
+	g = np.where( np.all(ndwfsm['autoMag'][:,:2]> 0,axis=1) &
+	              np.all(ndwfsm['autoMag'][:,:2]<30,axis=1) )[0]
+	plt.figure(figsize=(8,4))
+	plt.subplots_adjust(0.07,0.14,0.97,0.97,0.25)
+	ax1 = plt.subplot(121)
+	ax2 = plt.subplot(122)
+	for i in range(4):
+		if i==0:
+			ii = np.where(ndwfsm['g_ditherId'][g] > 0)[0]
+		else:
+			ii = np.where(ndwfsm['g_ditherId'][g] == i)[0]
+		jj = np.where(ndwfsm['g_autoFluxErr'][g[ii]]>0)[0]
+		g5sig = ( ndwfsm['g_autoFlux'][g[ii[jj]]]
+		          / ndwfsm['g_autoFluxErr'][g[ii[jj]]] ) > 5.0
+		tot,_ = np.histogram(NDWFSg[g[ii]],mbins)
+		det,_ = np.histogram(NDWFSg[g[ii[jj]]],mbins)
+		det5,_ = np.histogram(NDWFSg[g[ii[jj[g5sig]]]],mbins)
+		ax1.plot(mbins[:-1],det.astype(np.float)/tot,drawstyle='steps-pre',
+		         c=['black','blue','green','DarkCyan'][i],lw=1.3,
+		         label=['all','P1','P2','P3'][i])
+		ax2.plot(mbins[:-1],det5.astype(np.float)/tot,drawstyle='steps-pre',
+		         c=['black','blue','green','DarkCyan'][i],lw=1.3,
+		         label=['all','P1','P2','P3'][i])
+	ax1.set_xlabel('NDWFS g-ish mag')
+	ax2.set_xlabel('NDWFS g-ish mag')
+	ax1.set_ylabel('fraction detected')
+	ax2.set_ylabel('fraction detected 5 sig')
+	ax1.legend(loc='lower left')
 
 
 
@@ -227,7 +267,8 @@ from astropy.io import fits
 
 def fake_sdss_stars_on_tile(stars,tile,
 	                        nresample=100,magrange=(22.5,23.7),
-	                        stampSize=25,margin=50,keepfakes=False):
+	                        stampSize=25,margin=50,
+	                        keepfakes=False,savestars=False):
 	pixlo = lambda _x: _x-stampSize/2
 	pixhi = lambda _x: _x-stampSize/2 + stampSize
 	fakemags = np.zeros(nresample*4,dtype=np.float32)
@@ -245,10 +286,10 @@ def fake_sdss_stars_on_tile(stars,tile,
 		fakeim = fits.open(_impath)
 		im = fakeim[0].data
 		nY,nX = im.shape
-		ii = np.where( (stars['ra']>cat['ALPHA_J2000'].min()+1e-3) &
-		               (stars['ra']<cat['ALPHA_J2000'].max()-1e-3) &
-		               (stars['dec']>cat['DELTA_J2000'].min()+1e-3) &
-		               (stars['dec']<cat['DELTA_J2000'].max()-1e-3) )[0]
+		ii = np.where( (stars['ra']>cat['ALPHA_J2000'].min()+3e-3) &
+		               (stars['ra']<cat['ALPHA_J2000'].max()-3e-3) &
+		               (stars['dec']>cat['DELTA_J2000'].min()+3e-3) &
+		               (stars['dec']<cat['DELTA_J2000'].max()-3e-3) )[0]
 		if len(ii)==0:
 			print 'no stars found on ccd #',ccdNum
 			continue
@@ -259,17 +300,19 @@ def fake_sdss_stars_on_tile(stars,tile,
 		fakemag = magrange[0] + \
 		             (magrange[1]-magrange[0])*np.random.random(nresample)
 		fscale = 10**(-0.4*(fakemag-stars['psfMag_g'][ii[m1[jj[rindx]]]]))
+		print 'matched %d/%d stars, max scale factor %.2e' % \
+		        (len(m1),len(ii),fscale.max())
 		fakex = np.random.randint(margin,nX-margin,nresample)
 		fakey = np.random.randint(margin,nY-margin,nresample)
-		for x,y,fx,fy,fscl in zip(cat['X_IMAGE'][m2[jj[rindx]]],
-		                          cat['Y_IMAGE'][m2[jj[rindx]]],
+		for x,y,fx,fy,fscl in zip(np.round(cat['X_IMAGE'][m2[jj[rindx]]]),
+		                          np.round(cat['Y_IMAGE'][m2[jj[rindx]]]),
 		                          fakex,fakey,fscale):
 			stamp = im[pixlo(y):pixhi(y),pixlo(x):pixhi(x)]
 			im[pixlo(fy):pixhi(fy),pixlo(fx):pixhi(fx)] += fscl*stamp
 		fakeimpath = impath.replace('.fits','_fake.fits')
 		fakecatpath = fakeimpath.replace('.fits','.cat.fits')
 		fakeim.writeto(fakeimpath,clobber=True)
-		bokextract.sextract(fakeimpath,frompv=False)
+		bokextract.sextract(fakeimpath,frompv=False,redo=True)
 		fakecat = fitsio.read(fakecatpath)
 		q1,q2 = srcorXY(fakex,fakey,fakecat['X_IMAGE'],fakecat['Y_IMAGE'],3.0)
 		snr = fakecat['FLUX_AUTO'][q2] / fakecat['FLUXERR_AUTO'][q2]
@@ -278,16 +321,28 @@ def fake_sdss_stars_on_tile(stars,tile,
 		if not keepfakes:
 			os.unlink(fakeimpath)
 			os.unlink(fakecatpath)
+		if savestars:
+			np.savetxt(fakeimpath.replace('.fits','_stars.dat'),
+			   np.vstack([fakemag,fakex,fakey]).transpose(),fmt='%9.3f')
 	return fakemags,fakesnr
 
-def fake_ndwfs_stars(grange=(16.0,18.0),**kwargs):
+def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
+	np.random.seed(1)
 	stars = fitsio.read('/global/scratch2/sd/imcgreer/ndwfs/sdss_bootes_gstars.fits')
+	fakedir = '/global/scratch2/sd/imcgreer/fakes/'
 	stars = stars[(stars['psfMag_g']>grange[0])&(stars['psfMag_g']<grange[1])]
 	tiles = ndwfs_tiles(observed=True)
+	summaryf = open(fakedir+'fakestars_bytile.dat','w')
 	for ti,tile in enumerate(tiles):
-		print 'faking stars in tile tile %d/%d' % (ti+1,len(tiles))
-		fake_sdss_stars_on_tile(stars,tile,**kwargs)
+		print 'faking stars in tile %d/%d' % (ti+1,len(tiles))
+		mag,snr = fake_sdss_stars_on_tile(stars,tile,**kwargs)
+		np.savetxt(fakedir+'fakestars_%05d_%d_%s.dat' % 
+		           (tile['tileId'],tile['ditherId'],tile['utDate']),
+		           np.vstack([mag,snr]).transpose(),fmt='%8.3f')
+		summaryf.write('%05d %d %s ' %
+		               (tile['tileId'],tile['ditherId'],tile['utDate']))
 		break
+	summaryf.close()
 
 if __name__=='__main__':
 	import sys
