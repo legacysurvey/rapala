@@ -337,7 +337,7 @@ def fake_sdss_stars_on_tile(stars,tile,
 		fakemags[nresample*(ccdNum-1):nresample*ccdNum] = fakemag
 		fakesnr[nresample*(ccdNum-1):nresample*ccdNum][q1] = snr
 		if True:
-			zpt = np.median(cat['MAG_AUTO'][m2[jj]] - stars['psfMag_g'][ii[m1]])
+			zpt = np.median(cat['MAG_AUTO'][m2[jj]] - stars['psfMag_g'][ii[m1[jj]]])
 			zpt -= 25
 			foo = np.where(fakemag[q1] < 22.3)[0]
 			offset = np.median((-2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt) - fakemag[q1[foo]])
