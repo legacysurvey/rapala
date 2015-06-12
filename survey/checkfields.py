@@ -106,6 +106,73 @@ def match_objects(objs,tiles):
 	print 'finished with ',matches.size
 	return matches
 
+def depth_plots(matches,g_ref,gname,bypriority=True):
+	#
+	m = np.where( (matches['g_autoFlux']>0) & 
+	              (matches['g_autoFluxErr']>0) )[0]
+	gSNR = matches['g_autoFlux'][m] / matches['g_autoFluxErr'][m]
+	if bypriority:
+		plt.figure(figsize=(10,8))
+		plt.subplots_adjust(0.07,0.07,0.97,0.96,0.27,0.27)
+	else:
+		plt.figure(figsize=(5,4.5))
+		plt.subplots_adjust(0.12,0.12,0.97,0.94)
+	for i in range(4):
+		if bypriority:
+			ax = plt.subplot(2,2,i+1)
+		else:
+			if i>0: break
+			ax = plt.subplot(1,1,i+1)
+		if i==0:
+			ii = np.where(matches['g_ditherId'][m] > 0)[0]
+		else:
+			ii = np.where(matches['g_ditherId'][m] == i)[0]
+		ax.hexbin(g_ref[m[ii]],np.log10(gSNR[ii]),
+		          bins='log',cmap=plt.cm.Blues)
+		ax.axhline(np.log10(5.0),c='r',lw=1.3,alpha=0.7)
+		ax.set_xlim(17.2,24.5)
+		ax.set_ylim(np.log10(2),np.log10(500))
+		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.2))
+		ax.yaxis.set_major_locator(ticker.FixedLocator(np.log10(
+		      [2,5,10,20,50,100,200])))
+		ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+		      lambda x,pos: '%d' % np.round(10**x)))
+		ax.set_xlabel(gname+'mag')
+		ax.set_ylabel('BASS AUTO flux/err')
+		if i==0:
+			ax.set_title('all tiles')
+		else:
+			ax.set_title('P%d tiles' % i)
+	#
+	mbins = np.arange(18.,24.01,0.1)
+	plt.figure(figsize=(8,4))
+	plt.subplots_adjust(0.07,0.14,0.97,0.97,0.25)
+	ax1 = plt.subplot(121)
+	ax2 = plt.subplot(122)
+	for i in range(4):
+		if i==0:
+			ii = np.where(matches['g_ditherId'] > 0)[0]
+		else:
+			if not bypriority: break
+			ii = np.where(matches['g_ditherId'] == i)[0]
+		jj = np.where(matches['g_autoFluxErr'][ii]>0)[0]
+		g5sig = ( matches['g_autoFlux'][ii[jj]]
+		          / matches['g_autoFluxErr'][ii[jj]] ) > 5.0
+		tot,_ = np.histogram(g_ref[ii],mbins)
+		det,_ = np.histogram(g_ref[ii[jj]],mbins)
+		det5,_ = np.histogram(g_ref[ii[jj[g5sig]]],mbins)
+		ax1.plot(mbins[:-1],det.astype(np.float)/tot,drawstyle='steps-pre',
+		         c=['black','blue','green','DarkCyan'][i],lw=1.3,
+		         label=['all','P1','P2','P3'][i])
+		ax2.plot(mbins[:-1],det5.astype(np.float)/tot,drawstyle='steps-pre',
+		         c=['black','blue','green','DarkCyan'][i],lw=1.3,
+		         label=['all','P1','P2','P3'][i])
+	ax1.set_xlabel(gname+'mag')
+	ax2.set_xlabel(gname+'mag')
+	ax1.set_ylabel('fraction detected')
+	ax2.set_ylabel('fraction detected 5 sig')
+	ax1.legend(loc='lower left')
+
 
 
 ##############################################################################
@@ -160,65 +227,8 @@ def ndwfs_depth():
 	                     Bw - (0.38*Bw_minus_R + 0.05) ])
 	#
 	m = np.where( np.all(ndwfsm['autoMag'][:,:2]> 0,axis=1) &
-	              np.all(ndwfsm['autoMag'][:,:2]<30,axis=1) &
-	              (ndwfsm['g_autoFlux']>0) & 
-	              (ndwfsm['g_autoFluxErr']>0) )[0]
-	gSNR = ndwfsm['g_autoFlux'][m] / ndwfsm['g_autoFluxErr'][m]
-	#
-	plt.figure(figsize=(10,8))
-	plt.subplots_adjust(0.07,0.07,0.97,0.96,0.27,0.27)
-	for i in range(4):
-		ax = plt.subplot(2,2,i+1)
-		if i==0:
-			ii = np.where(ndwfsm['g_ditherId'][m] > 0)[0]
-		else:
-			ii = np.where(ndwfsm['g_ditherId'][m] == i)[0]
-		ax.hexbin(NDWFSg[m[ii]],np.log10(gSNR[ii]),
-		          bins='log',cmap=plt.cm.Blues)
-		ax.axhline(np.log10(5.0),c='r',lw=1.3,alpha=0.7)
-		ax.set_xlim(17.2,24.5)
-		ax.set_ylim(np.log10(2),np.log10(500))
-		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.2))
-		ax.yaxis.set_major_locator(ticker.FixedLocator(np.log10(
-		      [2,5,10,20,50,100,200])))
-		ax.yaxis.set_major_formatter(ticker.FuncFormatter(
-		      lambda x,pos: '%d' % np.round(10**x)))
-		ax.set_xlabel('NDWFS g-ish mag')
-		ax.set_ylabel('BASS AUTO flux/err')
-		if i==0:
-			ax.set_title('all tiles')
-		else:
-			ax.set_title('P%d tiles' % i)
-	#
-	mbins = np.arange(18.,24.01,0.1)
-	g = np.where( np.all(ndwfsm['autoMag'][:,:2]> 0,axis=1) &
 	              np.all(ndwfsm['autoMag'][:,:2]<30,axis=1) )[0]
-	plt.figure(figsize=(8,4))
-	plt.subplots_adjust(0.07,0.14,0.97,0.97,0.25)
-	ax1 = plt.subplot(121)
-	ax2 = plt.subplot(122)
-	for i in range(4):
-		if i==0:
-			ii = np.where(ndwfsm['g_ditherId'][g] > 0)[0]
-		else:
-			ii = np.where(ndwfsm['g_ditherId'][g] == i)[0]
-		jj = np.where(ndwfsm['g_autoFluxErr'][g[ii]]>0)[0]
-		g5sig = ( ndwfsm['g_autoFlux'][g[ii[jj]]]
-		          / ndwfsm['g_autoFluxErr'][g[ii[jj]]] ) > 5.0
-		tot,_ = np.histogram(NDWFSg[g[ii]],mbins)
-		det,_ = np.histogram(NDWFSg[g[ii[jj]]],mbins)
-		det5,_ = np.histogram(NDWFSg[g[ii[jj[g5sig]]]],mbins)
-		ax1.plot(mbins[:-1],det.astype(np.float)/tot,drawstyle='steps-pre',
-		         c=['black','blue','green','DarkCyan'][i],lw=1.3,
-		         label=['all','P1','P2','P3'][i])
-		ax2.plot(mbins[:-1],det5.astype(np.float)/tot,drawstyle='steps-pre',
-		         c=['black','blue','green','DarkCyan'][i],lw=1.3,
-		         label=['all','P1','P2','P3'][i])
-	ax1.set_xlabel('NDWFS g-ish mag')
-	ax2.set_xlabel('NDWFS g-ish mag')
-	ax1.set_ylabel('fraction detected')
-	ax2.set_ylabel('fraction detected 5 sig')
-	ax1.legend(loc='lower left')
+	depth_plots(ndwfsm[m],NDWFSg[m],'NDWFS g-ish')
 
 
 
@@ -238,6 +248,12 @@ def match_cfhtls_stars(matchRad=2.5,survey='wide'):
 		fname = 'cfhtlsdeep'
 	matches = match_objects(stars,tiles)
 	fitsio.write('%s_match.fits'%fname,matches,clobber=True)
+
+def cfhtls_depth():
+	cfhtlsm = fitsio.read('cfhtlswide_match.fits')
+	m = np.where( (cfhtlsm['psfMag'][:,1]> 0) &
+	              (cfhtlsm['psfMag'][:,1]<30) )[0]
+	depth_plots(cfhtlsm[m],cfhtlsm['psfMag'][m,1],'CFHTLS g',bypriority=False)
 
 
 
