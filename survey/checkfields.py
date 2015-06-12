@@ -106,6 +106,8 @@ def match_objects(objs,tiles):
 	print 'finished with ',matches.size
 	return matches
 
+
+
 ##############################################################################
 #                                                                            #
 #                               NDWFS                                        #
@@ -266,7 +268,7 @@ def match_ps1mds(matchRad=2.5):
 from astropy.io import fits
 
 def fake_sdss_stars_on_tile(stars,tile,
-	                        nresample=100,magrange=(22.5,23.7),
+	                        nresample=200,magrange=(22.0,23.4),
 	                        stampSize=25,margin=50,
 	                        keepfakes=False,savestars=False):
 	pixlo = lambda _x: _x-stampSize/2
@@ -318,6 +320,28 @@ def fake_sdss_stars_on_tile(stars,tile,
 		snr = fakecat['FLUX_AUTO'][q2] / fakecat['FLUXERR_AUTO'][q2]
 		fakemags[nresample*(ccdNum-1):nresample*ccdNum] = fakemag
 		fakesnr[nresample*(ccdNum-1):nresample*ccdNum][q1] = snr
+		if True:
+			zpt = np.median(cat['MAG_AUTO'][m2[jj]] - stars['psfMag_g'][ii[m1]])
+			zpt -= 25
+			foo = np.where(fakemag[q1] < 22.3)[0]
+			offset = np.median((-2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt) - fakemag[q1[foo]])
+			print 'fake star mag offset is ',offset
+			fakemags[nresample*(ccdNum-1):nresample*ccdNum] += offset
+		if False:
+			print ' --------- ZERO POINT CHECK -----------'
+			print cat['MAG_AUTO'][m2[jj]][:10]
+			print -2.5*np.log10(cat['FLUX_AUTO'][m2[jj]])[:10] - zpt
+			print stars['psfMag_g'][ii[m1]][:10]
+			print ( (-2.5*np.log10(cat['FLUX_AUTO'][m2[jj]])[:10] - zpt) - 
+			            stars['psfMag_g'][ii[m1]][:10])
+			print -2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt
+			print fakemag[q1[foo]]
+			print ( (-2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt) - 
+			         fakemag[q1[foo]] )
+			print ( (-2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt) - 
+			         fakemag[q1[foo]] ).mean()
+			print snr[foo]
+			print 
 		if not keepfakes:
 			os.unlink(fakeimpath)
 			os.unlink(fakecatpath)
@@ -327,21 +351,34 @@ def fake_sdss_stars_on_tile(stars,tile,
 	return fakemags,fakesnr
 
 def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
+	magrange = kwargs.setdefault('magrange',(22.0,23.4))
+	nbins = 5
+	medges = np.linspace(magrange[0],magrange[1],nbins+1)
 	np.random.seed(1)
 	stars = fitsio.read('/global/scratch2/sd/imcgreer/ndwfs/sdss_bootes_gstars.fits')
 	fakedir = '/global/scratch2/sd/imcgreer/fakes/'
 	stars = stars[(stars['psfMag_g']>grange[0])&(stars['psfMag_g']<grange[1])]
 	tiles = ndwfs_tiles(observed=True)
 	summaryf = open(fakedir+'fakestars_bytile.dat','w')
+	summaryf.write('# %4s %1s %8s ' % ('tile','D','utdate'))
+	for i in range(nbins):
+		summaryf.write('%6.3f ' % ((medges[i]+medges[i+1])/2))
+	summaryf.write('\n')
 	for ti,tile in enumerate(tiles):
 		print 'faking stars in tile %d/%d' % (ti+1,len(tiles))
 		mag,snr = fake_sdss_stars_on_tile(stars,tile,**kwargs)
 		np.savetxt(fakedir+'fakestars_%05d_%d_%s.dat' % 
 		           (tile['tileId'],tile['ditherId'],tile['utDate']),
 		           np.vstack([mag,snr]).transpose(),fmt='%8.3f')
-		summaryf.write('%05d %d %s ' %
+		summaryf.write(' %05d %1d %8s ' %
 		               (tile['tileId'],tile['ditherId'],tile['utDate']))
-		break
+		ii = np.digitize(mag,medges)
+		# could divide by CCD
+		for i in range(nbins):
+			jj = np.where(ii==i+1)[0]
+			frac = np.sum(snr[jj]>5.0) / float(len(jj))
+			summaryf.write('%6.3f ' % frac)
+		summaryf.write('\n')
 	summaryf.close()
 
 if __name__=='__main__':
@@ -351,4 +388,6 @@ if __name__=='__main__':
 	elif sys.argv[1]=='match_cfhtlswide':
 		print 'here'
 		match_cfhtls_stars(survey='wide')
+	elif sys.argv[1]=='fake_ndwfs':
+		fake_ndwfs_stars()
 
