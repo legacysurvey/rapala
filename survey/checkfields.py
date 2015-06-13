@@ -11,6 +11,7 @@ import bokextract
 
 datadir = '/global/scratch2/sd/imcgreer/'
 ndwfs_starfile = datadir+'ndwfs/starcat.fits'
+bootes_sdss_starfile = datadir+'ndwfs/sdss_bootes_gstars.fits'
 cfhtlswide_starfile = datadir+'cfhtls/CFHTLSW3_starcat.fits'
 cfhtlsdeep_starfile = datadir+'cfhtls/CFHTLSD3_starcat.fits'
 
@@ -397,6 +398,77 @@ def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
 		summaryf.write('\n')
 	summaryf.close()
 
+
+
+
+def get_phototiles_info():
+	import boklog
+	logs = boklog.load_Bok_logs('./logs/')
+	tiledb = bass.load_tiledb()
+	ccdNum = 1
+	photinfof = open('photo_tiles_info.txt','w')
+	photinfof.write('# %6s %10s %7s %7s %7s %10s %8s %7s\n' %
+	       ('UTD','file','airmass','E(B-V)','FWHMpix','skyADU','zpt','texp'))
+	for ti,tiles in enumerate([cfhtw3_tiles(),ndwfs_tiles()]):
+		if ti==0:
+			refcat = fitsio.read(cfhtlswide_starfile)
+			ii = np.where((refcat['psfMag'][:,1]>17) & 
+			              (refcat['psfMag'][:,1]<18.5))[0]
+			ref_ra = refcat['ra'][ii]
+			ref_dec = refcat['dec'][ii]
+			ref_mag = refcat['psfMag'][ii,1]
+		else:
+			refcat = fitsio.read(bootes_sdss_starfile)
+			ii = np.where((refcat['psfMag_g']>16) & 
+			              (refcat['psfMag_g']<18.5))[0]
+			ref_ra = refcat['ra'][ii]
+			ref_dec = refcat['dec'][ii]
+			ref_mag = refcat['psfMag_g'][ii]
+		for tj,t in enumerate(tiles):
+			if t['ditherId'] != 1:
+				continue
+			# get E(B-V) from tile database
+			tid = np.array([int(tid) for tid in tiledb['TID']])
+			ebv = tiledb['EBV'][tid==t['tileId']][0]
+			# get conditions (airmass,exptime) from observing logs
+			try:
+				i = np.where(logs[t['utDate']]['fileName']==t['fileName'])[0][0]
+			except:
+				continue
+			airmass = logs[t['utDate']]['airmass'][i]
+			exptime = logs[t['utDate']]['expTime'][i]
+			# get sky value in ADU from FITS headers
+			impath = os.path.join(bass.rdxdir,t['utDate'],'ccdproc3',
+			                      t['fileName']+'_ccd%d.fits'%ccdNum)
+			h = fitsio.read_header(impath)
+			sky = h['SKYVAL']
+			# get FWHM and zero point from catalogs
+			catpath = os.path.join(bass.rdxdir,t['utDate'],'ccdproc3',
+			                       t['fileName']+'_ccd%d.cat.fits'%ccdNum)
+			cat = fitsio.read(catpath)
+			ii = np.where( (ref_ra>cat['ALPHA_J2000'].min()+3e-3) &
+			               (ref_ra<cat['ALPHA_J2000'].max()-3e-3) &
+			               (ref_dec>cat['DELTA_J2000'].min()+3e-3) &
+			               (ref_dec<cat['DELTA_J2000'].max()-3e-3) )[0]
+			if len(ii)==0:
+				continue
+			m1,m2 = srcor(ref_ra[ii],ref_dec[ii],
+			              cat['ALPHA_J2000'],cat['DELTA_J2000'],2)
+			if len(m1)==0:
+				continue
+			m1 = ii[m1]
+			ii = np.where(cat['FLAGS'][m2]==0)[0]
+			m1,m2 = m1[ii],m2[ii]
+			if len(m1)<5:
+				continue
+			print len(ii),' stars on tile ',t['utDate'],t['fileName']
+			fwhm = np.median(cat['FWHM_IMAGE'][m2])
+			zpt = 25 - np.median(cat['MAG_AUTO'][m2] - ref_mag[m1]) - \
+			         2.5*np.log10(exptime)
+			photinfof.write('%8s %10s %7.2f %7.3f %7.2f %10.2f %8.3f %7.1f\n' %
+			     (t['utDate'],t['fileName'],airmass,ebv,fwhm,sky,zpt,exptime))
+	photinfof.close()
+
 if __name__=='__main__':
 	import sys
 	if sys.argv[1]=='match_ndwfs':
@@ -406,4 +478,6 @@ if __name__=='__main__':
 		match_cfhtls_stars(survey='wide')
 	elif sys.argv[1]=='fake_ndwfs':
 		fake_ndwfs_stars()
+	elif sys.argv[1]=='photo_info':
+		get_phototiles_info()
 
