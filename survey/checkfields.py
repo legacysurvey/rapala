@@ -112,7 +112,7 @@ def match_objects(objs,tiles):
 	print 'finished with ',matches.size
 	return matches
 
-def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf'):
+def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf',**kwargs):
 	assert aper in ['psf','auto']
 	fluxk = 'g_%sFlux' % aper
 	errk = 'g_%sFluxErr' % aper
@@ -120,11 +120,11 @@ def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf'):
 	m = np.where( (matches[fluxk]>0) & (matches[errk]>0) )[0]
 	gSNR = matches[fluxk][m] / matches[errk][m]
 	if bypriority:
-		plt.figure(figsize=(10,8))
+		fig1 = plt.figure(figsize=(10,8))
 		plt.subplots_adjust(0.07,0.07,0.97,0.96,0.27,0.27)
 	else:
-		plt.figure(figsize=(5,4.5))
-		plt.subplots_adjust(0.12,0.12,0.97,0.94)
+		fig1 = plt.figure(figsize=(5,4.5))
+		plt.subplots_adjust(0.13,0.12,0.98,0.94)
 	for i in range(4):
 		if bypriority:
 			ax = plt.subplot(2,2,i+1)
@@ -138,6 +138,7 @@ def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf'):
 		ax.hexbin(g_ref[m[ii]],np.log10(gSNR[ii]),
 		          bins='log',cmap=plt.cm.Blues)
 		ax.axhline(np.log10(5.0),c='r',lw=1.3,alpha=0.7)
+		ax.plot([24.0-2.5*np.log10(np.sqrt(3))]*2,np.log10([3,8]),c='m',lw=1.5)
 		ax.set_xlim(17.2,24.5)
 		ax.set_ylim(np.log10(2),np.log10(500))
 		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.2))
@@ -145,7 +146,7 @@ def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf'):
 		      [2,5,10,20,50,100,200])))
 		ax.yaxis.set_major_formatter(ticker.FuncFormatter(
 		      lambda x,pos: '%d' % np.round(10**x)))
-		ax.set_xlabel(gname+'mag')
+		ax.set_xlabel(gname+' mag')
 		ax.set_ylabel('BASS %s flux/err' % aper.upper())
 		if i==0:
 			ax.set_title('all tiles')
@@ -153,7 +154,7 @@ def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf'):
 			ax.set_title('P%d tiles' % i)
 	#
 	mbins = np.arange(18.,24.01,0.1)
-	plt.figure(figsize=(8,4))
+	fig2 = plt.figure(figsize=(8,4))
 	plt.subplots_adjust(0.07,0.14,0.97,0.97,0.25)
 	ax1 = plt.subplot(121)
 	ax2 = plt.subplot(122)
@@ -174,11 +175,16 @@ def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf'):
 		ax2.plot(mbins[:-1],det5.astype(np.float)/tot,drawstyle='steps-pre',
 		         c=['black','blue','green','DarkCyan'][i],lw=1.3,
 		         label=['all','P1','P2','P3'][i])
-	ax1.set_xlabel(gname+'mag')
-	ax2.set_xlabel(gname+'mag')
+	ax1.set_xlabel(gname+' mag')
+	ax2.set_xlabel(gname+' mag')
 	ax1.set_ylabel('fraction detected')
 	ax2.set_ylabel('fraction detected 5 sig')
 	ax1.legend(loc='lower left')
+	if kwargs.get('saveplots',False):
+		figname = kwargs.get('figname','blah')
+		figext = kwargs.get('figtype','png')
+		fig1.savefig(figname+'_depth.'+figext)
+		fig2.savefig(figname+'_complete.'+figext)
 
 
 
@@ -225,7 +231,8 @@ def match_ndwfs_stars(matchRad=2.5):
 	matches = match_objects(stars,tiles)
 	fitsio.write('ndwfs_match.fits',matches,clobber=True)
 
-def ndwfs_depth():
+def ndwfs_depth(**kwargs):
+	kwargs.setdefault('figname','ndwfs')
 	ndwfsm = fitsio.read('ndwfs_match.fits')
 	Bw = ndwfsm['autoMag'][:,0]
 	Bw_minus_R = ndwfsm['autoMag'][:,0] - ndwfsm['autoMag'][:,1]
@@ -235,7 +242,7 @@ def ndwfs_depth():
 	#
 	m = np.where( np.all(ndwfsm['autoMag'][:,:2]> 0,axis=1) &
 	              np.all(ndwfsm['autoMag'][:,:2]<30,axis=1) )[0]
-	depth_plots(ndwfsm[m],NDWFSg[m],'NDWFS g-ish')
+	depth_plots(ndwfsm[m],NDWFSg[m],'NDWFS g-ish',**kwargs)
 
 
 
@@ -256,11 +263,13 @@ def match_cfhtls_stars(matchRad=2.5,survey='wide'):
 	matches = match_objects(stars,tiles)
 	fitsio.write('%s_match.fits'%fname,matches,clobber=True)
 
-def cfhtls_depth():
+def cfhtls_depth(**kwargs):
+	kwargs.setdefault('figname','cfhtls')
 	cfhtlsm = fitsio.read('cfhtlswide_match.fits')
 	m = np.where( (cfhtlsm['psfMag'][:,1]> 0) &
 	              (cfhtlsm['psfMag'][:,1]<30) )[0]
-	depth_plots(cfhtlsm[m],cfhtlsm['psfMag'][m,1],'CFHTLS g',bypriority=False)
+	depth_plots(cfhtlsm[m],cfhtlsm['psfMag'][m,1],'CFHTLS g',bypriority=False,
+	            **kwargs)
 
 
 
@@ -292,7 +301,7 @@ from astropy.io import fits
 
 def fake_sdss_stars_on_tile(stars,tile,
 	                        nresample=200,magrange=(22.0,23.4),
-	                        stampSize=25,margin=50,
+	                        stampSize=25,margin=50,aper='psf',
 	                        keepfakes=False,savestars=False):
 	pixlo = lambda _x: _x-stampSize/2
 	pixhi = lambda _x: _x-stampSize/2 + stampSize
