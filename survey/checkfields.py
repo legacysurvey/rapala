@@ -66,13 +66,17 @@ def match_objects(objs,tiles):
 	objpars = [('g_number','f4'),('g_ra','f8'),('g_dec','f8'),
 	           ('g_autoMag','f4'),('g_autoMagErr','f4'),
 	           ('g_autoFlux','f4'),('g_autoFluxErr','f4'),
+	           ('g_psfMag','f4'),('g_psfMagErr','f4'),
+	           ('g_psfFlux','f4'),('g_psfFluxErr','f4'),
 	           ('g_elongation','f4'),('g_ellipticity','f4'),
 	           ('g_flags','i4'),('g_fluxRad','f4')]
 	tilepars = [('g_utDate','S8'),('g_expTime','f4'),
 	            ('g_tileId','i4'),('g_ditherId','i4'),('g_ccdNum','i4')]
 	dtype = objs.dtype.descr + objpars + tilepars
-	skeys = ['NUMBER','ALPHA_J2000','DELTA_J2000','MAG_AUTO','MAGERR_AUTO',
-	         'FLUX_AUTO','FLUXERR_AUTO','ELONGATION','ELLIPTICITY',
+	skeys = ['NUMBER','ALPHA_J2000','DELTA_J2000',
+	         'MAG_AUTO','MAGERR_AUTO','FLUX_AUTO','FLUXERR_AUTO',
+	         'MAG_PSF','MAGERR_PSF','FLUX_PSF','FLUXERR_PSF',
+	         'ELONGATION','ELLIPTICITY',
 	         'FLAGS','FLUX_RADIUS']
 	tkeys = ['utDate','expTime','tileId','ditherId']
 	matches = []
@@ -108,11 +112,13 @@ def match_objects(objs,tiles):
 	print 'finished with ',matches.size
 	return matches
 
-def depth_plots(matches,g_ref,gname,bypriority=True):
+def depth_plots(matches,g_ref,gname,bypriority=True,aper='psf'):
+	assert aper in ['psf','auto']
+	fluxk = 'g_%sFlux' % aper
+	errk = 'g_%sFluxErr' % aper
 	#
-	m = np.where( (matches['g_autoFlux']>0) & 
-	              (matches['g_autoFluxErr']>0) )[0]
-	gSNR = matches['g_autoFlux'][m] / matches['g_autoFluxErr'][m]
+	m = np.where( (matches[fluxk]>0) & (matches[errk]>0) )[0]
+	gSNR = matches[fluxk][m] / matches[errk][m]
 	if bypriority:
 		plt.figure(figsize=(10,8))
 		plt.subplots_adjust(0.07,0.07,0.97,0.96,0.27,0.27)
@@ -140,7 +146,7 @@ def depth_plots(matches,g_ref,gname,bypriority=True):
 		ax.yaxis.set_major_formatter(ticker.FuncFormatter(
 		      lambda x,pos: '%d' % np.round(10**x)))
 		ax.set_xlabel(gname+'mag')
-		ax.set_ylabel('BASS AUTO flux/err')
+		ax.set_ylabel('BASS %s flux/err' % aper.upper())
 		if i==0:
 			ax.set_title('all tiles')
 		else:
@@ -157,9 +163,8 @@ def depth_plots(matches,g_ref,gname,bypriority=True):
 		else:
 			if not bypriority: break
 			ii = np.where(matches['g_ditherId'] == i)[0]
-		jj = np.where(matches['g_autoFluxErr'][ii]>0)[0]
-		g5sig = ( matches['g_autoFlux'][ii[jj]]
-		          / matches['g_autoFluxErr'][ii[jj]] ) > 5.0
+		jj = np.where(matches[errk][ii]>0)[0]
+		g5sig = ( matches[fluxk][ii[jj]] / matches[errk][ii[jj]] ) > 5.0
 		tot,_ = np.histogram(g_ref[ii],mbins)
 		det,_ = np.histogram(g_ref[ii[jj]],mbins)
 		det5,_ = np.histogram(g_ref[ii[jj[g5sig]]],mbins)
@@ -293,6 +298,12 @@ def fake_sdss_stars_on_tile(stars,tile,
 	pixhi = lambda _x: _x-stampSize/2 + stampSize
 	fakemags = np.zeros(nresample*4,dtype=np.float32)
 	fakesnr = -np.ones_like(fakemags)
+	if aper=='auto':
+		magk,fluxk,errk = 'MAG_AUTO','FLUX_AUTO','FLUXERR_AUTO'
+	elif aper=='psf':
+		magk,fluxk,errk = 'MAG_PSF','FLUX_PSF','FLUXERR_PSF'
+	else:
+		raise ValueError
 	for ccdNum in range(1,5):
 		catpath = os.path.join(bass.rdxdir,tile['utDate'],'ccdproc3',
 		                       tile['fileName']+'_ccd%d.cat.fits'%ccdNum)
@@ -335,28 +346,28 @@ def fake_sdss_stars_on_tile(stars,tile,
 		bokextract.sextract(fakeimpath,frompv=False,redo=True)
 		fakecat = fitsio.read(fakecatpath)
 		q1,q2 = srcorXY(fakex,fakey,fakecat['X_IMAGE'],fakecat['Y_IMAGE'],3.0)
-		snr = fakecat['FLUX_AUTO'][q2] / fakecat['FLUXERR_AUTO'][q2]
+		snr = fakecat[fluxk][q2] / fakecat[errk][q2]
 		fakemags[nresample*(ccdNum-1):nresample*ccdNum] = fakemag
 		fakesnr[nresample*(ccdNum-1):nresample*ccdNum][q1] = snr
 		if True:
-			zpt = np.median(cat['MAG_AUTO'][m2[jj]] - stars['psfMag_g'][ii[m1[jj]]])
+			zpt = np.median(cat[magk][m2[jj]] - stars['psfMag_g'][ii[m1[jj]]])
 			zpt -= 25
 			foo = np.where(fakemag[q1] < 22.3)[0]
-			offset = np.median((-2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt) - fakemag[q1[foo]])
+			offset = np.median((-2.5*np.log10(fakecat[fluxk][q2[foo]]) - zpt) - fakemag[q1[foo]])
 			print 'fake star mag offset is ',offset
 			fakemags[nresample*(ccdNum-1):nresample*ccdNum] += offset
 		if False:
 			print ' --------- ZERO POINT CHECK -----------'
-			print cat['MAG_AUTO'][m2[jj]][:10]
-			print -2.5*np.log10(cat['FLUX_AUTO'][m2[jj]])[:10] - zpt
+			print cat[magk][m2[jj]][:10]
+			print -2.5*np.log10(cat[fluxk][m2[jj]])[:10] - zpt
 			print stars['psfMag_g'][ii[m1]][:10]
-			print ( (-2.5*np.log10(cat['FLUX_AUTO'][m2[jj]])[:10] - zpt) - 
+			print ( (-2.5*np.log10(cat[fluxk][m2[jj]])[:10] - zpt) - 
 			            stars['psfMag_g'][ii[m1]][:10])
-			print -2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt
+			print -2.5*np.log10(fakecat[fluxk][q2[foo]]) - zpt
 			print fakemag[q1[foo]]
-			print ( (-2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt) - 
+			print ( (-2.5*np.log10(fakecat[fluxk][q2[foo]]) - zpt) - 
 			         fakemag[q1[foo]] )
-			print ( (-2.5*np.log10(fakecat['FLUX_AUTO'][q2[foo]]) - zpt) - 
+			print ( (-2.5*np.log10(fakecat[fluxk][q2[foo]]) - zpt) - 
 			         fakemag[q1[foo]] ).mean()
 			print snr[foo]
 			print 
@@ -492,4 +503,6 @@ if __name__=='__main__':
 		fake_ndwfs_stars()
 	elif sys.argv[1]=='photo_info':
 		get_phototiles_info()
+	else:
+		raise ValueError
 
