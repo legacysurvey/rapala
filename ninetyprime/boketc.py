@@ -5,11 +5,11 @@ from math import sqrt,pi
 # extinction parameters
 k_ext = {'g':0.17,'r':0.10}
 A_ext = {'g':3.303,'r':2.285}
-#r_half = 0.45
-r_half = 0.35
 
 # DESI parameters
 mag_lim = {'g':24.0,'r':23.6}
+r_half = 0.45
+#r_half = 0.35
 
 # Bok parameters
 p = 0.455
@@ -80,6 +80,7 @@ def snr_singleexposure(band,mag,texp,**kwargs):
 def texp_onsky(band,airmass,ebv,mag=None,**kwargs):
 	if mag is None:
 		mag = mag_lim[band]
-	mag += k_ext[band]*airmass + A_ext[band]*ebv
+	# zero point is defined at AM=1
+	mag += k_ext[band]*(airmass-1.0) + A_ext[band]*ebv
 	return targalt_eqn1(band,mag=mag,**kwargs)
 
