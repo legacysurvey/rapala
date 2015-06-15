@@ -4,6 +4,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import astropy.io.ascii as ascii_io
 import fitsio
 
 import bass
@@ -469,12 +470,23 @@ def get_phototiles_info():
 			     (t['utDate'],t['fileName'],airmass,ebv,fwhm,sky,zpt,exptime))
 	photinfof.close()
 
+def phototiles_stats():
+	gain = 1.375
+	pxscl = 0.455
+	k,A = 0.17,3.303
+	tiledat = ascii_io.read('photo_tiles_info.txt')
+	sky_ADUs = tiledat['skyADU'] / tiledat['texp'] 
+	sky_eps = sky_ADUs * gain 
+	sky_magasec2 = -2.5*np.log10(sky_ADUs*pxscl**-2) + tiledat['zpt']
+	print sky_ADUs.mean(),sky_eps.mean(),sky_magasec2.mean()
+	zp0 = tiledat['zpt'] - k*tiledat['airmass'] - A*tiledat['E(B-V)']
+	print zp0.mean()
+
 if __name__=='__main__':
 	import sys
 	if sys.argv[1]=='match_ndwfs':
 		match_ndwfs_stars()
 	elif sys.argv[1]=='match_cfhtlswide':
-		print 'here'
 		match_cfhtls_stars(survey='wide')
 	elif sys.argv[1]=='fake_ndwfs':
 		fake_ndwfs_stars()
