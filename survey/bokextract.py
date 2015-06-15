@@ -6,20 +6,27 @@ import subprocess
 
 from bass import rdxdir
 
-def sextract(imagepath,frompv=True,withpsf=True,redo=False):
+def sextract(imagepath,frompv=True,redo=False,
+             withpsf=True,redopsf=False,psfpath=None):
 	catpath = imagepath.replace('.fits','.cat.fits')
 	if not redo and os.path.exists(catpath):
 		print catpath,' exists; skipping'
 		return
 	_imagepath = imagepath.replace('.fits','_pv.fits') if frompv else imagepath
 	if withpsf:
-		ldaccatpath = catpath.replace('.cat','.ldac_cat')
-		psfpath = ldaccatpath.replace('.fits','.psf')
-		cmd = ['sex','-c','config/psfex.sex',
-		       '-CATALOG_NAME',ldaccatpath,_imagepath]
-		subprocess.call(cmd)
-		cmd = ['psfex','-c','config/default.psfex',ldaccatpath]
-		subprocess.call(cmd)
+		if psfpath is None:
+			ldaccatpath = catpath.replace('.cat','.ldac_cat')
+			psfpath = ldaccatpath.replace('.fits','.psf')
+		else:
+			ldaccatpath = psfpath.replace('.psf','.ldac_cat.fits')
+		if redopsf or not os.path.exists(psfpath):
+			cmd = ['sex','-c','config/psfex.sex',
+			       '-CATALOG_NAME',ldaccatpath,_imagepath]
+			subprocess.call(cmd)
+			cmd = ['psfex','-c','config/default.psfex',ldaccatpath]
+			subprocess.call(cmd)
+		else:
+			print 'using psf ',psfpath
 		cmd = ['sex','-c','config/default.sex',
 		       '-CATALOG_NAME',catpath,
 		       '-PSF_NAME',psfpath,_imagepath]

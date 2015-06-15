@@ -352,7 +352,9 @@ def fake_sdss_stars_on_tile(stars,tile,
 		fakeimpath = impath.replace('.fits','_fake.fits')
 		fakecatpath = fakeimpath.replace('.fits','.cat.fits')
 		fakeim.writeto(fakeimpath,clobber=True)
-		bokextract.sextract(fakeimpath,frompv=False,redo=True)
+		bokextract.sextract(fakeimpath,frompv=False,redo=True,
+		                    withpsf=True,redopsf=False,
+		                    psfpath=impath.replace('.fits','.ldac_cat.psf'))
 		fakecat = fitsio.read(fakecatpath)
 		q1,q2 = srcorXY(fakex,fakey,fakecat['X_IMAGE'],fakecat['Y_IMAGE'],3.0)
 		snr = fakecat[fluxk][q2] / fakecat[errk][q2]
@@ -389,6 +391,7 @@ def fake_sdss_stars_on_tile(stars,tile,
 	return fakemags,fakesnr
 
 def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
+	aper = kwargs.setdefault('aper','psf')
 	magrange = kwargs.setdefault('magrange',(22.0,23.4))
 	nbins = 5
 	medges = np.linspace(magrange[0],magrange[1],nbins+1)
@@ -397,7 +400,7 @@ def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
 	fakedir = '/global/scratch2/sd/imcgreer/fakes/'
 	stars = stars[(stars['psfMag_g']>grange[0])&(stars['psfMag_g']<grange[1])]
 	tiles = ndwfs_tiles(observed=True)
-	summaryf = open(fakedir+'fakestars_bytile.dat','w')
+	summaryf = open(fakedir+'fakestars_%s_bytile.dat' % aper,'w')
 	summaryf.write('# %4s %1s %8s ' % ('tile','D','utdate'))
 	for i in range(nbins):
 		summaryf.write('%6.3f ' % ((medges[i]+medges[i+1])/2))
@@ -405,8 +408,8 @@ def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
 	for ti,tile in enumerate(tiles):
 		print 'faking stars in tile %d/%d' % (ti+1,len(tiles))
 		mag,snr = fake_sdss_stars_on_tile(stars,tile,**kwargs)
-		np.savetxt(fakedir+'fakestars_%05d_%d_%s.dat' % 
-		           (tile['tileId'],tile['ditherId'],tile['utDate']),
+		np.savetxt(fakedir+'fakestars_%s_%05d_%d_%s.dat' % 
+		           (aper,tile['tileId'],tile['ditherId'],tile['utDate']),
 		           np.vstack([mag,snr]).transpose(),fmt='%8.3f')
 		summaryf.write(' %05d %1d %8s ' %
 		               (tile['tileId'],tile['ditherId'],tile['utDate']))
@@ -509,7 +512,11 @@ if __name__=='__main__':
 	elif sys.argv[1]=='match_cfhtlswide':
 		match_cfhtls_stars(survey='wide')
 	elif sys.argv[1]=='fake_ndwfs':
-		fake_ndwfs_stars()
+		if 'psf' in sys.argv[1] or len(sys.argv)==2:
+			aper = 'psf'
+		elif 'auto' in sys.argv[1]:
+			aper = 'auto'
+		fake_ndwfs_stars(aper=aper)
 	elif sys.argv[1]=='photo_info':
 		get_phototiles_info()
 	else:
