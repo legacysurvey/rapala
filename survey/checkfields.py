@@ -512,9 +512,9 @@ if __name__=='__main__':
 	elif sys.argv[1]=='match_cfhtlswide':
 		match_cfhtls_stars(survey='wide')
 	elif sys.argv[1]=='fake_ndwfs':
-		if 'psf' in sys.argv[1] or len(sys.argv)==2:
+		if len(sys.argv)==2 or 'psf' in sys.argv[2:]:
 			aper = 'psf'
-		elif 'auto' in sys.argv[1]:
+		elif 'auto' in sys.argv[2:]:
 			aper = 'auto'
 		fake_ndwfs_stars(aper=aper)
 	elif sys.argv[1]=='photo_info':
