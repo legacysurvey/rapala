@@ -441,6 +441,7 @@ def get_phototiles_info():
 			ref_ra = refcat['ra'][ii]
 			ref_dec = refcat['dec'][ii]
 			ref_mag = refcat['psfMag'][ii,1]
+			#ref_mag = refcat['psfMag'][ii,1] - A_ext['g']*refcat['E(B-V)'][ii]
 		else:
 			refcat = fitsio.read(bootes_sdss_starfile)
 			ii = np.where((refcat['psfMag_g']>16) & 
@@ -448,6 +449,7 @@ def get_phototiles_info():
 			ref_ra = refcat['ra'][ii]
 			ref_dec = refcat['dec'][ii]
 			ref_mag = refcat['psfMag_g'][ii]
+			#ref_mag = refcat['psfMag_g'][ii] - refcat['extinction_g'][ii]
 		for tj,t in enumerate(tiles):
 			if t['ditherId'] != 1:
 				continue
@@ -493,17 +495,32 @@ def get_phototiles_info():
 			     (t['utDate'],t['fileName'],airmass,ebv,fwhm,sky,zpt,exptime))
 	photinfof.close()
 
-def phototiles_stats():
-	gain = 1.375
-	pxscl = 0.455
-	k,A = 0.17,3.303
+def phototiles_stats(doplots=True):
+	import boketc
+	gain = boketc.G
+	pxscl = boketc.p
+	k = boketc.k_ext['g']
+	A = boketc.A_ext['g']
 	tiledat = ascii_io.read('photo_tiles_info.txt')
 	sky_ADUs = tiledat['skyADU'] / tiledat['texp'] 
 	sky_eps = sky_ADUs * gain 
 	sky_magasec2 = -2.5*np.log10(sky_ADUs*pxscl**-2) + tiledat['zpt']
 	print sky_ADUs.mean(),sky_eps.mean(),sky_magasec2.mean()
-	zp0 = tiledat['zpt'] - k*tiledat['airmass'] - A*tiledat['E(B-V)']
+	zp0 = tiledat['zpt'] - k*(tiledat['airmass']-1) #- A*tiledat['E(B-V)']
 	print zp0.mean()
+	fwhm_asec = tiledat['FWHMpix'] * pxscl
+	if doplots:
+		fig = plt.figure(figsize=(8,6))
+		ax1 = plt.subplot(2,2,1)
+		ax1.hist(zp0)
+		#ax1.axvline(boketc.bok_zpt0_am00['g'],c='r',lw=2)
+		ax1.axvline(boketc.bok_zpt0_am10['g'],c='r',lw=2)
+		ax1 = plt.subplot(2,2,2)
+		ax1.hist(sky_magasec2)
+		ax1.axvline(boketc.kpno_sky_lun0['g'],c='r',lw=2)
+		ax1 = plt.subplot(2,2,3)
+		ax1.hist(fwhm_asec)
+		ax1.axvline(boketc.bok_medianFWHM['g'],c='r',lw=2)
 
 if __name__=='__main__':
 	import sys
