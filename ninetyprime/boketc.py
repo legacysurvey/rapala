@@ -8,8 +8,7 @@ A_ext = {'g':3.303,'r':2.285}
 
 # DESI parameters
 mag_lim = {'g':24.0,'r':23.6}
-r_half = 0.45
-#r_half = 0.35
+default_r_half = 0.45
 
 # Bok parameters
 p = 0.455
@@ -22,7 +21,8 @@ bok_zpt0_am00 = {k: v-k_ext[k]*1.3 for k,v in bok_zpt0_am13.items()}
 kpno_sky_lun0 = {'g':22.10,'r':21.07}
 
 def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
-	            profile='exponential',verbose=False,tablezpt=False):
+	            profile='exponential',tablezpt=False,r_half=default_r_half,
+	            verbose=False):
 	if mag is None:
 		mag = mag_lim[band]
 	if zpt0 is None:
@@ -55,7 +55,7 @@ def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
 		            (f0,skyflux,sig_sky,NEA,WNEG*p)
 	return f0,skyflux,sig_sky,NEA,sig_readout
 
-def targalt_eqn1(band,SNR=6.,ndith=3,**kwargs):
+def targalt_eqn1(band,SNR=5.,ndith=3,**kwargs):
 	f0,skyflux,sig_sky,NEA,sig_readout = _exp_config(band,**kwargs)
 	#
 	T_exp = SNR**2 * NEA * (sig_sky/f0)**2 * \
@@ -67,6 +67,10 @@ def targalt_eqn1(band,SNR=6.,ndith=3,**kwargs):
 		print 'sky counts: %.1f e-  %.1f ADU' % (skyflux*T_exp,skyflux*T_exp/G)
 	return T_exp
 
+def targalt_verify(band):
+	targalt_eqn1(band,SNR=6.,r_half=0.35,tablezpt=True,
+	             fwhm=1.74,profile='gaussian',verbose=True)
+
 def snr_singleexposure(band,mag,texp,**kwargs):
 	f0,skyflux,sig_sky,NEA,sig_readout = _exp_config(band,mag=mag,**kwargs)
 	snr = ( f0*texp / 
@@ -77,10 +81,12 @@ def snr_singleexposure(band,mag,texp,**kwargs):
 		print 'sky counts: %.1f e-  %.1f ADU' % (skyflux*texp,skyflux*texp/G)
 	return snr
 
-def texp_onsky(band,airmass,ebv,mag=None,**kwargs):
+def texp_onsky(band,airmass,ebv,skyextinction,mag=None,**kwargs):
+	''' skyextinction is defined in magnitudes, i.e., zeropoint-zp0 
+	      and thus is ~ -2.5log(transparency) '''
 	if mag is None:
 		mag = mag_lim[band]
 	# zero point is defined at AM=1
-	mag += k_ext[band]*(airmass-1.0) + A_ext[band]*ebv
+	mag += k_ext[band]*(airmass-1.0) + A_ext[band]*ebv + skyextinction
 	return targalt_eqn1(band,mag=mag,**kwargs)
 
