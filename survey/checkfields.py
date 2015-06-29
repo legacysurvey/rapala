@@ -424,11 +424,76 @@ def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
 
 
 
+def ndwfs_sdss_matches():
+	''' for checking linearity '''
+	import boklog
+	stars = fitsio.read('/global/scratch2/sd/imcgreer/ndwfs/sdss_bootes_gstars.fits')
+	logs = boklog.load_Bok_logs('./logs/')
+	tiles = ndwfs_tiles(observed=True)
+	tiledb = bass.load_tiledb()
+	tid = np.array([int(tid) for tid in tiledb['TID']])
+	i1 = 0
+	m = np.zeros(1e5,dtype=[('sdss_id','i4'),('sdss_g_mag','f4'),
+	                        ('bass_g_mag','f4'),('bass_g_err','f4'),
+                            ('bass_expTime','f4'),('bass_skyADU','f4'),
+	                        ('bass_airmass','f4'),('bass_ebv','f4'),
+	                        ('bass_ccdNum','i4'),('bass_ditherId','i4'),
+	                        ('bass_fluxMax','f4'),('bass_FWHM','f4')])
+	for ti,tile in enumerate(tiles):
+		print 'tile %d/%d [%d]' % (ti+1,len(tiles),i1)
+		for ccdNum in range(1,5):
+			impath = os.path.join(bass.rdxdir,tile['utDate'],'ccdproc3',
+			                      tile['fileName']+'_ccd%d.fits'%ccdNum)
+			if not os.path.exists(impath):
+				print ' ... %s does not exist, skipping' % impath
+				continue
+			h = fitsio.read_header(impath)
+			sky = h['SKYVAL']
+			catpath = os.path.join(bass.rdxdir,tile['utDate'],'ccdproc3',
+			                       tile['fileName']+'_ccd%d.cat.fits'%ccdNum)
+			if not os.path.exists(catpath):
+				print ' ... %s does not exist, skipping' % catpath
+				continue
+			cat = fitsio.read(catpath)
+			ii = np.where( (stars['ra']>cat['ALPHA_J2000'].min()+3e-3) &
+			               (stars['ra']<cat['ALPHA_J2000'].max()-3e-3) &
+			               (stars['dec']>cat['DELTA_J2000'].min()+3e-3) &
+			               (stars['dec']<cat['DELTA_J2000'].max()-3e-3) )[0]
+			if len(ii)==0:
+				print 'no stars found on ccd #',ccdNum
+				continue
+			m1,m2 = srcor(stars['ra'][ii],stars['dec'][ii],
+			              cat['ALPHA_J2000'],cat['DELTA_J2000'],2.5)
+			jj = np.where(cat['FLAGS'][m2] == 0)[0]
+			i2 = i1 + len(jj)
+			m['sdss_id'][i1:i2] = ii[m1[jj]]
+			m['sdss_g_mag'][i1:i2] = stars['psfMag_g'][ii[m1[jj]]]
+			m['bass_g_mag'][i1:i2] = cat['MAG_PSF'][m2[jj]]
+			m['bass_g_err'][i1:i2] = cat['MAGERR_PSF'][m2[jj]]
+			m['bass_fluxMax'][i1:i2] = cat['FLUX_MAX'][m2[jj]]
+			m['bass_FWHM'][i1:i2] = np.median(cat['FWHM_IMAGE'][m2[jj]])
+			m['bass_expTime'][i1:i2] = tile['expTime']
+			i = np.where(logs[tile['utDate']]['fileName'] ==
+			                tile['fileName'])[0][0]
+			m['bass_airmass'][i1:i2] = logs[tile['utDate']]['airmass'][i]
+			m['bass_ebv'][i1:i2] = tiledb['EBV'][tid==tile['tileId']][0]
+			m['bass_ccdNum'][i1:i2] = ccdNum
+			m['bass_ditherId'][i1:i2] = tile['ditherId']
+			m['bass_skyADU'][i1:i2] = sky
+			i1 = i2
+	m = m[:i1]
+	outdir = '/project/projectdirs/cosmo/staging/bok/ian/'
+	fitsio.write(outdir+'ndwfs_sdss.fits',m,clobber=True)
+
+
+
+
 
 def get_phototiles_info():
 	import boklog
 	logs = boklog.load_Bok_logs('./logs/')
 	tiledb = bass.load_tiledb()
+	tid = np.array([int(tid) for tid in tiledb['TID']])
 	ccdNum = 1
 	photinfof = open('photo_tiles_info.txt','w')
 	photinfof.write('# %6s %10s %7s %7s %7s %10s %8s %7s\n' %
@@ -454,7 +519,6 @@ def get_phototiles_info():
 			if t['ditherId'] != 1:
 				continue
 			# get E(B-V) from tile database
-			tid = np.array([int(tid) for tid in tiledb['TID']])
 			ebv = tiledb['EBV'][tid==t['tileId']][0]
 			# get conditions (airmass,exptime) from observing logs
 			try:
