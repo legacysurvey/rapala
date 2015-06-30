@@ -113,6 +113,8 @@ if __name__=='__main__':
 	                    help='object magnitude (AB) [default=nominal DESI 5sig limit]')
 	parser.add_argument('-z','--zeropoint',type=float,default=None,
 	                    help='zeropoint (AB) [default=nominal Bok]')
+	parser.add_argument('-Y','--exposuretime',type=float,default=None,
+	                    help='exposure time (s) [default=calculate SNR]')
 	args = parser.parse_args()
 	skyextinction = args.skyextinction
 	if skyextinction is None:
@@ -120,8 +122,14 @@ if __name__=='__main__':
 			skyextinction = -2.5*log10(args.transparency)
 		else:
 			skyextinction = 0.0
-	texp_onsky(args.band,args.airmass,args.ebv,skyextinction,
-	           sky=args.skybackground,fwhm=args.fwhm,SNR=args.signaltonoise,
-	           zpt0=args.zeropoint,mag=args.magnitude,
-	           verbose=True)
+	if args.exposuretime is not None:
+		snr_singleexposure(args.band,args.magnitude,args.exposuretime,
+		                   sky=args.skybackground,fwhm=args.fwhm,
+		                   zpt0=args.zeropoint,verbose=True)
+	else:
+		texp_onsky(args.band,args.airmass,args.ebv,skyextinction,
+		           SNR=args.signaltonoise,
+		           sky=args.skybackground,fwhm=args.fwhm,
+		           zpt0=args.zeropoint,mag=args.magnitude,
+		           verbose=True)
 
