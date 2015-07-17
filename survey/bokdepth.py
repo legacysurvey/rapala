@@ -59,6 +59,7 @@ def calc_sky_all():
 	tileList = []
 	statList = []
 	for ti,tile in enumerate(obsdb):
+		if (ti%10) != 0: continue # takes too long to do all of them
 		print 'tile %d/%d (%s)' % (ti+1,len(obsdb),tile['fileName'])
 		if tile['filter']=='g':
 			try:
@@ -73,12 +74,10 @@ def calc_sky_all():
 			except:
 				print 'skipping ',tile['fileName']
 				continue
-		if ti>5:
-			break
 	tileData = np.array(tileList,dtype=tile_dtype)
 	statData = np.concatenate(statList)
 	outfn = 'tile_stats.fits'
-	fitsio.write(outfn,tileData)
+	fitsio.write(outfn,tileData,clobber=True)
 	fitsio.write(outfn,statData)
 
 def calc_depth_tile(tile,**kwargs):
@@ -134,5 +133,6 @@ def strip_charts():
 	ax1.set_ylabel('g sky brightness [mag/asec2]')
 
 if __name__=='__main__':
-	calc_depth_all()
+	#calc_depth_all()
+	calc_sky_all()
 
