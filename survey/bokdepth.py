@@ -18,17 +18,68 @@ def _convertfitsreg(regstr):
 	rv[2] -= 1
 	return rv
 
-def calc_raw_image_background(imagepath,extNum,margin=800,bmargin=5):
-	data,hdr = fitsio.read(imagepath,ext=extNum,header=True)
+def colbias(imhdu,method='median',xmargin1=5,xmargin2=2,ymargin=10,**kwargs):
+	data = imhdu.read()
+	hdr = imhdu.read_header()
 	x1,x2,y1,y2 = _convertfitsreg(hdr['DATASEC'])
-	pix = data[y1+margin:y2-margin,x1+margin:x2-margin].astype(np.float32)
+	im = data[y1:y2,x1:x2].astype(np.float32)
 	x1,x2,y1,y2 = _convertfitsreg(hdr['BIASSEC'])
-	bias = data[y1+bmargin:y2-bmargin,x1+bmargin:x2-bmargin].astype(np.float32)
-	bias = np.median(bias)
-	pix -= bias
-	pix = sigma_clip(pix,iters=3)
-	return dict(medsky=np.ma.median(pix).filled(),meansky=np.ma.mean(pix),
-	            rmssky=np.ma.std(pix),bias=bias)
+	bias = data[y1:y2,x1:x2].astype(np.float32)
+	bias = sigma_clip(bias[ymargin:-ymargin,xmargin1:-xmargin2])
+	bias = np.ma.median(bias).filled()[0]
+	im -= bias
+	return im,bias
+
+def calc_raw_image_background(imagepath,extNum=None,**kwargs):
+	margin = kwargs.get('stat_margin',500)
+	stat_dtype = [('ampNum','i4'),('skyMean','f4'),('skyMedian','f4'),
+	               ('skyVar','f4'),('biasLevel','f4')]
+	fits = fitsio.FITS(imagepath)
+	if extNum is None:
+		extNums = range(1,17)
+	elif type(extNum) in [int,str]:
+		extNums = [extNum]
+	else:
+		extNums = extNum
+	rv = np.empty(len(extNums),dtype=stat_dtype)
+	for i,extn in enumerate(extNums):
+		im,bias = colbias(fits[extn],**kwargs)
+		pix = sigma_clip(im[margin:-margin,margin:-margin],iters=3)
+		extnum = int(fits[extn].get_extname().replace('IM','')) # "IM4"->4
+		rv['ampNum'][i] = int(extnum)
+		rv['skyMean'][i] = pix.mean()
+		rv['skyMedian'][i] = np.ma.median(pix)
+		rv['skyVar'][i] = pix.var()
+		rv['biasLevel'][i] = bias
+	return rv
+
+def calc_sky_all():
+	obsdb = bass.load_obsdb()
+	tile_dtype = [('utDate','S8'),('fileName','S12'),('expTime','f4')]
+	tileList = []
+	statList = []
+	for ti,tile in enumerate(obsdb):
+		print 'tile %d/%d (%s)' % (ti+1,len(obsdb),tile['fileName'])
+		if tile['filter']=='g':
+			try:
+				depthstat = calc_depth_tile(tile)
+				imagepath = os.path.join(bass.bass_data_dir,
+				                         tile['utDate'],
+				                         tile['fileName']+'.fits.gz')
+				imstat = calc_raw_image_background(imagepath)
+				tileList.append((tile['utDate'],tile['fileName'],
+				                 tile['expTime']))
+				statList.append(imstat)
+			except:
+				print 'skipping ',tile['fileName']
+				continue
+		if ti>5:
+			break
+	tileData = np.array(tileList,dtype=tile_dtype)
+	statData = np.concatenate(statList)
+	outfn = 'tile_stats.fits'
+	fitsio.write(outfn,tileData)
+	fitsio.write(outfn,statData)
 
 def calc_depth_tile(tile,**kwargs):
 	imagepath = os.path.join(bass.bass_data_dir,
