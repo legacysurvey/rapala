@@ -83,6 +83,13 @@ def calc_all_gain_rdnoise(nmax=5):
 			continue
 		flats = [os.path.join(datadir,utd,logs[utd]['fileName'][i]+'.fits.gz')
 		           for i in ii2]
+		if utd == '20150205':
+			# hack because this night had mixed readout modes
+			getims = lambda f1,f2: [os.path.join(datadir,'20150205',
+			                                     'd7058.%04d.fits.gz'%f)
+			                          for f in range(f1,f2+1)]
+			biases = getims(1,10)
+			flats = getims(51,60)
 		print 'utd: ',utd,len(ii1),len(ii2)
 		c = calc_gain_rdnoise(biases,flats)
 		n = c['gain'].shape[0]
@@ -90,8 +97,6 @@ def calc_all_gain_rdnoise(nmax=5):
 		fileData.extend([(utd,biasfn,flatfn) for biasfn,flatfn in
 		                        zip(logs[utd]['fileName'][ii1[:n]],
 		                            logs[utd]['fileName'][ii2[:n]])])
-		if utd=='20150109':
-			break
 	detData = np.concatenate(detData)
 	fileData = np.array(fileData,dtype=[('utDate','S8'),
 	                                 ('biasFn','S10'),('flatFn','S10')])
@@ -181,5 +186,5 @@ def plot_fastmode_analysis(det):
 
 
 if __name__=='__main__':
-	calc_all_gain_rdnoise()
+	calc_all_gain_rdnoise(10)
 
