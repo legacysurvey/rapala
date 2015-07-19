@@ -30,6 +30,27 @@ def colbias(imhdu,method='median',xmargin1=5,xmargin2=2,ymargin=10,**kwargs):
 	im -= bias
 	return im,bias
 
+def improcess(imhdu,extn=None,biasim=None,pixflatim=None,superskyim=None,
+              **kwargs):
+	im,bias = colbias(imhdu,**kwargs)
+	if biasim is not None:
+		im -= biasim[extn]
+	if pixflatim is not None:
+		im /= pixflatim[extn]
+	if superskyim is not None:
+		im /= superskyim[extn]
+	return im,bias
+
+def load_flat_im(fn):
+	pixflatim = fitsio.FITS(master_pixflat)
+	x1,x2,y1,y2 = 1024-npix2,1024+npix2,1008-npix2,1008+npix2
+	for i,extn in enumerate(extNums):
+		im = pixflatim[extn][:]
+		pix = sigma_clip(im[y1:y2,x1:x2],iters=2,sig=2.2)
+		im /= pix.mean()
+		print 'scaling ext ',extn,' by ',pix.mean()
+	return pixflatim
+
 def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 	margin = kwargs.get('stat_margin',500)
 	stat_dtype = [('ampNum','i4'),('skyMean','f4'),('skyMedian','f4'),
@@ -43,7 +64,7 @@ def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 		extNums = extNum
 	rv = np.empty(len(extNums),dtype=stat_dtype)
 	for i,extn in enumerate(extNums):
-		im,bias = colbias(fits[extn],**kwargs)
+		im,bias = improcess(fits[extn],extn,**kwargs)
 		pix = sigma_clip(im[margin:-margin,margin:-margin],iters=3)
 		extnum = int(fits[extn].get_extname().replace('IM','')) # "IM4"->4
 		rv['ampNum'][i] = int(extnum)
@@ -54,10 +75,15 @@ def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 	return rv
 
 def calc_sky_all():
+	datadir = os.environ['GSCRATCH']
+	master_pixflat = datadir+'/rmreduce/20150305/domeflat_g.fits'
+	master_supersky = datadir+'/rmreduce/20150305/superflt_g.fits'
 	obsdb = bass.load_obsdb()
 	tile_dtype = [('utDate','S8'),('fileName','S12'),('expTime','f4')]
 	tileList = []
 	statList = []
+	pixflatim = load_flat_im(master_pixflat)
+	#superskyim = fitsio.FITS(master_supersky)
 	for ti,tile in enumerate(obsdb):
 		if (ti%10) != 0: continue # takes too long to do all of them
 		print 'tile %d/%d (%s)' % (ti+1,len(obsdb),tile['fileName'])
@@ -67,7 +93,8 @@ def calc_sky_all():
 				imagepath = os.path.join(bass.bass_data_dir,
 				                         tile['utDate'],
 				                         tile['fileName']+'.fits.gz')
-				imstat = calc_raw_image_background(imagepath)
+				imstat = calc_raw_image_background(imagepath,
+				                                   pixflatim=pixflatim)
 				tileList.append((tile['utDate'],tile['fileName'],
 				                 tile['expTime']))
 				statList.append(imstat)
