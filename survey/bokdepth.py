@@ -91,8 +91,8 @@ def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 
 def calc_sky_all():
 	datadir = os.environ['GSCRATCH']
-	master_pixflat = datadir+'/rmreduce/20150305/domeflat_g.fits'
-	master_supersky = datadir+'/rmreduce/20150305/superflt_g.fits'
+	master_pixflat = datadir+'/rmreduce/20150315/domeflat_g.fits'
+	master_supersky = datadir+'/rmreduce/20150315/superflt_g.fits'
 	obsdb = bass.load_obsdb()
 	tile_dtype = [('utDate','S8'),('fileName','S12'),('expTime','f4')]
 	tileList = []
