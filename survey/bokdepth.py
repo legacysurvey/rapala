@@ -36,20 +36,35 @@ def improcess(imhdu,extn=None,biasim=None,pixflatim=None,superskyim=None,
 	if biasim is not None:
 		im -= biasim[extn]
 	if pixflatim is not None:
-		im /= pixflatim[extn]
+		im /= pixflatim[extn].data
 	if superskyim is not None:
 		im /= superskyim[extn]
 	return im,bias
 
-def load_flat_im(fn):
-	pixflatim = fitsio.FITS(master_pixflat)
+def load_flat_im(fn,npix2=100):
+	from astropy.io import fits
+	# fitsio doesn't like the way these files are written
+	#pixflatim = fitsio.FITS(fn)
+	pixflatim = fits.open(fn)
 	x1,x2,y1,y2 = 1024-npix2,1024+npix2,1008-npix2,1008+npix2
-	for i,extn in enumerate(extNums):
-		im = pixflatim[extn][:]
+	for extn in range(1,17):
+		im = pixflatim[extn].data
 		pix = sigma_clip(im[y1:y2,x1:x2],iters=2,sig=2.2)
 		im /= pix.mean()
 		print 'scaling ext ',extn,' by ',pix.mean()
 	return pixflatim
+
+def quickproc(fn,flatname,outfn,**kwargs):
+	from astropy.io import fits
+	pixflatim = load_flat_im(flatname)
+	imhdu = fitsio.FITS(fn)
+	hdul = [fits.PrimaryHDU()]
+	for extn in range(1,17):
+		im,bias = improcess(imhdu[extn],extn,pixflatim=pixflatim,**kwargs)
+		hdr = fits.getheader(fn,extn)
+		hdul.append(fits.ImageHDU(im,hdr))
+	f = fits.HDUList(hdul)
+	f.writeto(outfn,clobber=True)
 
 def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 	margin = kwargs.get('stat_margin',500)
