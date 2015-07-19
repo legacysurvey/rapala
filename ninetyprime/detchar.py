@@ -57,10 +57,12 @@ def get_BASS_datadir():
 		raise ValueError
 	return datadir
 
-def calc_all_gain_rdnoise(nmax=5):
+def calc_all_gain_rdnoise(nmax=5,
+                          logdir='../survey/logs/',datadir=None,fn='bass'):
 	import boklog
-	datadir = get_BASS_datadir()
-	logs = boklog.load_Bok_logs('../survey/logs/')
+	if datadir is None:
+		datadir = get_BASS_datadir()
+	logs = boklog.load_Bok_logs(logdir)
 	utds = sorted(logs.keys())
 	detData = []
 	fileData = []
@@ -100,8 +102,8 @@ def calc_all_gain_rdnoise(nmax=5):
 	detData = np.concatenate(detData)
 	fileData = np.array(fileData,dtype=[('utDate','S8'),
 	                                 ('biasFn','S10'),('flatFn','S10')])
-	fitsio.write('bok90_bass_char.fits',detData,clobber=True)
-	fitsio.write('bok90_bass_char.fits',fileData)
+	fitsio.write('bok90_%s_char.fits'%fn,detData,clobber=True)
+	fitsio.write('bok90_%s_char.fits'%fn,fileData)
 
 def fastreadout_analysis():
 	datadir = get_BASS_datadir()
@@ -186,5 +188,8 @@ def plot_fastmode_analysis(det):
 
 
 if __name__=='__main__':
-	calc_all_gain_rdnoise(10)
+	#calc_all_gain_rdnoise(10)
+	calc_all_gain_rdnoise(10,
+	    os.environ['HOME']+'/dev/SDSS-III/sdssrm/bokrm/logs/',
+	    os.environ['BOK90PRIMEOUTDIR'],'sdssrm')
 
