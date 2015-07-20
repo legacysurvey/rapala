@@ -33,8 +33,14 @@ def calc_gain_rdnoise(biases,flats,margin=500):
 			_B2 = bias2.mean()
 			_F1 = flat1.mean()
 			_F2 = flat2.mean()
-			varF1F2 = (flat1-flat2).var()
-			varB1B2 = (bias1-bias2).var()
+			try:
+				varF1F2 = (flat1-flat2).var()
+				varB1B2 = (bias1-bias2).var()
+			except:
+				# some images have wrong format...
+				data['gain'][0,ext-1] = -1
+				data['rdnoise'][0,ext-1] = -1
+				continue
 ###			print '%s %s %d %.1f %.1f %.1f %.1f %.1f %.1f %.1f' % (os.path.basename(files[0]),os.path.basename(files[1]),ext,_B1,_B2,_F1,_F2,varF1F2,varB1B2,varF1F2-varB1B2)
 			# equations from end of sec 4.3 (pg 73) of Howell 2006 
 			gain = ( (_F1 + _F2) - (_B1 + _B2) )  / (varF1F2 - varB1B2)
@@ -57,23 +63,29 @@ def get_BASS_datadir():
 		raise ValueError
 	return datadir
 
-def calc_all_gain_rdnoise(nmax=5,
-                          logdir='../survey/logs/',datadir=None,fn='bass'):
+def calc_all_gain_rdnoise(nmax=5,fn='bass'):
 	import boklog
-	if datadir is None:
+	if fn=='bass'
 		datadir = get_BASS_datadir()
-	logs = boklog.load_Bok_logs(logdir)
+		logs = boklog.load_Bok_logs('../survey/logs/')
+		dpfx = ''
+	else:
+		datadir = os.environ['BOK90PRIMERAWDIR']
+		logs = boklog.load_Bok_logs()
+		dpfx = 'ut'
 	utds = sorted(logs.keys())
 	detData = []
 	fileData = []
 	for utd in utds:
+		if utd=='20131222': continue # something amiss with these
 		# always skip the first three
 		ii1 = np.where(logs[utd]['imType']=='zero')[0][3:]
 		if len(ii1)>nmax:
 			ii1 = ii1[:nmax]
 		elif len(ii1)==0:
 			continue
-		biases = [os.path.join(datadir,utd,logs[utd]['fileName'][i]+'.fits.gz')
+		biases = [os.path.join(datadir,dpfx+utd,
+		                       logs[utd]['fileName'][i]+'.fits.gz')
 		           for i in ii1]
 		# always skip the first three
 		ii2 = np.where((logs[utd]['imType']=='flat') &
@@ -83,7 +95,8 @@ def calc_all_gain_rdnoise(nmax=5,
 			ii2 = ii2[:nmax]
 		elif len(ii2)==0:
 			continue
-		flats = [os.path.join(datadir,utd,logs[utd]['fileName'][i]+'.fits.gz')
+		flats = [os.path.join(datadir,dpfx+utd,
+		                      logs[utd]['fileName'][i]+'.fits.gz')
 		           for i in ii2]
 		if utd == '20150205':
 			# hack because this night had mixed readout modes
@@ -189,7 +202,5 @@ def plot_fastmode_analysis(det):
 
 if __name__=='__main__':
 	#calc_all_gain_rdnoise(10)
-	calc_all_gain_rdnoise(10,
-	    os.environ['HOME']+'/dev/SDSS-III/sdssrm/bokrm/logs/',
-	    os.environ['BOK90PRIMEOUTDIR'],'sdssrm')
+	calc_all_gain_rdnoise(10,'sdss')
 
