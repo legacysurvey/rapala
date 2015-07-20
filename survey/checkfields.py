@@ -426,9 +426,9 @@ def fake_ndwfs_stars(grange=(16.0,17.0),**kwargs):
 
 def ndwfs_sdss_matches():
 	''' for checking linearity '''
-	import boklog
+	import basslog
 	stars = fitsio.read('/global/scratch2/sd/imcgreer/ndwfs/sdss_bootes_gstars.fits')
-	logs = boklog.load_Bok_logs('./logs/')
+	logs = basslog.load_Bok_logs('./logs/')
 	tiles = ndwfs_tiles(observed=True)
 	tiledb = bass.load_tiledb()
 	tid = np.array([int(tid) for tid in tiledb['TID']])

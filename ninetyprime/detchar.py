@@ -64,12 +64,13 @@ def get_BASS_datadir():
 	return datadir
 
 def calc_all_gain_rdnoise(nmax=5,fn='bass'):
-	import boklog
 	if fn=='bass'
+		import basslog
 		datadir = get_BASS_datadir()
-		logs = boklog.load_Bok_logs('../survey/logs/')
+		logs = basslog.load_Bok_logs('../survey/logs/')
 		dpfx = ''
 	else:
+		import boklog
 		datadir = os.environ['BOK90PRIMERAWDIR']
 		logs = boklog.load_Bok_logs()
 		dpfx = 'ut'

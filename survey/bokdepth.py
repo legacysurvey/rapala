@@ -8,7 +8,10 @@ from matplotlib import ticker
 from astropy.stats import sigma_clip
 import astropy.io.ascii as ascii_io
 import fitsio
-import bass
+try:
+	import bass
+except ImportError:
+	pass
 
 def _convertfitsreg(regstr):
 	regpattern = r'\[(\d+):(\d+),(\d+):(\d+)\]'
@@ -81,7 +84,7 @@ def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 	for i,extn in enumerate(extNums):
 		im,bias = improcess(fits[extn],extn,**kwargs)
 		pix = sigma_clip(im[margin:-margin,margin:-margin],iters=3)
-		extnum = int(fits[extn].get_extname().replace('IM','')) # "IM4"->4
+		extnum = int(fits[extn].get_extname().upper().replace('IM','')) # "IM4"->4
 		rv['ampNum'][i] = int(extnum)
 		rv['skyMean'][i] = pix.mean()
 		rv['skyMedian'][i] = np.ma.median(pix)
@@ -90,16 +93,17 @@ def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 	return rv
 
 def calc_sky_all(survey='bass'):
-	import boklog
 	if survey=='bass':
+		import basslog
 		datadir = os.environ['GSCRATCH']
 		master_pixflat = datadir+'/rmreduce/20150315/domeflat_g.fits'
 		#master_supersky = datadir+'/rmreduce/20150315/superflt_g.fits'
-		logs = boklog.load_Bok_logs('logs/')
+		logs = basslog.load_Bok_logs('logs/')
 		dpfx = ''
 	else:
+		import boklog
 		datadir = os.environ['BOK90PRIMERAWDIR']
-		master_pixflat = datadir+'/rmreduce/20140315/domeflat_g.fits'
+		master_pixflat = os.environ['BOK90PRIMEOUTDIR']+'/ut20140315/domeflat_g.fits'
 		logs = boklog.load_Bok_logs()
 		dpfx = 'ut'
 	tile_dtype = [('utDate','S8'),('fileName','S12'),('expTime','f4')]
@@ -107,6 +111,7 @@ def calc_sky_all(survey='bass'):
 	statList = []
 	pixflatim = load_flat_im(master_pixflat)
 	#superskyim = fitsio.FITS(master_supersky)
+	utds = sorted(logs.keys())
 	for utd in utds:
 		ii = np.where((logs[utd]['imType']=='object') &
 		              (logs[utd]['expTime']>30.0) &
@@ -117,17 +122,15 @@ def calc_sky_all(survey='bass'):
 			tile = logs[utd][i]
 			print '[%s] tile %d/%d (%s)' % (utd,_i+1,len(ii),tile['fileName'])
 			try:
-				imagepath = os.path.join(datadir,dpfx+tile['utDate'],
+				imagepath = os.path.join(datadir,dpfx+utd,
 				                         tile['fileName']+'.fits.gz')
 				imstat = calc_raw_image_background(imagepath,
 				                                   pixflatim=pixflatim)
-				tileList.append((tile['utDate'],tile['fileName'],
-				                 tile['expTime']))
+				tileList.append((utd,tile['fileName'],tile['expTime']))
 				statList.append(imstat)
 			except:
 				print 'skipping ',tile['fileName']
 				continue
-		break
 	tileData = np.array(tileList,dtype=tile_dtype)
 	statData = np.concatenate(statList)
 	outfn = 'tile_stats_%s.fits' % survey
