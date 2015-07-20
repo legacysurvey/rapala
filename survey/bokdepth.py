@@ -89,24 +89,35 @@ def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 		rv['biasLevel'][i] = bias
 	return rv
 
-def calc_sky_all():
-	datadir = os.environ['GSCRATCH']
-	master_pixflat = datadir+'/rmreduce/20150315/domeflat_g.fits'
-	master_supersky = datadir+'/rmreduce/20150315/superflt_g.fits'
-	obsdb = bass.load_obsdb()
+def calc_sky_all(survey='bass'):
+	import boklog
+	if survey=='bass':
+		datadir = os.environ['GSCRATCH']
+		master_pixflat = datadir+'/rmreduce/20150315/domeflat_g.fits'
+		#master_supersky = datadir+'/rmreduce/20150315/superflt_g.fits'
+		logs = boklog.load_Bok_logs('logs/')
+		dpfx = ''
+	else:
+		datadir = os.environ['BOK90PRIMERAWDIR']
+		master_pixflat = datadir+'/rmreduce/20140315/domeflat_g.fits'
+		logs = boklog.load_Bok_logs()
+		dpfx = 'ut'
 	tile_dtype = [('utDate','S8'),('fileName','S12'),('expTime','f4')]
 	tileList = []
 	statList = []
 	pixflatim = load_flat_im(master_pixflat)
 	#superskyim = fitsio.FITS(master_supersky)
-	for ti,tile in enumerate(obsdb):
-		if (ti%10) != 0: continue # takes too long to do all of them
-		print 'tile %d/%d (%s)' % (ti+1,len(obsdb),tile['fileName'])
-		if tile['filter']=='g':
+	for utd in utds:
+		ii = np.where((logs[utd]['imType']=='object') &
+		              (logs[utd]['expTime']>30.0) &
+		              (logs[utd]['filter']=='g'))[0]
+		# takes too long to do all of them
+		stride = 10 if survey=='bass' else 1
+		for _i,i in enumerate(ii[::stride]):
+			tile = logs[utd][i]
+			print '[%s] tile %d/%d (%s)' % (utd,_i+1,len(ii),tile['fileName'])
 			try:
-				depthstat = calc_depth_tile(tile)
-				imagepath = os.path.join(bass.bass_data_dir,
-				                         tile['utDate'],
+				imagepath = os.path.join(datadir,dpfx+tile['utDate'],
 				                         tile['fileName']+'.fits.gz')
 				imstat = calc_raw_image_background(imagepath,
 				                                   pixflatim=pixflatim)
@@ -116,9 +127,10 @@ def calc_sky_all():
 			except:
 				print 'skipping ',tile['fileName']
 				continue
+		break
 	tileData = np.array(tileList,dtype=tile_dtype)
 	statData = np.concatenate(statList)
-	outfn = 'tile_stats.fits'
+	outfn = 'tile_stats_%s.fits' % survey
 	fitsio.write(outfn,tileData,clobber=True)
 	fitsio.write(outfn,statData)
 
@@ -176,5 +188,6 @@ def strip_charts():
 
 if __name__=='__main__':
 	#calc_depth_all()
-	calc_sky_all()
+	#calc_sky_all()
+	calc_sky_all('sdssrm')
 
