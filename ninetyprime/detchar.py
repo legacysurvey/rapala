@@ -64,7 +64,7 @@ def get_BASS_datadir():
 	return datadir
 
 def calc_all_gain_rdnoise(nmax=5,fn='bass'):
-	if fn=='bass'
+	if fn=='bass':
 		import basslog
 		datadir = get_BASS_datadir()
 		logs = basslog.load_Bok_logs('../survey/logs/')
@@ -118,6 +118,52 @@ def calc_all_gain_rdnoise(nmax=5,fn='bass'):
 	                                 ('biasFn','S10'),('flatFn','S10')])
 	fitsio.write('bok90_%s_char.fits'%fn,detData,clobber=True)
 	fitsio.write('bok90_%s_char.fits'%fn,fileData)
+
+def linearity_check():
+	import basslog
+	from bokdepth import colbias
+	datadir = get_BASS_datadir()
+	logs = basslog.load_Bok_logs('../survey/logs/')
+	flatlist = [('20150112',1.0),('20150112',2.0),
+		        ('20150115',0.6),('20150115',2.0),
+		        ('20150205',0.2),('20150205',3.0)]
+	ims = []
+	for utd,texp in flatlist:
+		ii = np.where((logs[utd]['imType']=='flat') &
+		               (np.abs(logs[utd]['expTime']-texp)<0.1) &
+		               (logs[utd]['filter']=='g'))[0]
+		if utd=='20150115' and texp==2.0:
+			ii = ii[10:20] # skips over some bad file
+		else:
+			ii = ii[:10]
+		files = []
+		for i in ii:
+			f = fitsio.FITS(os.path.join(datadir,utd,
+		                                  logs[utd]['fileName'][i]+'.fits.gz'))
+			files.append(f)
+		data = []
+		for ext in range(1,17):
+			extdata = [ colbias(f[ext])[0][512:1536,512:1536] for f in files ]
+			extdata = np.dstack(extdata)
+			data.append(extdata)
+		data = np.rollaxis(np.array(data),0,4)
+		data = np.median(data,axis=-2)
+		ims.append(data)
+	ims = np.rollaxis(np.array(ims),0,4)
+	fratio = ims[...,1::2] / ims[...,::2]
+	fratio = fratio.reshape(-1,16,fratio.shape[-1])
+	exptimes = np.array([f[1] for f in flatlist])
+	expratio = exptimes[1::2]/exptimes[::2]
+	outf = open('bok_linearity.dat','w')
+	mfratio = np.mean(fratio,axis=0)
+	sfratio = np.std(fratio,axis=0)
+	for i in range(len(expratio)):
+		outf.write('# %.1f %.1f %.1f %.1f\n' % (exptimes[2*i],exptimes[2*i+1],
+	                                            ims[...,2*i].mean(),
+	                                            ims[...,2*i+1].mean()))
+		for j in range(16):
+			outf.write('%.3f %.3f\n' % (mfratio[j,i],sfratio[j,i]))
+	outf.close()
 
 def fastreadout_analysis():
 	datadir = get_BASS_datadir()
@@ -203,5 +249,6 @@ def plot_fastmode_analysis(det):
 
 if __name__=='__main__':
 	#calc_all_gain_rdnoise(10)
-	calc_all_gain_rdnoise(10,'sdss')
+	#calc_all_gain_rdnoise(10,'sdss')
+	linearity_check()
 
