@@ -9,6 +9,7 @@ except:
 from astropy.stats import sigma_clip
 
 import matplotlib.pyplot as plt
+from matplotlib import ticker
 
 def _data2arr(data,minVal=0,maxVal=65335):
 	return np.ma.masked_array(data.astype(np.float32),
@@ -133,9 +134,11 @@ def linearity_check():
 		               (np.abs(logs[utd]['expTime']-texp)<0.1) &
 		               (logs[utd]['filter']=='g'))[0]
 		if utd=='20150115' and texp==2.0:
-			ii = ii[10:20] # skips over some bad file
+			ii = ii[10:20] # skips over some bad files
 		else:
 			ii = ii[:10]
+		# now account for alternating shutter speed problem
+		ii = ii[::2]
 		files = []
 		for i in ii:
 			f = fitsio.FITS(os.path.join(datadir,utd,
@@ -164,6 +167,41 @@ def linearity_check():
 		for j in range(16):
 			outf.write('%.3f %.3f\n' % (mfratio[j,i],sfratio[j,i]))
 	outf.close()
+
+ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
+
+def plot_linearity_check():
+	h = [l[2:].strip().split() for l in open('bok_linearity.dat').readlines() 
+	           if l.startswith('#')]
+	h = np.array(h).astype(float)
+	expratio = h[:,1]/h[:,0]
+	l = np.loadtxt('bok_linearity.dat').reshape(3,16,2)
+	plt.figure(figsize=(6,6.5))
+	plt.subplots_adjust(0.14,0.09,0.98,0.98,0.25,0.16)
+	for i in range(3):
+		ax = plt.subplot(3,1,i+1)
+		jj = np.argsort(ampOrder)
+		plt.errorbar(1+np.arange(16),l[i,jj,0],l[i,jj,1],fmt='bs')
+		plt.axhline(np.mean(l[i,:,0]),c='r')
+		plt.axhline(expratio[i],c='g')
+		ax.text(0.03,0.05,
+		        r'$t_1=%.1f,\ \ t_2=%.1f,\ \ counts_1=%d,\ \ counts_2=%d$' %
+		        tuple(h[i]),size=11,transform=ax.transAxes)
+		ax.text(0.95,0.95,r'counts ratio / exptime ratio = %.3f' %
+		        (np.mean(l[i,:,0])/expratio[i]),size=11,ha='right',va='top',
+		        transform=ax.transAxes)
+		ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+		if i<=1:
+			ax.yaxis.set_major_locator(ticker.MultipleLocator(0.05))
+			ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.01))
+		else:
+			ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))
+			ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+		plt.xlim(0.1,16.9)
+		plt.ylim(0.93*expratio[i],1.03*expratio[i])
+	plt.figtext(0.02,0.5,'mean ratio of flats',size=14,
+	         ha='left',va='center',rotation='vertical')
+	plt.figtext(0.5,0.02,'amplifier number',size=14,ha='center',va='bottom')
 
 def fastreadout_analysis():
 	datadir = get_BASS_datadir()
