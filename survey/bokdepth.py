@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import os
-import re
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import ticker
@@ -13,36 +12,7 @@ try:
 except ImportError:
 	pass
 
-def _convertfitsreg(regstr):
-	regpattern = r'\[(\d+):(\d+),(\d+):(\d+)\]'
-	rv =  [ int(d) for d in  re.match(regpattern,regstr).groups() ]
-	# FITS region indices are 1-indexed
-	rv[0] -= 1
-	rv[2] -= 1
-	return rv
-
-def colbias(imhdu,method='median',xmargin1=5,xmargin2=2,ymargin=10,**kwargs):
-	data = imhdu.read()
-	hdr = imhdu.read_header()
-	x1,x2,y1,y2 = _convertfitsreg(hdr['DATASEC'])
-	im = data[y1:y2,x1:x2].astype(np.float32)
-	x1,x2,y1,y2 = _convertfitsreg(hdr['BIASSEC'])
-	bias = data[y1:y2,x1:x2].astype(np.float32)
-	bias = sigma_clip(bias[ymargin:-ymargin,xmargin1:-xmargin2])
-	bias = np.ma.median(bias).filled()[0]
-	im -= bias
-	return im,bias
-
-def improcess(imhdu,extn=None,biasim=None,pixflatim=None,superskyim=None,
-              **kwargs):
-	im,bias = colbias(imhdu,**kwargs)
-	if biasim is not None:
-		im -= biasim[extn]
-	if pixflatim is not None:
-		im /= pixflatim[extn].data
-	if superskyim is not None:
-		im /= superskyim[extn]
-	return im,bias
+from ninetyprime import improcess
 
 def load_flat_im(fn,npix2=100):
 	from astropy.io import fits

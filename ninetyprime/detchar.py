@@ -8,6 +8,8 @@ except:
 	from astropy.io import fits
 from astropy.stats import sigma_clip
 
+from ninetyprime import ampOrder,colbias
+
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
@@ -122,36 +124,48 @@ def calc_all_gain_rdnoise(nmax=5,fn='bass'):
 
 def linearity_check():
 	import basslog
-	from bokdepth import colbias
 	datadir = get_BASS_datadir()
 	logs = basslog.load_Bok_logs('../survey/logs/')
 	flatlist = [('20150112',1.0),('20150112',2.0),
 		        ('20150115',0.6),('20150115',2.0),
 		        ('20150205',0.2),('20150205',3.0)]
+	logf = open('linearity_check_list.txt','w')
 	ims = []
 	for utd,texp in flatlist:
+		print utd,texp
 		ii = np.where((logs[utd]['imType']=='flat') &
 		               (np.abs(logs[utd]['expTime']-texp)<0.1) &
 		               (logs[utd]['filter']=='g'))[0]
+		ii = ii[1:] # skip the first one
 		if utd=='20150115' and texp==2.0:
 			ii = ii[10:20] # skips over some bad files
 		else:
-			ii = ii[:10]
-		# now account for alternating shutter speed problem
-		ii = ii[::2]
+			ii = ii[:10] # limit to 10
 		files = []
 		for i in ii:
 			f = fitsio.FITS(os.path.join(datadir,utd,
 		                                  logs[utd]['fileName'][i]+'.fits.gz'))
 			files.append(f)
+			logf.write('%s %s %.1f\n' % (utd,logs[utd]['fileName'][i],texp))
 		data = []
 		for ext in range(1,17):
 			extdata = [ colbias(f[ext])[0][512:1536,512:1536] for f in files ]
 			extdata = np.dstack(extdata)
 			data.append(extdata)
-		data = np.rollaxis(np.array(data),0,4)
-		data = np.median(data,axis=-2)
+		data = np.rollaxis(np.array(data),0,3)
+		# this was to look for the alternating shutter speed effect, but it
+		# doesn't seem to show up...
+		perimage = data.reshape(1024**2,16,-1)
+		print np.median(perimage,axis=0)
+		# force it to be an even number
+		perimage = perimage[...,:(perimage.shape[-1]//2)*2]
+		pair_ratio = perimage[...,1::2]/perimage[...,::2]
+		pair_ratio = np.median(pair_ratio,axis=0)
+		pair_ratio = pair_ratio.mean(axis=0)
+		print pair_ratio
+		data = np.median(data,axis=-1)
 		ims.append(data)
+		print
 	ims = np.rollaxis(np.array(ims),0,4)
 	fratio = ims[...,1::2] / ims[...,::2]
 	fratio = fratio.reshape(-1,16,fratio.shape[-1])
@@ -167,8 +181,7 @@ def linearity_check():
 		for j in range(16):
 			outf.write('%.3f %.3f\n' % (mfratio[j,i],sfratio[j,i]))
 	outf.close()
-
-ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
+	logf.close()
 
 def plot_linearity_check():
 	h = [l[2:].strip().split() for l in open('bok_linearity.dat').readlines() 
@@ -202,6 +215,35 @@ def plot_linearity_check():
 	plt.figtext(0.02,0.5,'mean ratio of flats',size=14,
 	         ha='left',va='center',rotation='vertical')
 	plt.figtext(0.5,0.02,'amplifier number',size=14,ha='center',va='bottom')
+
+def bias_check():
+	import basslog
+	datadir = get_BASS_datadir()
+	logs = basslog.load_Bok_logs('../survey/logs/')
+	dtype = [('utDate','S8'),('fileName','S30'),('oscanMean','f4',16),
+	         ('meanResidual','f4',16),('rmsResidual','f4',16)]
+	biaslog = []
+	for utd in sorted(logs.keys()):
+		ii = np.where(logs[utd]['imType']=='zero')[0]
+		print utd,len(ii)
+		for i in ii:
+			f = fitsio.FITS(os.path.join(datadir,utd,
+		                                  logs[utd]['fileName'][i]+'.fits.gz'))
+			biasent = np.zeros(1,dtype=dtype)
+			biasent['utDate'] = utd
+			biasent['fileName'] = logs[utd]['fileName'][i]
+			for ext in range(1,17):
+				try:
+					im,bias = colbias(f[ext])
+				except:
+					continue
+				bias_residual = sigma_clip(im[512:1536,512:1536])
+				biasent['oscanMean'][0,ext-1] = bias
+				biasent['meanResidual'][0,ext-1] = bias_residual.mean()
+				biasent['rmsResidual'][0,ext-1] = bias_residual.std()
+			biaslog.append(biasent)
+	biaslog = np.concatenate(biaslog)
+	fitsio.write('bass_bias_log.fits',biaslog,clobber=True)
 
 def fastreadout_analysis():
 	datadir = get_BASS_datadir()
@@ -288,5 +330,6 @@ def plot_fastmode_analysis(det):
 if __name__=='__main__':
 	#calc_all_gain_rdnoise(10)
 	#calc_all_gain_rdnoise(10,'sdss')
-	linearity_check()
+	#linearity_check()
+	bias_check()
 
