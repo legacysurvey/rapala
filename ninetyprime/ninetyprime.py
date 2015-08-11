@@ -4,6 +4,8 @@ import re
 import numpy as np
 from astropy.stats import sigma_clip
 
+nX,nY = 4032,4096
+
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
 

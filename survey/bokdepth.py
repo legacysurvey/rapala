@@ -12,7 +12,7 @@ try:
 except ImportError:
 	pass
 
-from ninetyprime import improcess
+from ninetyprime import nX,nY,improcess
 
 def load_flat_im(fn,npix2=100):
 	from astropy.io import fits
@@ -38,6 +38,50 @@ def quickproc(fn,flatname,outfn,**kwargs):
 		hdul.append(fits.ImageHDU(im,hdr))
 	f = fits.HDUList(hdul)
 	f.writeto(outfn,clobber=True)
+
+def make_PSFEx_psf(psfdata,hdr,x_im,y_im):
+	assert (hdr['POLNAME1'].strip()=='X_IMAGE' and 
+	        hdr['POLNAME2'].strip()=='Y_IMAGE')
+	x = (x_im - hdr['POLZERO1'])/hdr['POLSCAL1']
+	y = (y_im - hdr['POLZERO2'])/hdr['POLSCAL2']
+	deg = hdr['POLDEG1']
+	terms = np.array([ y**i * x**j 
+	                     for i in range(deg+1) 
+	                      for j in range(deg+1) 
+	                       if (i+j)<=deg ])
+	psfim = psfdata['PSF_MASK'].squeeze() * terms[:,np.newaxis,np.newaxis]
+	return psfim.sum(axis=0)
+
+def make_PSFEx_psf_fromfile(psfimf,x_im,y_im):
+	'''Given a PSFEx psf file and an (x,y) position on an image, return
+	   the corresponding PSF model at that position.
+	'''
+	psfdata,hdr = fitsio.read(psfimf,header=True)
+	return make_PSFEx_psf(psfdata,hdr,x_im,y_im)
+
+def calc_PSF_NEA_grid(psfimf,npts=16):
+	'''Given a PSFEx psf file, calculate the Noise Effective Area from the
+	   profile weights across a grid of image positions. 'npts' determines
+	   the resolution of the grid.
+	'''
+	nea = np.empty((npts,npts))
+	psfdata,hdr = fitsio.read(psfimf,header=True)
+	for i in range(npts):
+		y = npts/2 + i*(nY//npts)
+		for j in range(npts):
+			x = npts/2 + j*(nX//npts)
+			p = make_PSFEx_psf(psfdata,hdr,x,y)
+			p /= p.sum()
+			nea[i,j] = np.sum(p**2)**-1
+	return nea
+
+def plot_NEA_images(psfimfs,axes=None,npts=16):
+	if axes is None:
+		plt.figure()
+		axes = [plt.subplot(2,2,pnum) for pnum in range(1,5)]
+	for ax,ccdNum,psfimf in zip(axes,[1,3,2,4],psfimfs):
+		nea = calc_PSF_NEA_grid(psfimf,npts=npts)
+		ax.imshow(nea,origin='lower')
 
 def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 	margin = kwargs.get('stat_margin',500)
