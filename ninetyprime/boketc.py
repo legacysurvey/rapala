@@ -12,8 +12,8 @@ default_r_half = 0.45
 
 # Bok parameters
 p = 0.455
-G = 1.375
-bok_rdnoise = 7.3
+nominal_gain = 1.375
+nominal_rdnoise = 7.3
 bok_medianFWHM = {'g':1.5,'r':1.5}
 bok_zpt0_am13 = {'g':25.55,'r':25.23}
 bok_zpt0_am10 = {k: v-k_ext[k]*(1.3-1) for k,v in bok_zpt0_am13.items()}
@@ -21,8 +21,8 @@ bok_zpt0_am00 = {k: v-k_ext[k]*1.3 for k,v in bok_zpt0_am13.items()}
 kpno_sky_lun0 = {'g':22.10,'r':21.07}
 
 def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
-	            profile='exponential',tablezpt=False,r_half=default_r_half,
-	            verbose=False):
+                profile='exponential',tablezpt=False,r_half=default_r_half,
+                skyADU=None,gain=None,rdnoise=None,verbose=False):
 	if mag is None:
 		mag = mag_lim[band]
 	if zpt0 is None:
@@ -34,12 +34,22 @@ def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
 		sky = kpno_sky_lun0[band]
 	if fwhm is None:
 		fwhm = bok_medianFWHM[band]
+	if gain is None:
+		G = nominal_gain
+	else:
+		G = gain
+	if rdnoise is None:
+		sig_readout = nominal_rdnoise
+	else:
+		sig_readout = rdnoise
 	#
 	f0 = 10**(-0.4*(mag - zpt0)) * G
-	skyflux = 10**(-0.4*(sky - bok_zpt0_am13[band])) * p**2 * G
+	if skyADU is None:
+		skyflux = 10**(-0.4*(sky - bok_zpt0_am13[band])) * p**2 * G
+	else:
+		skyflux = skyADU * G
 	#skyflux = 6.6 # from images
 	sig_sky = sqrt(skyflux)
-	sig_readout = bok_rdnoise
 	sig_seeing = fwhm / 2.355
 	#
 	if profile=='exponential':
@@ -73,8 +83,9 @@ def targalt_verify(band):
 
 def snr_singleexposure(band,mag,texp,**kwargs):
 	f0,skyflux,sig_sky,NEA,sig_readout = _exp_config(band,mag=mag,**kwargs)
+	G = kwargs.get('gain',nominal_gain)
 	snr = ( f0*texp / 
-	             sqrt( NEA * (skyflux*texp + sig_readout**2) ) )
+	             sqrt( f0*texp + NEA * (skyflux*texp + sig_readout**2) ) )
 	if kwargs.get('verbose',False):
 		print 'source counts: %.1f e-  %.1f ADU' % (f0*texp,f0*texp/G)
 		print 'sky counts: %.1f e-  %.1f ADU' % (skyflux*texp,skyflux*texp/G)

@@ -13,9 +13,12 @@ except:
 	raise ImportError
 
 try:
-	rdxdir = os.path.join(os.environ['GSCRATCH'],'rmreduce')
+	rdxdir = os.environ['BASSRDXDIR']
 except:
-	rdxdir = None
+	try:
+		rdxdir = os.path.join(os.environ['GSCRATCH'],'rmreduce')
+	except:
+		rdxdir = None
 
 tiledb_file = 'bass-newtiles-indesi.fits'
 obsdb_file = 'bass-newtiles-observed.fits'

@@ -64,6 +64,7 @@ def srcorXY(x1,y1,x2,y2,maxrad):
 
 def match_objects(objs,tiles):
 	objpars = [('g_number','f4'),('g_ra','f8'),('g_dec','f8'),
+	           ('g_x','f4'),('g_y','f4'),
 	           ('g_autoMag','f4'),('g_autoMagErr','f4'),
 	           ('g_autoFlux','f4'),('g_autoFluxErr','f4'),
 	           ('g_psfMag','f4'),('g_psfMagErr','f4'),
@@ -73,7 +74,7 @@ def match_objects(objs,tiles):
 	tilepars = [('g_utDate','S8'),('g_expTime','f4'),
 	            ('g_tileId','i4'),('g_ditherId','i4'),('g_ccdNum','i4')]
 	dtype = objs.dtype.descr + objpars + tilepars
-	skeys = ['NUMBER','ALPHA_J2000','DELTA_J2000',
+	skeys = ['NUMBER','ALPHA_J2000','DELTA_J2000','X_IMAGE','Y_IMAGE',
 	         'MAG_AUTO','MAGERR_AUTO','FLUX_AUTO','FLUXERR_AUTO',
 	         'MAG_PSF','MAGERR_PSF','FLUX_PSF','FLUXERR_PSF',
 	         'ELONGATION','ELLIPTICITY',
@@ -270,6 +271,82 @@ def cfhtls_depth(**kwargs):
 	              (cfhtlsm['psfMag'][:,1]<30) )[0]
 	depth_plots(cfhtlsm[m],cfhtlsm['psfMag'][m,1],'CFHTLS g',bypriority=False,
 	            **kwargs)
+
+bok_gain_2015 = [ 1.3325, 1.5225, 1.415, 1.47 ]
+bok_rn_2015 = [ 7.94, 9.54, 11.81, 8.91 ]
+
+def cfhtls_depth_compare():
+	import itertools
+	import boketc
+	import bokdepth
+	tiles = cfhtw3_tiles(observed=True)
+	cfhtlsm = fitsio.read('stuff/cfhtlswide_match.fits')
+	m = np.where( (cfhtlsm['psfMag'][:,1]>20) &
+	              (cfhtlsm['psfMag'][:,1]<30) )[0]
+	m = cfhtlsm[m]
+	for ccdNum in range(1,5):
+		ents = []
+		for ti,t in enumerate(tiles):
+			print ccdNum,ti,len(tiles)
+			ii = np.where( (m['g_tileId'] == t['tileId']) &
+			               (m['g_ditherId'] == t['ditherId']) &
+			               (m['g_ccdNum'] == ccdNum) &
+			               (m['g_psfFlux'] != 0) )[0]
+			if len(ii)==0:
+				continue
+			impath = os.path.join(bass.rdxdir,t['utDate'],'ccdproc3',
+			                      t['fileName']+'_ccd%d_pv.fits'%ccdNum)
+			psfpath = os.path.join(bass.rdxdir,t['utDate'],'ccdproc3',
+			                       t['fileName']+'_ccd%d.ldac_cat.psf'%ccdNum)
+			if not os.path.exists(impath):
+				print ' ... %s does not exist, skipping' % impath
+				continue
+			gain = bok_gain_2015[ccdNum-1]
+			rdnoise = bok_rn_2015[ccdNum-1]
+			rmsADU,rmsEl,A,skyADU = bokdepth.calc_processed_image_rms(
+			                                       impath,psfpath,
+			                                       gain=gain, rdNoise=rdnoise,
+			                                       retPars=True)
+			snr = m['g_psfFlux'][ii] / rmsADU
+			fwhm = 2*m['g_fluxRad']*1.1 * 0.455
+			skyADUps = skyADU / m['g_expTime'][ii]
+			nominal_snr = [ boketc.snr_singleexposure('g',m['psfMag'][i,1],
+			                                          m['g_expTime'][i],
+			                                          fwhm=fwhm[i],
+			                                          skyADU=skyADUps[0],
+			                                          profile='gaussian')
+			                        for i in ii ]
+			nominal_snr = np.array(nominal_snr)
+			# revise the ETC calculation using updated gain and RN values,
+			# as well as the noise-equivalent-gaussian determined from the
+			# pixel area of the PSF
+			NEG = np.sqrt(A/(4*np.pi)) * 0.455 * 2.355
+			revnominal_snr = [ boketc.snr_singleexposure('g',m['psfMag'][i,1],
+			                                             m['g_expTime'][i],
+			                                             fwhm=NEG,
+			                                             skyADU=skyADUps[0],
+			                                             profile='gaussian',
+			                                             gain=gain,
+			                                             rdnoise=rdnoise)
+			                        for i in ii ]
+			revnominal_snr = np.array(revnominal_snr)
+			objEl = m['g_psfFlux'][ii] * gain 
+			est_snr = objEl / np.sqrt(objEl + rmsEl**2)
+			sex_snr = m['g_psfFlux'][ii] / m['g_psfFluxErr'][ii]
+			ents.extend( [ vals for vals in itertools.izip(ii,
+			                                               m['psfMag'][ii,1],
+			                                               [A]*len(ii),
+			                                               skyADUps,fwhm,
+			                                               snr,nominal_snr,
+			                                               est_snr,sex_snr,
+			                                               revnominal_snr) ] )
+		ents = np.array(ents,dtype=[('ii','i4'),('refMag','f4'),
+		                            ('psfArea','f4'),('skyADUperSec','f4'),
+		                            ('fwhm','f4'),
+		                            ('snrRMS','f4'),('snrETC','f4'),
+		                            ('snrSky','f4'),('snrSex','f4'),
+		                            ('snrETCrev','f4')])
+		fitsio.write('cfhtlswide_snr.fits',ents,clobber=(ccdNum==1))
 
 
 

@@ -75,13 +75,30 @@ def calc_PSF_NEA_grid(psfimf,npts=16):
 			nea[i,j] = np.sum(p**2)**-1
 	return nea
 
-def plot_NEA_images(psfimfs,axes=None,npts=16):
-	if axes is None:
-		plt.figure()
-		axes = [plt.subplot(2,2,pnum) for pnum in range(1,5)]
-	for ax,ccdNum,psfimf in zip(axes,[1,3,2,4],psfimfs):
-		nea = calc_PSF_NEA_grid(psfimf,npts=npts)
-		ax.imshow(nea,origin='lower')
+def noise_dist_from_psf(imf,psfimf,nsample=1000,_rmhack=False):
+	im = fitsio.read(imf)
+	psfdata,hdr = fitsio.read(psfimf,header=True)
+	if _rmhack:
+		# rotated...
+		X = 50 + (nY-100) * np.random.rand(nsample)
+		Y = 50 + (nX-100) * np.random.rand(nsample)
+	else:
+		X = 50 + (nX-100) * np.random.rand(nsample)
+		Y = 50 + (nY-100) * np.random.rand(nsample)
+	psfSum = np.empty(nsample)
+	for i in range(nsample):
+		psf = make_PSFEx_psf(psfdata,hdr,X[i],Y[i])
+		psf /= psf.sum()
+		ny,nx = psf.shape
+		xi,yi = int(X[i]),int(Y[i])
+		i1 = yi - ny//2
+		i2 = i1 + ny
+		j1 = xi - nx//2
+		j2 = j1 + nx
+		#stamp = im[max(0,i1):min(nY,i2),max(0,j1):min(nX,j2)]
+		stamp = im[i1:i2,j1:j2]
+		psfSum[i] = np.sum(psf*stamp)
+	return psfSum
 
 def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 	margin = kwargs.get('stat_margin',500)
@@ -158,6 +175,25 @@ def calc_depth_tile(tile,**kwargs):
 	                                   extNum=kwargs.get('extNum',4),**kwargs)
 	return imstat
 
+def calc_processed_image_rms(imagepath,psfpath,retPars=False,
+                             gain=1.375,rdNoise=7.0):
+	'''Given a processed image and the PSFEx PSF model, calculate RMS noise
+	   level for that image.
+	'''
+	im,hdr = fitsio.read(imagepath,header=True)
+	skyCountsADU = hdr['SKYVAL']
+	centerSlice = sigma_clip(im[1024:3072,1008:3024],iters=3,sig=3.5)
+	pixRms = centerSlice.std() 
+	psfCenter = make_PSFEx_psf_fromfile(psfpath,2048,2016)
+	psfCenter /= psfCenter.sum()
+	nea = np.sum(psfCenter**2)**-1
+	imRmsADU = pixRms * np.sqrt(nea)
+	rmsElectrons = np.sqrt( nea * (gain*skyCountsADU + rdNoise**2) )
+	if retPars:
+		return imRmsADU,rmsElectrons,nea,skyCountsADU
+	else:
+		return imRmsADU,rmsElectrons
+
 def calc_depth_all():
 	obsdb = bass.load_obsdb()
 	outf = open('imagestat.dat','w')
@@ -202,6 +238,14 @@ def strip_charts():
 	ax1.set_xlim(-10,6200)
 	ax1.set_xlabel('image number')
 	ax1.set_ylabel('g sky brightness [mag/asec2]')
+
+def plot_NEA_images(psfimfs,axes=None,npts=16):
+	if axes is None:
+		plt.figure()
+		axes = [plt.subplot(2,2,pnum) for pnum in range(1,5)]
+	for ax,ccdNum,psfimf in zip(axes,[1,3,2,4],psfimfs):
+		nea = calc_PSF_NEA_grid(psfimf,npts=npts)
+		ax.imshow(nea,origin='lower')
 
 if __name__=='__main__':
 	#calc_depth_all()
