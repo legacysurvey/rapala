@@ -20,13 +20,19 @@ def _convertfitsreg(regstr):
 	rv[2] -= 1
 	return rv
 
-def colbias(imhdu,method='median',xmargin1=5,xmargin2=2,ymargin=10,**kwargs):
+def extract_colbias(imhdu):
 	data = imhdu.read()
 	hdr = imhdu.read_header()
 	x1,x2,y1,y2 = _convertfitsreg(hdr['DATASEC'])
-	im = data[y1:y2,x1:x2].astype(np.float32)
+	im = data[y1:y2,x1:x2]
 	x1,x2,y1,y2 = _convertfitsreg(hdr['BIASSEC'])
-	bias = data[y1:y2,x1:x2].astype(np.float32)
+	bias = data[y1:y2,x1:x2]
+	return im,bias
+
+def colbias(imhdu,method='median',xmargin1=5,xmargin2=2,ymargin=10,**kwargs):
+	im,bias = extract_colbias(imhdu)
+	im = im.astype(np.float32)
+	bias = bias.astype(np.float32)
 	bias = sigma_clip(bias[ymargin:-ymargin,xmargin1:-xmargin2])
 	# different versions of astropy?
 	try:
