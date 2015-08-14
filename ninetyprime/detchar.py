@@ -326,10 +326,32 @@ def plot_fastmode_analysis(det):
 				bins = np.arange(v.min()-eta,v.max()+2*eta,eta)
 				plt.hist(v,bins,histtype='step')
 
+def bias_drops():
+	import basslog
+	from ninetyprime import extract_colbias
+	nightlyLogs = basslog.load_Bok_logs()
+	extNum = 1
+	logf = open('bias_drops.txt','w')
+	for utd in sorted(nightlyLogs.keys())[1:]:
+		print utd
+		log = nightlyLogs[utd]
+		imdir = os.path.join(os.environ['BASSDATA'],utd)
+		for fn,imType in zip(log['fileName'],log['imType']):
+			imhdu = fitsio.FITS(os.path.join(imdir,fn+'.fits.gz'))
+			im,bias = extract_colbias(imhdu[extNum])
+			bias = bias.astype(np.float32)
+			centerbias = np.median(bias[500:-500,5:-5])
+			bias -= centerbias
+			if np.median(bias[5:20,5:-5]) < -15:
+				print utd,fn,imType
+				logf.write('%s %s %s\n' % (utd,fn,imType))
+	logf.close()
+
 
 if __name__=='__main__':
 	#calc_all_gain_rdnoise(10)
 	#calc_all_gain_rdnoise(10,'sdss')
 	#linearity_check()
-	bias_check()
+	#bias_check()
+	bias_drops()
 
