@@ -329,7 +329,7 @@ def plot_fastmode_analysis(det):
 def bias_drops():
 	import basslog
 	from ninetyprime import extract_colbias
-	nightlyLogs = basslog.load_Bok_logs()
+	nightlyLogs = basslog.load_Bok_logs('../survey/logs/')
 	extNum = 1
 	logf = open('bias_drops.txt','w')
 	for utd in sorted(nightlyLogs.keys())[1:]:
