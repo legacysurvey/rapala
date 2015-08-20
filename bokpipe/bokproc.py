@@ -194,6 +194,21 @@ def _write_oscan_image(f,oscanImgFile,oscan,oscanFit,along='columns'):
 		oscanFits[1].write(arr_stack([oscanResImg,oscan-oscanFit]))
 	oscanFits.close()
 
+def _imsub(f1,f2,outf,**kwargs):
+	extensions = kwargs.get('extensions',bok90mef_extensions)
+	fits1 = fitsio.FITS(f1)
+	fits2 = fitsio.FITS(f2)
+	outFits = fitsio.FITS(outf,'rw')
+	hdr = fits1[0].read_header()
+	outFits.write(None,header=hdr)
+	for extn in extensions:
+		data = fits1[extn][:,:] - fits2[extn][:,:]
+		hdr = fits1[extn].read_header()
+		outFits.write(data,extname=extn,header=hdr)
+	fits1.close()
+	fits2.close()
+	outFits.close()
+
 def subtract_overscan(fileList,**kwargs):
 	extensions = kwargs.get('extensions',bok90mef_extensions)
 	# XXX needs to have a default
