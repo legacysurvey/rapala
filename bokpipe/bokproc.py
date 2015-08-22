@@ -3,6 +3,7 @@
 import os
 import re
 from copy import copy
+from collections import OrderedDict
 import numpy as np
 import fitsio
 from astropy.stats import sigma_clip
@@ -157,8 +158,10 @@ def fit_overscan(overscan,**kwargs):
 	            'sig':kwargs.get('clip_sig',2.5)}
 	if along == 'columns':
 		axis = 1
+		npix = overscan.shape[0]
 	elif along == 'rows':
 		axis = 0
+		npix = overscan.shape[1]
 	else:
 		raise ValueError
 	#
@@ -172,27 +175,61 @@ def fit_overscan(overscan,**kwargs):
 	elif method == 'clipped_mean_value':
 		oscan_fit = sigma_clip(overscan,**clipargs).mean(axis=axis)
 	elif method == 'median_value':
-		oscan_fit = np.repeat(np.ma.median(overscan),overscan.shape[0])
+		oscan_fit = np.repeat(np.ma.median(overscan),npix)
 	else:
 		raise ValueError
 	return oscan_fit
 
-def _write_oscan_image(f,oscanImgFile,oscan,oscanFit,along='columns'):
-	arr_stack = np.hstack if along=='columns' else np.vstack
-	oscanFits = fitsio.FITS(oscanImgFile,'rw')
-	rv = oscanFits[0].read(header=True)
-	if rv is None:
-		oscanFits.write(oscanImg,oscan,clobber=True,
-		                header={'NOVSCAN':1,'OVSCN001':os.path.basename(f)})
-		oscanFits.write(oscanResImg,oscan-oscanFit)
-	else:
-		oscanImg,hdr = rv
-		hdr['NOVSCAN'] += 1
-		hdr['OVSCN%03d'%hdr['NOVSCAN']] = os.path.basename(f)
-		oscanFits[0].write(arr_stack([oscanImg,oscan]),header=hdr)
-		oscanResImg,hdr = oscanFits[1].read()
-		oscanFits[1].write(arr_stack([oscanResImg,oscan-oscanFit]))
-	oscanFits.close()
+class OverscanCollection(object):
+	def __init__(self,oscanImgFile,along='columns'):
+		self.along = along
+		self.imgFile = oscanImgFile
+		if along=='columns':
+			self.arr_stack = np.hstack
+		else:
+			self.arr_stack = np.vstack
+		self.tmpfn1 = oscanImgFile+'_oscantmp.npy'
+		self.tmpfn2 = oscanImgFile+'_restmp.npy'
+		if os.path.exists(self.tmpfn1):
+			os.unlink(self.tmpfn1)
+		if os.path.exists(self.tmpfn2):
+			os.unlink(self.tmpfn2)
+		self.tmpOscanImgFile = open(self.tmpfn1,'ab')
+		self.tmpOscanResImgFile = open(self.tmpfn2,'ab')
+		self.files = []
+	def close(self):
+		os.unlink(self.tmpfn1)
+		os.unlink(self.tmpfn2)
+	def append(self,oscan,oscanFit,fileName):
+		np.save(self.tmpOscanImgFile,oscan)
+		if self.along=='columns':
+			resim = (oscan - oscanFit[:,np.newaxis]).astype(np.float32)
+		else:
+			resim = (oscan - oscanFit[np.newaxis,:]).astype(np.float32)
+		np.save(self.tmpOscanResImgFile,resim.filled(-999))
+		self.files.append(os.path.basename(fileName))
+	def write_image(self):
+		nfiles = len(self.files)
+		hdr = OrderedDict()
+		hdr['NOVSCAN'] = nfiles
+		for n,f in enumerate(self.files,start=1):
+			hdr['OVSCN%03d'%n] = f
+		self.tmpOscanImgFile.close() # could just reset file pointer?
+		self.tmpOscanResImgFile.close()
+		f1 = open(self.tmpfn1,'rb')
+		oscanImg = self.arr_stack([np.load(f1) for i in range(nfiles)])
+		f1.close()
+		f2 = open(self.tmpfn2,'rb')
+		oscanResImg = self.arr_stack([np.load(f2) for i in range(nfiles)])
+		f2.close()
+		if os.path.exists(self.imgFile+'.fits'):
+			os.unlink(self.imgFile+'.fits')
+		oscanFits = fitsio.FITS(self.imgFile+'.fits','rw')
+		oscanFits.write(oscanImg,header=hdr)
+		oscanFits.write(oscanResImg,clobber=False)
+		oscanFits.close()
+	def n_images(self):
+		return len(self.files)
 
 def _imsub(f1,f2,outf,**kwargs):
 	extensions = kwargs.get('extensions',bok90mef_extensions)
@@ -216,10 +253,16 @@ def subtract_overscan(fileList,**kwargs):
 	outputDir = './'
 	write_overscan_image = kwargs.get('write_overscan_image',False)
 	oscanColsImgFile = kwargs.get('oscan_cols_file',
-	                              os.path.join(outputDir,'oscan_cols.fits'))
+	                              os.path.join(outputDir,'oscan_cols'))
 	oscanRowsImgFile = kwargs.get('oscan_rows_file',
-	                              os.path.join(outputDir,'oscan_rows.fits'))
+	                              os.path.join(outputDir,'oscan_rows'))
+	oscanColCollection = { extn:OverscanCollection(oscanColsImgFile+'_'+extn)
+	                          for extn in extensions }
+	oscanRowCollection = { extn:OverscanCollection(oscanRowsImgFile+'_'+extn,
+	                                               along='rows')
+	                          for extn in extensions }
 	for f in fileList:
+		print '::: ',f
 		fits = fitsio.FITS(f)
 		outFits = fitsio.FITS(outputFileMap(f),'rw')
 		hdr = fits[0].read_header()
@@ -235,16 +278,21 @@ def subtract_overscan(fileList,**kwargs):
 			# write the output file
 			hdr = fits[extn].read_header()
 			hdr['OSCANSUB'] = 'method=%s' % kwargs.get('method','default')
-			hdr['OSCANMED'] = np.median(colbias)
+			hdr['OSCANMED'] = float(np.ma.median(colbias).filled(-999))
 			outFits.write(data,extname=extn,header=hdr)
 			# save the oscans to images
 			if write_overscan_image:
-				_write_oscan_image(f,oscanColsImgFile,oscan_cols,colbias)
+				oscanColCollection[extn].append(oscan_cols,colbias,f)
 				if oscan_rows is not None:
-					_write_oscan_image(f,oscanRowsImgFile,oscan_rows,rowbias,
-					                   along='rows')
+					oscanRowCollection[extn].append(oscan_rows,rowbias,f)
 		fits.close()
 		outFits.close()
+	for extn in extensions:
+		oscanColCollection[extn].write_image()
+		oscanColCollection[extn].close()
+		if oscanRowCollection[extn].n_images() > 0:
+			oscanRowCollection[extn].write_image()
+		oscanRowCollection[extn].close()
 
 def stack_bias_frames(fileList,**kwargs):
 	extensions = kwargs.get('extensions',bok90mef_extensions)
@@ -253,7 +301,7 @@ def stack_bias_frames(fileList,**kwargs):
 	withVariance = kwargs.get('with_variance',False)
 	varOutputFile = kwargs.get('var_output_file','biasvar.fits')
 	kwargs.setdefault('method','mean')
-	check_dropped_rows = kwargs.get('check_dropped_rows',True)
+	check_dropped_rows = kwargs.get('check_dropped_rows',False)
 	fits = fitsio.FITS(os.path.join(outputDir,outputFile),'rw')
 	hdr = _write_stack_header_cards(fileList,'BIAS')
 	fits.write(None,header=hdr)
