@@ -348,6 +348,23 @@ def cfhtls_depth_compare():
 		                            ('snrETCrev','f4')])
 		fitsio.write('cfhtlswide_snr.fits',ents,clobber=(ccdNum==1))
 
+def plot_cfhtls_snr_ratio(snr1='snrRMS',snr2='snrETCrev'):
+	hdus = fitsio.FITS('cfhtlswide_snr.fits')
+	ccds = [hdu.read() for hdu in hdus[1:]]
+	plt.figure()
+	for pnum,ccd in enumerate(ccds,start=1):
+		ax = plt.subplot(2,2,pnum)
+		plt.hexbin(ccd['refMag'],ccd[snr1]/ccd[snr2],
+		           extent=(20,23.5,0.5,1.5),cmap=plt.cm.Blues)
+		plt.axhline(1,c='r')
+		ax.xaxis.set_major_locator(ticker.MultipleLocator(1.0))
+		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.25))
+		ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))
+		ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+		ax.set_title('CCD%d'%pnum)
+	plt.figtext(0.01,0.5,'SNR/SNR(ETC)',va='center',rotation='vertical')
+	plt.figtext(0.5,0.01,'g mag (CFHTLS)',ha='center')
+
 
 
 

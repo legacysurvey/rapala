@@ -72,6 +72,7 @@ def targalt_eqn1(band,SNR=5.,ndith=3,**kwargs):
 	         ( 1./2 + sqrt( 1./4 + ndith/(SNR**2 * NEA * (sig_sky/f0)**2) *
 	                                    (sig_readout/sig_sky)**2 ) )
 	if kwargs.get('verbose',False):
+		G = nominal_gain # XXX
 		print 'source counts: %.1f e-  %.1f ADU' % (f0*T_exp,f0*T_exp/G)
 		print 'sky counts: %.1f e-  %.1f ADU' % (skyflux*T_exp,skyflux*T_exp/G)
 		print 'calculated exposure time: %.2f' % T_exp
@@ -118,6 +119,8 @@ if __name__=='__main__':
 	                    help='Sky background (mag/asec^2) [default=nominal KPNO]')
 	parser.add_argument('-f','--fwhm',type=float,default=None,
 	                    help='FWHM (arcsec) [default=nominal Bok]')
+	parser.add_argument('-p','--profile',type=str,default='exponential',
+	                    help='profile shape [exponential(default)|gaussian]')
 	parser.add_argument('-S','--signaltonoise',type=float,default=5.0,
 	                    help='desired SNR [default=5.0]')
 	parser.add_argument('-m','--magnitude',type=float,default=None,
@@ -136,11 +139,13 @@ if __name__=='__main__':
 	if args.exposuretime is not None:
 		snr_singleexposure(args.band,args.magnitude,args.exposuretime,
 		                   sky=args.skybackground,fwhm=args.fwhm,
-		                   zpt0=args.zeropoint,verbose=True)
+		                   zpt0=args.zeropoint,profile=args.profile,
+		                   verbose=True)
 	else:
 		texp_onsky(args.band,args.airmass,args.ebv,skyextinction,
 		           SNR=args.signaltonoise,
 		           sky=args.skybackground,fwhm=args.fwhm,
 		           zpt0=args.zeropoint,mag=args.magnitude,
+		           profile=args.profile,
 		           verbose=True)
 
