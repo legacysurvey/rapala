@@ -90,6 +90,7 @@ def stack_image_cube(imCube,**kwargs):
 				# default is the mode
 				scales,_ = mode(scales,axis=0)
 			scales /= scales.max()
+			scales **= -1
 		else:
 			scales = scale(imCube)
 		imcube = imCube * scales
@@ -152,10 +153,11 @@ def extract_overscan(imhdu):
 
 def fit_overscan(overscan,**kwargs):
 	method = kwargs.get('method','clipped_mean')
-	mask_columns = kwargs.get('mask_columns',[0,1,-1])
+	mask_at = kwargs.get('mask_at',[0,1,2,-1])
 	along = kwargs.get('along','columns')
 	clipargs = {'iters':kwargs.get('clip_iters',2),
 	            'sig':kwargs.get('clip_sig',2.5)}
+	spline_interval = kwargs.get('spline_interval',10)
 	if along == 'columns':
 		axis = 1
 		npix = overscan.shape[0]
@@ -166,8 +168,11 @@ def fit_overscan(overscan,**kwargs):
 		raise ValueError
 	#
 	mask = np.zeros(overscan.shape,dtype=bool)
-	if mask_columns is not None:
-		mask[:,mask_columns] = True
+	if mask_at is not None:
+		if along == 'columns':
+			mask[:,mask_at] = True
+		else:
+			mask[mask_at,:] = True
 	overscan = np.ma.masked_array(overscan,mask=mask)
 	#
 	if method == 'clipped_mean':
@@ -176,6 +181,9 @@ def fit_overscan(overscan,**kwargs):
 		oscan_fit = sigma_clip(overscan,**clipargs).mean(axis=axis)
 	elif method == 'median_value':
 		oscan_fit = np.repeat(np.ma.median(overscan),npix)
+	elif method == 'cubic_spline':
+		knots = np.concatenate([np.arange(0,npix,spline_interval),[npix,]])
+		raise NotImplementedError
 	else:
 		raise ValueError
 	return oscan_fit
@@ -209,13 +217,15 @@ class OverscanCollection(object):
 		np.save(self.tmpOscanResImgFile,resim.filled(-999))
 		self.files.append(os.path.basename(fileName))
 	def write_image(self):
+		self.tmpOscanImgFile.close() # could just reset file pointer?
+		self.tmpOscanResImgFile.close()
 		nfiles = len(self.files)
+		if nfiles==0:
+			return
 		hdr = OrderedDict()
 		hdr['NOVSCAN'] = nfiles
 		for n,f in enumerate(self.files,start=1):
 			hdr['OVSCN%03d'%n] = f
-		self.tmpOscanImgFile.close() # could just reset file pointer?
-		self.tmpOscanResImgFile.close()
 		f1 = open(self.tmpfn1,'rb')
 		oscanImg = self.arr_stack([np.load(f1) for i in range(nfiles)])
 		f1.close()
@@ -256,11 +266,13 @@ def subtract_overscan(fileList,**kwargs):
 	                              os.path.join(outputDir,'oscan_cols'))
 	oscanRowsImgFile = kwargs.get('oscan_rows_file',
 	                              os.path.join(outputDir,'oscan_rows'))
-	oscanColCollection = { extn:OverscanCollection(oscanColsImgFile+'_'+extn)
-	                          for extn in extensions }
-	oscanRowCollection = { extn:OverscanCollection(oscanRowsImgFile+'_'+extn,
-	                                               along='rows')
-	                          for extn in extensions }
+	if write_overscan_image:
+		oscanColCollection = { extn:OverscanCollection(oscanColsImgFile+
+		                                               '_'+extn)
+		                          for extn in extensions }
+		oscanRowCollection = { extn:OverscanCollection(oscanRowsImgFile+
+		                                               '_'+extn,along='rows')
+		                          for extn in extensions }
 	for f in fileList:
 		print '::: ',f
 		fits = fitsio.FITS(f)
@@ -272,8 +284,13 @@ def subtract_overscan(fileList,**kwargs):
 			colbias = fit_overscan(oscan_cols,**kwargs)
 			data[:] -= colbias[:,np.newaxis]
 			if oscan_rows is not None:
+				# first fit and then subtract the overscan columns at the
+				# end of the strip of overscan rows
+				# XXX hardcoded geometry
+				_colbias = fit_overscan(oscan_rows[:,-20:],**kwargs)
+				oscan_rows = oscan_rows[:,:-20] - _colbias[:,np.newaxis]
+				# now fit and subtract the overscan rows
 				rowbias = fit_overscan(oscan_rows,along='rows',**kwargs)
-				# have to trim overscan edge
 				data[:] -= rowbias[np.newaxis,:data.shape[1]]
 			# write the output file
 			hdr = fits[extn].read_header()
@@ -287,12 +304,13 @@ def subtract_overscan(fileList,**kwargs):
 					oscanRowCollection[extn].append(oscan_rows,rowbias,f)
 		fits.close()
 		outFits.close()
-	for extn in extensions:
-		oscanColCollection[extn].write_image()
-		oscanColCollection[extn].close()
-		if oscanRowCollection[extn].n_images() > 0:
-			oscanRowCollection[extn].write_image()
-		oscanRowCollection[extn].close()
+	if write_overscan_image:
+		for extn in extensions:
+			oscanColCollection[extn].write_image()
+			oscanColCollection[extn].close()
+			if oscanRowCollection[extn].n_images() > 0:
+				oscanRowCollection[extn].write_image()
+			oscanRowCollection[extn].close()
 
 def stack_bias_frames(fileList,**kwargs):
 	extensions = kwargs.get('extensions',bok90mef_extensions)
@@ -300,7 +318,8 @@ def stack_bias_frames(fileList,**kwargs):
 	outputFile = kwargs.get('output_file','bias.fits')
 	withVariance = kwargs.get('with_variance',False)
 	varOutputFile = kwargs.get('var_output_file','biasvar.fits')
-	kwargs.setdefault('method','mean')
+	kwargs.setdefault('method','clipped_mean')
+	kwargs.setdefault('clip_iters',1)
 	check_dropped_rows = kwargs.get('check_dropped_rows',False)
 	fits = fitsio.FITS(os.path.join(outputDir,outputFile),'rw')
 	hdr = _write_stack_header_cards(fileList,'BIAS')
@@ -365,9 +384,13 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 	x1,x2,y1,y2 = statRegion
 	_kwargs = copy(kwargs)
 	_kwargs.setdefault('scale','normalize')
-	biasFits = fitsio.FITS(biasFile)
+	_kwargs.setdefault('ret_scales',True)
+	if biasFile is None:
+		biasFits = None
+	else:
+		biasFits = fitsio.FITS(biasFile)
 	fits = fitsio.FITS(os.path.join(outputDir,outputFile),'rw')
-	hdr = _write_stack_header_cards(fileList,'BIAS')
+	hdr = _write_stack_header_cards(fileList,'FLAT')
 	fits.write(None,header=hdr)
 	if withVariance:
 		varFits = fitsio.FITS(os.path.join(outputDir,varOutputFile),'rw')
@@ -375,16 +398,23 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 	for extn in extensions:
 		print '::: %s extn %s' % (outputFile,extn)
 		flatCube = build_cube(fileList,extn)
-		flatCube -= biasFits[extn].read()[:,:,np.newaxis]
+		if biasFits is not None:
+			flatCube -= biasFits[extn].read()[:,:,np.newaxis]
 		stack,extras = stack_image_cube(flatCube,**_kwargs)
-		stack /= mode(stack[y1:y2,x1:x2],axis=None)[0]
+		flatNorm = mode(stack[y1:y2,x1:x2],axis=None)[0][0]
+		stack /= flatNorm
 		stack = stack.filled(1.0)
 		hdr = fitsio.read_header(fileList[0],extn)
+		scales = extras[0].squeeze().filled(np.nan)
+		hdr['FLATNORM'] = flatNorm
+		for _i,_scl in enumerate(scales,start=1):
+			hdr['FLTSCL%02d'%_i] = _scl
 		fits.write(stack,extname=extn,header=hdr)
 		if withVariance:
 			varFits.write(extras[0],extname=extn,header=hdr)
 	fits.close()
-	biasFits.close()
+	if biasFits is not None:
+		biasFits.close()
 	if withVariance:
 		varFits.close()
 
@@ -397,13 +427,17 @@ def make_supersky_flats(fileList,objectMasks,**kwargs):
 	_kwargs = copy(kwargs)
 	_kwargs.setdefault('scale','normalize')
 	fits = fitsio.FITS(os.path.join(outputDir,outputFile),'rw')
+	hdr = _write_stack_header_cards(fileList,'SKYFLAT')
+	fits.write(None,header=hdr)
 	for extn in extensions:
 		flatCube = build_cube(fileList,extn,masks=objectMasks)
 		stack,extras = stack_image_cube(flatCube,**_kwargs)
-		stack /= mode(stack[y1:y2,x1:x2])
+		flatNorm = mode(stack[y1:y2,x1:x2],axis=None)[0][0]
+		stack /= flatNorm
 		# XXX smooth it
 		stack = stack.filled(1.0)
-		hdr = _write_stack_header_cards(fileList,'FLAT')
+		hdr = fitsio.read_header(fileList[0],extn)
+		hdr['FLATNORM'] = flatNorm
 		fits.write(stack,extname=extn,header=hdr)
 	fits.close()
 
