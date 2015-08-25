@@ -8,6 +8,7 @@ import numpy as np
 import fitsio
 from astropy.stats import sigma_clip
 from scipy.stats.mstats import mode
+from scipy.interpolate import LSQUnivariateSpline
 
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
@@ -157,7 +158,7 @@ def fit_overscan(overscan,**kwargs):
 	along = kwargs.get('along','columns')
 	clipargs = {'iters':kwargs.get('clip_iters',2),
 	            'sig':kwargs.get('clip_sig',2.5)}
-	spline_interval = kwargs.get('spline_interval',10)
+	spline_interval = kwargs.get('spline_interval',20)
 	if along == 'columns':
 		axis = 1
 		npix = overscan.shape[0]
@@ -182,8 +183,11 @@ def fit_overscan(overscan,**kwargs):
 	elif method == 'median_value':
 		oscan_fit = np.repeat(np.ma.median(overscan),npix)
 	elif method == 'cubic_spline':
-		knots = np.concatenate([np.arange(0,npix,spline_interval),[npix,]])
-		raise NotImplementedError
+		knots = np.concatenate([np.arange(1,npix,spline_interval),[npix,]])
+		mean_fit = sigma_clip(overscan,axis=axis,**clipargs).mean(axis=axis)
+		x = np.arange(npix)
+		spl_fit = LSQUnivariateSpline(x,mean_fit,t=knots)
+		oscan_fit = spl_fit(x)
 	else:
 		raise ValueError
 	return oscan_fit
@@ -380,6 +384,7 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 	outputFile = kwargs.get('output_file','flat.fits')
 	withVariance = kwargs.get('with_variance',False)
 	varOutputFile = kwargs.get('var_output_file','biasvar.fits')
+	retainCounts = kwargs.get('retain_counts',False)
 	statRegion = kwargs.get('stat_region',(512,-512,512,-512))
 	x1,x2,y1,y2 = statRegion
 	_kwargs = copy(kwargs)
@@ -401,7 +406,10 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 		if biasFits is not None:
 			flatCube -= biasFits[extn].read()[:,:,np.newaxis]
 		stack,extras = stack_image_cube(flatCube,**_kwargs)
-		flatNorm = mode(stack[y1:y2,x1:x2],axis=None)[0][0]
+		if retainCounts:
+			flatNorm = 1.0  # do not normalize to unity
+		else:
+			flatNorm = mode(stack[y1:y2,x1:x2],axis=None)[0][0]
 		stack /= flatNorm
 		stack = stack.filled(1.0)
 		hdr = fitsio.read_header(fileList[0],extn)
