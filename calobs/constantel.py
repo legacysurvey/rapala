@@ -221,24 +221,7 @@ def plot_desi_airmasses(amdata=None,decrange=None):
 	plt.xlabel('min hours below airmass')
 	plt.ylabel('fraction of DESI tiles')
 
-def plot_season(**kwargs):
-	'''Plot the pointings for the bright-time calibration strategy at
-	   fixed airmass using bright time observing dates in 2015.
-	   kwargs:
-	     airmass: fixed airmass(es) for tracks (default [1.25,1.65]
-	     airmass_frac
-	     minDuration: which is the minimum time for a track in hours 
-	                  (i.e., don't include tracks shorter than minDuration)
-	                  the default is 0.25 == 15 minutes
-	     utStart: UT time at start of track (default is 2.0==02:00UT==19:00MST)
-	     utEnd:   UT time at end of track (default is 13.0==13:00UT==06:00MST)
-	     utBreak: UT times to "take a break" (e.g., for other observing)
-	               default is (5.0,10.0) which assumes 5 hours in the middle
-	               of the night will be used for something else
-	               set to (np.inf,None) to never take a break
-	     additional kwargs go to calc_az_track()
-	'''
-	sphere = kwargs.get('sphere',True)
+def _init_projection_plot(sphere):
 	if sphere:
 		try:
 			from mpl_toolkits.basemap import Basemap
@@ -259,6 +242,27 @@ def plot_season(**kwargs):
 	if not sphere:
 		plt.figure(figsize=(14,7))
 		ax = plt.subplot(111)
+	return ax
+
+def plot_season(**kwargs):
+	'''Plot the pointings for the bright-time calibration strategy at
+	   fixed airmass using bright time observing dates in 2015.
+	   kwargs:
+	     airmass: fixed airmass(es) for tracks (default [1.25,1.65]
+	     airmass_frac
+	     minDuration: which is the minimum time for a track in hours 
+	                  (i.e., don't include tracks shorter than minDuration)
+	                  the default is 0.25 == 15 minutes
+	     utStart: UT time at start of track (default is 2.0==02:00UT==19:00MST)
+	     utEnd:   UT time at end of track (default is 13.0==13:00UT==06:00MST)
+	     utBreak: UT times to "take a break" (e.g., for other observing)
+	               default is (5.0,10.0) which assumes 5 hours in the middle
+	               of the night will be used for something else
+	               set to (np.inf,None) to never take a break
+	     additional kwargs go to calc_az_track()
+	'''
+	sphere = kwargs.get('sphere',True)
+	ax = _init_projection_plot(sphere)
 	showtiles =  kwargs.get('showtiles',True)
 	utdates = ['20150203','20150305','20150402','20150505','20150706']
 	airmass = np.array(kwargs.get('airmass',[1.25,1.65]))
@@ -296,9 +300,9 @@ def plot_season(**kwargs):
 				continue
 			nfail = 0
 			if sphere:
-				m.plot(track['coords'].ra.value,track['coords'].dec.value,
-				       c=c,marker='o',mfc='none',ms=4,mec=c,
-				       ls=['-','--'][j],latlon=True)
+				ax.plot(track['coords'].ra.value,track['coords'].dec.value,
+				        c=c,marker='o',mfc='none',ms=4,mec=c,
+				        ls=['-','--'][j],latlon=True)
 			else:
 				plt.plot(track['coords'].ra.value,track['coords'].dec.value,
 				         c=c,marker='o',mfc='none',ms=4,mec=c,
@@ -316,6 +320,21 @@ def plot_season(**kwargs):
 			       (ut,j,t['coords'].dec[0].value,t['coords'].dec[-1].value,
 			        (t['ut'][-1]-t['ut'][0]).to(u.minute).value)
 	return alltracks
+
+def plot_observed(**kwargs):
+	import bass
+	sphere = kwargs.get('sphere',True)
+	ax = _init_projection_plot(sphere)
+	tiles = bass.load_obsdb()
+	ii = np.where(tiles['tileId']==-99)[0]
+	utds = np.unique(tiles['utDate'][ii])
+	for utd,c in zip(utds,'bgrc'):
+		jj = np.where(tiles['utDate'][ii]==utd)[0]
+		if sphere:
+			ax.plot(tiles['ra'][ii[jj]],tiles['dec'][ii[jj]],label=utd,
+			        c=c,marker='o',mfc='none',ms=4,mec=c,latlon=True)
+		else:
+			plt.plot(tiles['ra'][ii[jj]],tiles['dec'][ii[jj]],label=utd)
 
 def formatut(ut,full=False):
 	utd,utt = ut.iso.split()
