@@ -212,6 +212,15 @@ def plot_linearity_check():
 			ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
 		plt.xlim(0.1,16.9)
 		plt.ylim(0.93*expratio[i],1.03*expratio[i])
+		if i==0:
+			v2 = np.loadtxt('bok_linearity_fastv20112.txt')
+			ax.plot(1+np.arange(16),v2[:,0],'mo-',ms=5)
+		elif i==1:
+			v2 = np.loadtxt('bok_linearity_fastv20115.txt')
+			ax.plot(1+np.arange(16),v2[:,0],'mo-',ms=5)
+		elif i==2:
+			v2 = np.loadtxt('bok_linearity_fastv2.dat',usecols=(1,2))
+			ax.plot(1+np.arange(16),v2[:,0],'mo-',ms=5)
 	plt.figtext(0.02,0.5,'mean ratio of flats',size=14,
 	         ha='left',va='center',rotation='vertical')
 	plt.figtext(0.5,0.02,'amplifier number',size=14,ha='center',va='bottom')
