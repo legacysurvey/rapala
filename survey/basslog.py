@@ -76,6 +76,30 @@ def load_Bok_logs(logdir='./'):
 		boklogs[utdate] = load_Bok_log(utdate,logdir)
 	return boklogs
 
+def overhead_times(utdate,logdir='./'):
+	import bass
+	from astropy.time import Time
+	log = load_Bok_log(utdate,logdir)
+	lastt = None
+	lastexp = 0
+	outf = open('timelog_%s.txt'%utdate,'w')
+	for frame in log[:100]:
+		h0 = fits.getheader(os.path.join(bass.bass_data_dir,
+		                             utdate,frame['fileName']+'.fits.gz'),0)
+		ut = h0['UT']
+		ut = '-'.join([utdate[:4],utdate[4:6],utdate[6:]])+' '+ut
+		t = Time(ut,format='iso',scale='utc')
+		if lastt is not None:
+			dt = (t-lastt).sec
+			outf.write('%s %10s %10.1f %8.1f %8.1f\n' % 
+			        (frame['fileName'],frame['imType'],dt,lastexp,dt-lastexp))
+		lastt = t
+		lastexp = frame['expTime']
+	outf.close()
+
 if __name__=='__main__':
-	log_all()
+	#log_all()
+	for utd in ['20150107','20150117','20150204','20150205','20150211'
+	            '20150305','20150324','20150419','20150426']:
+		overhead_times(utd,'logs/')
 
