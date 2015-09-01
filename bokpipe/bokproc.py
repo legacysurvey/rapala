@@ -17,6 +17,23 @@ ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
 # iterate over them in the order given above
 bok90mef_extensions = ['IM%d' % a for a in ampOrder]
 
+'''
+nominal_gain =  np.array(
+  [ 1.3, 1.3, 1.3, 1.3, 
+    1.5, 1.5, 1.3, 1.5, 
+    1.4, 1.4, 1.4, 1.3, 
+    1.4, 1.3, 1.4, 1.4
+   ] )
+'''
+
+nominal_gain = np.array(
+  [ 1.24556017,  1.29317832,  1.31759822,  1.28293753,  
+    1.44988859, 1.52633166,  1.42589855,  1.51268101,  
+    1.33969975,  1.39347458, 1.3766073 ,  1.39406121,  
+#    1.42733335,  1.38764536,  1.79094434, 1.45403028
+    1.42733335,  1.38764536,  1.40, 1.45403028
+  ] )
+
 
 ###############################################################################
 #                                                                             #
@@ -55,6 +72,17 @@ def _convertfitsreg(regstr):
 	rv[2] -= 1
 	return rv
 
+def stats_region(statreg):
+	if type(statreg) is tuple:
+		return statreg
+	elif statreg == 'amp_central_quadrant':
+		return (512,-512,512,-512)
+	elif statreg == 'amp_corner_ccdcenter':
+		#return (-1024,-1,-1024,-1)
+		return (-512,-50,-512,-50)
+	else:
+		raise ValueError
+
 def build_cube(fileList,extn,masks=None):
 	cube = np.dstack( [ fitsio.read(f,extn) for f in fileList ] )
 	if masks is not None:
@@ -67,16 +95,36 @@ def build_cube(fileList,extn,masks=None):
 	cube = np.ma.masked_array(cube,mask)
 	return cube
 
+def bok_rebin(im,nbin):
+	s = np.array(im.shape) / nbin
+	return im.reshape(s[0],nbin,s[1],nbin).swapaxes(1,2).reshape(s[0],s[1],-1)
+
+def bok_make_image(fits,pngfn,**kwargs):
+	nbin = kwargs.get('nbin',1)
+	kwargs.setdefault('cmap',plt.cm.heat)
+	kwargs.setdefault('interpolation','nearest')
+	if type(fits) is str:
+		fits = fitsio.FITS(fits)
+	fig = plt.figure()
+	for plotNum,hdu in enumerate(fits[1:],start=1):
+		im = hdu.read()
+		if nbin > 1:
+			im = bok_rebin(im,nbin)
+		ax.imshow(im,origin='lower',**kwargs)
+	raise NotImplementedError
+
 def stack_image_cube(imCube,**kwargs):
-	method = kwargs.get('method','clipped_mean')
+	reject = kwargs.get('reject','sigma_clip')
+	method = kwargs.get('method','mean')
 	scale = kwargs.get('scale')
 	weights = kwargs.get('weights')
 	withVariance = kwargs.get('with_variance',False)
 	retScales = kwargs.get('ret_scales',False)
-	statRegion = kwargs.get('stat_region',(512,-512,512,-512))
+	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
+	                                      'amp_central_quadrant'))
 	clipargs = {'iters':kwargs.get('clip_iters',2),
-	            'sig':kwargs.get('clip_sig',2.5)}
-	x1,x2,y1,y2 = statRegion
+	            'sig':kwargs.get('clip_sig',2.5),
+	            'cenfunc':np.ma.mean}
 	# scale images
 	if scale is not None:
 		if type(scale) is np.ndarray:
@@ -84,7 +132,7 @@ def stack_image_cube(imCube,**kwargs):
 		elif scale.startswith('normalize'):
 			imScales = imCube[y1:y2,x1:x2]/imCube[y1:y2,x1:x2,[0]]
 			imScales = imScales.reshape(-1,imCube.shape[-1])
-			scales = sigma_clip(imScales,cenfunc=np.mean,axis=0)
+			scales = sigma_clip(imScales,cenfunc=np.ma.mean,axis=0)
 			if scale.endswith('_mean'):
 				scales = scales.mean(axis=0)
 			else:
@@ -97,11 +145,17 @@ def stack_image_cube(imCube,**kwargs):
 		imcube = imCube * scales
 	else:
 		imcube = imCube
-	# do the stacking
-	if method == 'clipped_mean':
+	# mask rejected pixels
+	if reject == 'sigma_clip':
 		imcube = sigma_clip(imcube,axis=-1,**clipargs)
-		stack = np.ma.average(imcube,axis=-1,weights=weights)
-	elif method == 'mean':
+	elif reject == 'minmax':
+		imcube = np.ma.masked_array(imcube)
+		imcube[:,:,imcube.argmax(axis=-1)] = np.ma.masked
+		imcube[:,:,imcube.argmin(axis=-1)] = np.ma.masked
+	elif reject is not None:
+		raise ValueError
+	# do the stacking
+	if method == 'mean':
 		stack = np.ma.average(imcube,weights=weights,axis=-1)
 	elif method == 'median':
 		stack = np.ma.median(imcube,axis=-1)
@@ -153,38 +207,37 @@ def extract_overscan(imhdu):
 	return ( data,overscan_cols,overscan_rows )
 
 def fit_overscan(overscan,**kwargs):
-	method = kwargs.get('method','clipped_mean')
+	reject = kwargs.get('reject','sigma_clip')
+	method = kwargs.get('method','mean')
 	mask_at = kwargs.get('mask_at',[0,1,2,-1])
 	along = kwargs.get('along','columns')
 	clipargs = {'iters':kwargs.get('clip_iters',2),
-	            'sig':kwargs.get('clip_sig',2.5)}
+	            'sig':kwargs.get('clip_sig',2.5),
+	            'cenfunc':np.ma.mean}
 	spline_interval = kwargs.get('spline_interval',20)
-	if along == 'columns':
-		axis = 1
-		npix = overscan.shape[0]
-	elif along == 'rows':
-		axis = 0
-		npix = overscan.shape[1]
-	else:
-		raise ValueError
+	if along == 'rows':
+		# make it look like a column overscan for simplicity
+		overscan = overscan.transpose()
+	npix = overscan.shape[0]
 	#
-	mask = np.zeros(overscan.shape,dtype=bool)
-	if mask_at is not None:
-		if along == 'columns':
-			mask[:,mask_at] = True
-		else:
-			mask[mask_at,:] = True
-	overscan = np.ma.masked_array(overscan,mask=mask)
+	overscan = np.ma.masked_array(overscan)
+	overscan[:,mask_at] = np.ma.masked
 	#
-	if method == 'clipped_mean':
-		oscan_fit = sigma_clip(overscan,axis=axis,**clipargs).mean(axis=axis)
-	elif method == 'clipped_mean_value':
-		oscan_fit = sigma_clip(overscan,**clipargs).mean(axis=axis)
+	if reject == 'sigma_clip':
+		overscan = sigma_clip(overscan,axis=1,**clipargs)
+	elif reject == 'minmax':
+		overscan[:,overscan.argmax(axis=1)] = np.ma.masked
+		overscan[:,overscan.argmin(axis=1)] = np.ma.masked
+	#
+	if method == 'mean':
+		oscan_fit = overscan.mean(axis=1)
+	elif method == 'mean_value':
+		oscan_fit = np.repeat(overscan.mean(),npix)
 	elif method == 'median_value':
 		oscan_fit = np.repeat(np.ma.median(overscan),npix)
 	elif method == 'cubic_spline':
 		knots = np.concatenate([np.arange(1,npix,spline_interval),[npix,]])
-		mean_fit = sigma_clip(overscan,axis=axis,**clipargs).mean(axis=axis)
+		mean_fit = overscan.mean(axis=1)
 		x = np.arange(npix)
 		spl_fit = LSQUnivariateSpline(x,mean_fit,t=knots)
 		oscan_fit = spl_fit(x)
@@ -385,8 +438,8 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 	withVariance = kwargs.get('with_variance',False)
 	varOutputFile = kwargs.get('var_output_file','biasvar.fits')
 	retainCounts = kwargs.get('retain_counts',False)
-	statRegion = kwargs.get('stat_region',(512,-512,512,-512))
-	x1,x2,y1,y2 = statRegion
+	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
+	                                      'amp_central_quadrant'))
 	_kwargs = copy(kwargs)
 	_kwargs.setdefault('scale','normalize')
 	_kwargs.setdefault('ret_scales',True)
@@ -463,46 +516,83 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
 	biasSubMap = kwargs.get('bias_sub_map')
 	flatDivMap = kwargs.get('flat_div_map')
+	amp_gain = kwargs.get('amp_gain')
+	gain_correct = kwargs.get('gain_correct',False)
+	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
+	                                      'amp_corner_ccdcenter'))
 	biasFits = fitsio.FITS(biasFile)
 	flatFits = fitsio.FITS(flatFile)
+	'''
+	# 2,8 are fairly stable and not in corner (4 is worst on CCD1, 7 on CCD2)
+	# 11 is on CCD3 but not affected by bias ramp
+	# 16 is by far the least affected by A/D errors on CCD4
+	refAmps = ['IM2','IM8','IM11','IM16']
+	# XXX this breaks the ability to only process some extensions, in order
+	#     to process with the refAmp for each CCD first
+	extensions = ['IM2','IM4','IM3','IM1',
+	              'IM8','IM7','IM6','IM5',
+	              'IM11','IM9','IM10','IM12',
+	              'IM16','IM13','IM14','IM15']
+	'''
+	refAmps = ['IM4','IM8','IM9','IM13']
+	nominal_ext_gain = { 'IM%d'%ampNum:g 
+	                       for ampNum,g in zip(ampOrder,nominal_gain)}
 	for f in fileList:
+		print f
 		if outputFileMap is None:
 			# modify the file in-place
 			outFits = fitsio.FITS(f,'rw')
 			inFits = outFits
+			hdr0 = inFits[0].read_header()
 		else:
 			inFits = fitsio.FITS(f)
+			hdr0 = inFits[0].read_header()
 			outFits = fitsio.FITS(outputFileMap(f),'rw')
+			outFits.write(None,header=hdr0)
 		if biasSubMap is not None:
 			biasSubFits = fitsio.FITS(biasSubMap(f),'rw')
+			biasSubFits.write(None,header=hdr0)
 		if flatDivMap is not None:
 			flatDivFits = fitsio.FITS(flatDivMap(f),'rw')
-		meanSky = []
+			flatDivFits.write(None,header=hdr0)
+		if amp_gain is None:
+			# gain is only in the header sometimes?
+			#gain = extract_gain_from_header(hdr0)
+			gain = nominal_ext_gain
+		else:
+			gain = amp_gain
 		for extn in extensions:
-			data,hdr = inFits[extn].read(header=True)
-			data -= biasFits[extn][:,:]
+			#data,hdr = inFits[extn].read(header=True)
+			hdr = inFits[extn].read_header()
+			# BIAS SUBTRACTION
+			data = inFits[extn][:,:] - biasFits[extn][:,:]
 			if biasSubMap is not None:
 				biasSubFits.write(data,extname=extn,header=hdr)
+			# FIRST ORDER FLAT FIELD CORRECTION
 			data /= flatFits[extn][:,:]
 			if flatDivMap is not None:
 				flatDivFits.write(data,extname=extn,header=hdr)
 			hdr['BIASFILE'] = biasFile
 			hdr['FLATFILE'] = flatFile
-			data *= nominal_gain[extn]
+			if gain_correct:
+				sky = sigma_clip(data[y1:y2,x1:x2],iters=2,sig=2.5,
+				                 cenfunc=np.ma.mean)
+				#sky = sky.mean()
+				sky = mode(sky,axis=None)[0][0]
+				if extn in refAmps:
+					gainCorrect = 1.0
+					refSky = sky * gain[extn]
+				else:
+					gainCorrect = refSky / (sky * gain[extn])
+				hdr['RAWSKYDN'] = sky
+				hdr['CORSKYDN'] = sky * gain[extn] * gainCorrect
+			else:
+				gainCorrect = 1.0
+			print extn,gain[extn],gainCorrect,gain[extn]*gainCorrect
+			data *= gain[extn] * gainCorrect
+			hdr['GAINMUL1'] = gain[extn]
+			hdr['GAINMUL2'] = gainCorrect
 			outFits.write(data,extname=extn,header=hdr)
-			sky = sigma_clip(data[y1:y2,x1:x2],iters=5,sig=2.5)
-			meanSky.append(mode(sky))
-		# rescale gain by sky background
-		meanSky = np.array(meanSky)
-		gainCorrect = meanSky[0] / meanSky
-		for i,extn in enumerate(extensions):
-			data,hdr = outFits[extn].read(header=True)
-			g = nominal_gain[extn] * gainCorrect[i]
-			data *= g
-			hdr['SKYADU'] = meanSky[i]
-			hdr['GAIN1'] = nominal_gain[extn]
-			hdr['GAIN2'] = gainCorrect[i]
-			outFits[extn].write(data,header=hdr)
 		if outFits != inFits:
 			outFits.close()
 		inFits.close()
@@ -528,6 +618,7 @@ def combine_ccds(fileList,**kwargs):
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
 	centerAmp = {1:'IM4',2:'IM7',3:'IM10',4:'IM13'}
 	for f in fileList:
+		print 'combine: ',f
 		inFits = fitsio.FITS(f)
 		if outputFileMap is not None:
 			outFits = fitsio.FITS(outputFileMap(f),'rw')
