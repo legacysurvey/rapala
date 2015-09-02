@@ -5,10 +5,11 @@ import re
 from copy import copy
 from collections import OrderedDict
 import numpy as np
-import fitsio
-from astropy.stats import sigma_clip
 from scipy.stats.mstats import mode
 from scipy.interpolate import LSQUnivariateSpline
+import fitsio
+from astropy.stats import sigma_clip
+from astropy.modeling import models,fitting
 
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
@@ -98,6 +99,35 @@ def build_cube(fileList,extn,masks=None):
 def bok_rebin(im,nbin):
 	s = np.array(im.shape) / nbin
 	return im.reshape(s[0],nbin,s[1],nbin).swapaxes(1,2).reshape(s[0],s[1],-1)
+
+def bok_polyfit_binnedim(im,nbin,order):
+	binnedIm = sigma_clip(bok_rebin(im,nbin),axis=-1).mean(axis=-1)
+	Y,X = np.indices(im.shape)
+	poly_model = models.Polynomial2D(degree=order)
+	fitfun = fitting.LevMarLSQFitter()
+	p = fitfun(poly_model, 
+	           X[nbin/2::nbin,nbin/2::nbin], Y[nbin/2::nbin,nbin/2::nbin], 
+	           binnedIm)
+	return p(X,Y)
+
+def bok_fov_rebin(fn,nbin):
+	raise NotImplementedError
+	xall,yall,imall = [],[],[]
+	f = fitsio.FITS(fn)
+	for hdu in f[1:]:
+		im = hdu.read()
+		hdr = hdu.read_header()
+		_y,_x = np.indices(im.shape)
+		bin_im = bok_rebin(im,nbin)
+		bin_x = _x[nbin/2::nbin,nbin/2::nbin]
+		bin_y = _y[nbin/2::nbin,nbin/2::nbin]
+		# offset to corner of CCD from field center in pixels
+		dx0 = 182.0
+		dy0 = 59.0
+		extn = hdu.get_extname()
+		xall.append(bin_x)
+		yall.append(bin_y)
+		imall.append(bin_im)
 
 def bok_make_image(fits,pngfn,**kwargs):
 	nbin = kwargs.get('nbin',1)
