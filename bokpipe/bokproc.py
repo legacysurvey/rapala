@@ -81,6 +81,9 @@ def stats_region(statreg):
 	elif statreg == 'amp_corner_ccdcenter':
 		#return (-1024,-1,-1024,-1)
 		return (-512,-50,-512,-50)
+	elif statreg == 'centeramp_corner_fovcenter':
+		# for the 4 central amps, this is the corner towards the field center
+		return (50,512,50,512)
 	else:
 		raise ValueError
 
@@ -465,11 +468,13 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 	extensions = kwargs.get('extensions',bok90mef_extensions)
 	outputDir = kwargs.get('output_dir','./')
 	outputFile = kwargs.get('output_file','flat.fits')
+	#doIllumCorr = kwargs.get('illum_corr',True)
 	withVariance = kwargs.get('with_variance',False)
 	varOutputFile = kwargs.get('var_output_file','biasvar.fits')
 	retainCounts = kwargs.get('retain_counts',False)
 	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
-	                                      'amp_central_quadrant'))
+	                                      'amp_corner_ccdcenter'))
+	                                      #'amp_central_quadrant'))
 	_kwargs = copy(kwargs)
 	_kwargs.setdefault('scale','normalize')
 	_kwargs.setdefault('ret_scales',True)
@@ -550,6 +555,8 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 	gain_correct = kwargs.get('gain_correct',False)
 	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
 	                                      'amp_corner_ccdcenter'))
+	# not a keyword (?)
+	xc1,xc2,yc1,yc2 = stats_region('centeramp_corner_fovcenter')
 	biasFits = fitsio.FITS(biasFile)
 	flatFits = fitsio.FITS(flatFile)
 	'''
@@ -592,10 +599,10 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 		else:
 			gain = amp_gain
 		for extn in extensions:
-			#data,hdr = inFits[extn].read(header=True)
+			data = inFits[extn].read()
 			hdr = inFits[extn].read_header()
 			# BIAS SUBTRACTION
-			data = inFits[extn][:,:] - biasFits[extn][:,:]
+			data -= biasFits[extn][:,:]
 			if biasSubMap is not None:
 				biasSubFits.write(data,extname=extn,header=hdr)
 			# FIRST ORDER FLAT FIELD CORRECTION
@@ -607,21 +614,33 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 			if gain_correct:
 				sky = sigma_clip(data[y1:y2,x1:x2],iters=2,sig=2.5,
 				                 cenfunc=np.ma.mean)
-				#sky = sky.mean()
-				sky = mode(sky,axis=None)[0][0]
+				sky = sky.mean()
+				# this function doesn't seem to be well-behaved here, for
+				# reasons I don't understand...
+				#sky = mode(sky,axis=None)[0][0]
 				if extn in refAmps:
-					gainCorrect = 1.0
+					gainCorAmp = 1.0
 					refSky = sky * gain[extn]
 				else:
-					gainCorrect = refSky / (sky * gain[extn])
-				hdr['RAWSKYDN'] = sky
-				hdr['CORSKYDN'] = sky * gain[extn] * gainCorrect
+					gainCorAmp = refSky / (sky * gain[extn])
+				#if extn == refAmps[0]:
+				#	refSkyAll = refSky
+				#	gainCorAll = 1.0
+				#else:
+				#	gainCorAll = refSkyAll / (sky * gain[extn]*gainCorAmp)
+				gainCorAll = 1.0
+				hdr['SKY0DN'] = sky
+				hdr['SKY1DN'] = sky * gain[extn] * gainCorAmp
+				hdr['SKY2DN'] = sky * gain[extn] * gainCorAmp * gainCorAll
 			else:
-				gainCorrect = 1.0
-			print extn,gain[extn],gainCorrect,gain[extn]*gainCorrect
-			data *= gain[extn] * gainCorrect
+				gainCorAmp = 1.0
+				gainCorAll = 1.0
+			print extn,gain[extn],gainCorAmp,gainCorAll,
+			print gain[extn]*gainCorAmp,gain[extn]*gainCorAmp*gainCorAll
+			data *= gain[extn] * gainCorAmp * gainCorAll
 			hdr['GAINMUL1'] = gain[extn]
-			hdr['GAINMUL2'] = gainCorrect
+			hdr['GAINMUL2'] = gainCorAmp
+			hdr['GAINMUL3'] = gainCorAll
 			outFits.write(data,extname=extn,header=hdr)
 		if outFits != inFits:
 			outFits.close()
