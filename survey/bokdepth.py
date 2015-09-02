@@ -123,7 +123,7 @@ def calc_raw_image_background(imagepath,extNum=None,**kwargs):
 		rv['biasLevel'][i] = bias
 	return rv
 
-def calc_sky_all(survey='bass'):
+def calc_sky_all(survey='bass',filt='g'):
 	if survey=='bass':
 		import basslog
 		datadir = os.environ['GSCRATCH']
@@ -146,7 +146,7 @@ def calc_sky_all(survey='bass'):
 	for utd in utds:
 		ii = np.where((logs[utd]['imType']=='object') &
 		              (logs[utd]['expTime']>30.0) &
-		              (logs[utd]['filter']=='g'))[0]
+		              (logs[utd]['filter']==filt))[0]
 		# takes too long to do all of them
 		stride = 10 if survey=='bass' else 1
 		for _i,i in enumerate(ii[::stride]):
@@ -164,7 +164,7 @@ def calc_sky_all(survey='bass'):
 				continue
 	tileData = np.array(tileList,dtype=tile_dtype)
 	statData = np.concatenate(statList)
-	outfn = 'tile_stats_%s.fits' % survey
+	outfn = 'tile_stats_%s_%s.fits' % (survey,filt)
 	fitsio.write(outfn,tileData,clobber=True)
 	fitsio.write(outfn,statData)
 

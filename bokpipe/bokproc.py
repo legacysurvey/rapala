@@ -18,6 +18,8 @@ ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
 # iterate over them in the order given above
 bok90mef_extensions = ['IM%d' % a for a in ampOrder]
 
+bokCenterAmps = ['IM4','IM7','IM10','IM13']
+
 '''
 nominal_gain =  np.array(
   [ 1.3, 1.3, 1.3, 1.3, 
@@ -83,7 +85,7 @@ def stats_region(statreg):
 		return (-512,-50,-512,-50)
 	elif statreg == 'centeramp_corner_fovcenter':
 		# for the 4 central amps, this is the corner towards the field center
-		return (50,512,50,512)
+		return (50,1024,50,1024)
 	else:
 		raise ValueError
 
@@ -542,7 +544,7 @@ def make_supersky_flats(fileList,objectMasks,**kwargs):
 ###############################################################################
 #                                                                             #
 #                              PROCESS ROUND 1                                #
-#                   bias subtraction, flat field, gain multiply               #
+#                   bias subtraction & flat field                             #
 #                                                                             #
 ###############################################################################
 
@@ -551,29 +553,8 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
 	biasSubMap = kwargs.get('bias_sub_map')
 	flatDivMap = kwargs.get('flat_div_map')
-	amp_gain = kwargs.get('amp_gain')
-	gain_correct = kwargs.get('gain_correct',False)
-	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
-	                                      'amp_corner_ccdcenter'))
-	# not a keyword (?)
-	xc1,xc2,yc1,yc2 = stats_region('centeramp_corner_fovcenter')
 	biasFits = fitsio.FITS(biasFile)
 	flatFits = fitsio.FITS(flatFile)
-	'''
-	# 2,8 are fairly stable and not in corner (4 is worst on CCD1, 7 on CCD2)
-	# 11 is on CCD3 but not affected by bias ramp
-	# 16 is by far the least affected by A/D errors on CCD4
-	refAmps = ['IM2','IM8','IM11','IM16']
-	# XXX this breaks the ability to only process some extensions, in order
-	#     to process with the refAmp for each CCD first
-	extensions = ['IM2','IM4','IM3','IM1',
-	              'IM8','IM7','IM6','IM5',
-	              'IM11','IM9','IM10','IM12',
-	              'IM16','IM13','IM14','IM15']
-	'''
-	refAmps = ['IM4','IM8','IM9','IM13']
-	nominal_ext_gain = { 'IM%d'%ampNum:g 
-	                       for ampNum,g in zip(ampOrder,nominal_gain)}
 	for f in fileList:
 		print f
 		if outputFileMap is None:
@@ -592,12 +573,6 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 		if flatDivMap is not None:
 			flatDivFits = fitsio.FITS(flatDivMap(f),'rw')
 			flatDivFits.write(None,header=hdr0)
-		if amp_gain is None:
-			# gain is only in the header sometimes?
-			#gain = extract_gain_from_header(hdr0)
-			gain = nominal_ext_gain
-		else:
-			gain = amp_gain
 		for extn in extensions:
 			data = inFits[extn].read()
 			hdr = inFits[extn].read_header()
@@ -611,36 +586,6 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 				flatDivFits.write(data,extname=extn,header=hdr)
 			hdr['BIASFILE'] = biasFile
 			hdr['FLATFILE'] = flatFile
-			if gain_correct:
-				sky = sigma_clip(data[y1:y2,x1:x2],iters=2,sig=2.5,
-				                 cenfunc=np.ma.mean)
-				sky = sky.mean()
-				# this function doesn't seem to be well-behaved here, for
-				# reasons I don't understand...
-				#sky = mode(sky,axis=None)[0][0]
-				if extn in refAmps:
-					gainCorAmp = 1.0
-					refSky = sky * gain[extn]
-				else:
-					gainCorAmp = refSky / (sky * gain[extn])
-				#if extn == refAmps[0]:
-				#	refSkyAll = refSky
-				#	gainCorAll = 1.0
-				#else:
-				#	gainCorAll = refSkyAll / (sky * gain[extn]*gainCorAmp)
-				gainCorAll = 1.0
-				hdr['SKY0DN'] = sky
-				hdr['SKY1DN'] = sky * gain[extn] * gainCorAmp
-				hdr['SKY2DN'] = sky * gain[extn] * gainCorAmp * gainCorAll
-			else:
-				gainCorAmp = 1.0
-				gainCorAll = 1.0
-			print extn,gain[extn],gainCorAmp,gainCorAll,
-			print gain[extn]*gainCorAmp,gain[extn]*gainCorAmp*gainCorAll
-			data *= gain[extn] * gainCorAmp * gainCorAll
-			hdr['GAINMUL1'] = gain[extn]
-			hdr['GAINMUL2'] = gainCorAmp
-			hdr['GAINMUL3'] = gainCorAll
 			outFits.write(data,extname=extn,header=hdr)
 		if outFits != inFits:
 			outFits.close()
@@ -657,15 +602,84 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 ###############################################################################
 #                                                                             #
 #                               COMBINE CCDs                                  #
+#                balances the amplifiers with a gain correction               #
 #                                                                             #
 ###############################################################################
+
+def apply_gain_correction(inFits,extGroup,hdr,skyGainCor,inputGain,
+                          ampCorStatReg,ccdCorStatReg,clipArgs,skyIn,refAmp):
+	# the mode doesn't seem to be well-behaved here (why?), 
+	#sky_est = lambda x: mode(x,axis=None)[0][0]
+	# mean seems robust
+	#sky_est = np.ma.median
+	sky_est = np.ma.mean
+	# the stats region used to balance amps within a CCD using sky values
+	xa1,xa2,ya1,ya2 = ampCorStatReg
+	# the stats region used to balance CCDs across the field using sky values
+	xc1,xc2,yc1,yc2 = ccdCorStatReg
+	# load the per-amp images
+	ampIms = [ inFits[ext].read() for ext in extGroup ]
+	# start with the input gain values (from header keywords or input by user)
+	gain = np.array([ inputGain[ext] for ext in extGroup ])
+	# use the sky counts to balance the gains
+	if skyGainCor:
+		# first balance across amplifers
+		rawSky = np.array([ sky_est(sigma_clip(im[ya1:ya2,xa1:xa2],
+		                                       **clipArgs))
+		                           for im in ampIms ])
+		skyCounts = rawSky * gain
+		refAmpIndex = np.where(extGroup == refAmp)[0][0]
+		gain2 = skyCounts[refAmpIndex] / skyCounts
+		# then balance across CCDs
+		centerAmp = (set(extGroup) & set(bokCenterAmps)).pop()
+		ci = np.where(extGroup == centerAmp)[0][0]
+		skyCounts = sky_est(sigma_clip(ampIms[ci][yc1:yc2,xc1:xc2],**clipArgs))
+		__rawSky2 = skyCounts
+		skyCounts *= gain[ci] * gain2[ci]
+		if skyIn is None:
+			gain3 = 1.0
+		else:
+			gain3 = skyIn / skyCounts
+		for i,ext in enumerate(extGroup):
+			chNum = int(ext.replace('IM',''))
+			hdr['SKYC%02d%s1'%(chNum,'ABCD'[i])] = rawSky[i]
+			hdr['GAIN%02d%s1'%(chNum,'ABCD'[i])] = gain[i]
+			hdr['GAIN%02d%s2'%(chNum,'ABCD'[i])] = gain2[i]
+		hdr['CCDGAIN3'] = gain3
+		gain *= gain2 * gain3
+	else:
+		skyCounts = None
+		# store the (default) gain values used
+		for i,ext in enumerate(extGroup):
+			chNum = int(ext.replace('IM',''))
+			hdr['GAIN%02d%s1'%(chNum,'ABCD'[i])] = gain[i]
+	ampIms = [ im*g for im,g in zip(ampIms,gain) ]
+	return ampIms,skyCounts
 
 def combine_ccds(fileList,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
 	tmpFileName = 'tmp.fits'
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
-	centerAmp = {1:'IM4',2:'IM7',3:'IM10',4:'IM13'}
+	#
+	inputGain = kwargs.get('input_gain')
+	skyGainCor = kwargs.get('sky_gain_correct',True)
+	ampCorStatReg = stats_region(kwargs.get('stats_region',
+	                                      'amp_corner_ccdcenter'))
+	# not a keyword (?)
+	ccdCorStatReg = stats_region('centeramp_corner_fovcenter')
+	clipArgs = {'iters':kwargs.get('clip_iters',3),
+	            'sig':kwargs.get('clip_sig',2.5),
+	            'cenfunc':np.ma.mean}
+	# 2,8 are fairly stable and not in corner (4 is worst on CCD1, 7 on CCD2)
+	# 11 is on CCD3 but not affected by bias ramp
+	# 16 is by far the least affected by A/D errors on CCD4
+	refAmps = ['IM2','IM8','IM11','IM16']
+	#refAmps = ['IM4','IM8','IM9','IM13']
+	if inputGain is None:
+		inputGain = { 'IM%d'%ampNum:g 
+		                  for ampNum,g in zip(ampOrder,nominal_gain)}
+	#
 	for f in fileList:
 		print 'combine: ',f
 		inFits = fitsio.FITS(f)
@@ -678,9 +692,19 @@ def combine_ccds(fileList,**kwargs):
 		hdr['DETSIZE'] = '[1:%d,1:%d]' % (8192,8064) # hardcoded
 		hdr['NEXTEND'] = 4
 		outFits.write(None,header=hdr)
+		refSkyCounts = None
 		for ccdNum,extGroup in enumerate(np.hsplit(extns,4),start=1):
-			im1,im2,im3,im4 = [inFits[ext].read() for ext in extGroup]
-			hdr = inFits[centerAmp[ccdNum]].read_header()
+			hdr = inFits[bokCenterAmps[ccdNum-1]].read_header()
+			# load the individual channels and balance them with a gain
+			# correction (either default values or using sky counts)
+			(im1,im2,im3,im4),skyCounts = \
+			        apply_gain_correction(inFits,extGroup,hdr,skyGainCor,
+			                              inputGain,ampCorStatReg,
+			                              ccdCorStatReg,clipArgs,refSkyCounts,
+			                              refAmps[ccdNum-1])
+			if ccdNum == 1:
+				refSkyCounts = skyCounts
+			# orient the channel images N through E and stack into CCD image
 			outIm = np.vstack([ np.hstack([ np.flipud(np.rot90(im2)),
 			                                np.rot90(im4,3) ]),
 			                    np.hstack([ np.rot90(im1),
