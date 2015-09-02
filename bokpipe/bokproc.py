@@ -80,9 +80,10 @@ def stats_region(statreg):
 		return statreg
 	elif statreg == 'amp_central_quadrant':
 		return (512,-512,512,-512)
-	elif statreg == 'amp_corner_ccdcenter':
-		#return (-1024,-1,-1024,-1)
+	elif statreg == 'amp_corner_ccdcenter_small':
 		return (-512,-50,-512,-50)
+	elif statreg == 'amp_corner_ccdcenter':
+		return (-1024,-1,-1024,-1)
 	elif statreg == 'centeramp_corner_fovcenter':
 		# for the 4 central amps, this is the corner towards the field center
 		return (50,1024,50,1024)
@@ -115,6 +116,20 @@ def bok_polyfit_binnedim(im,nbin,order):
 	           binnedIm)
 	return p(X,Y)
 
+def bok_getxy(hdr,coordsys='image'):
+	y,x = np.indices((hdr['NAXIS2'],hdr['NAXIS1']))
+	if coordsys == 'image':
+		pass
+	elif coordsys == 'physical':
+		x = hdr['LTM1_1']*(x - hdr['LTV1'])
+		y = hdr['LTM2_2']*(y - hdr['LTV2'])
+	elif coordsys == 'sky':
+		x = np.sign(hdr['CD1_1'])*(x - hdr['CRPIX1'])
+		y = np.sign(hdr['CD2_2'])*(y - hdr['CRPIX2'])
+	else:
+		raise ValueError
+	return x,y
+
 def bok_fov_rebin(fn,nbin):
 	raise NotImplementedError
 	xall,yall,imall = [],[],[]
@@ -122,13 +137,10 @@ def bok_fov_rebin(fn,nbin):
 	for hdu in f[1:]:
 		im = hdu.read()
 		hdr = hdu.read_header()
-		_y,_x = np.indices(im.shape)
+		_x,_y = bok_getxy(hdr,'sky')
 		bin_im = bok_rebin(im,nbin)
 		bin_x = _x[nbin/2::nbin,nbin/2::nbin]
 		bin_y = _y[nbin/2::nbin,nbin/2::nbin]
-		# offset to corner of CCD from field center in pixels
-		dx0 = 182.0
-		dy0 = 59.0
 		extn = hdu.get_extname()
 		xall.append(bin_x)
 		yall.append(bin_y)
@@ -387,7 +399,11 @@ def subtract_overscan(fileList,**kwargs):
 			# write the output file
 			hdr = fits[extn].read_header()
 			hdr['OSCANSUB'] = 'method=%s' % kwargs.get('method','default')
-			hdr['OSCANMED'] = float(np.ma.median(colbias).filled(-999))
+			# something changed about what median returns...
+			try:
+				hdr['OSCANMED'] = float(np.ma.median(colbias).filled(-999))
+			except:
+				hdr['OSCANMED'] = float(np.ma.median(colbias))
 			outFits.write(data,extname=extn,header=hdr)
 			# save the oscans to images
 			if write_overscan_image:
@@ -475,7 +491,7 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 	varOutputFile = kwargs.get('var_output_file','biasvar.fits')
 	retainCounts = kwargs.get('retain_counts',False)
 	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
-	                                      'amp_corner_ccdcenter'))
+	                                      'amp_corner_ccdcenter_small'))
 	                                      #'amp_central_quadrant'))
 	_kwargs = copy(kwargs)
 	_kwargs.setdefault('scale','normalize')
