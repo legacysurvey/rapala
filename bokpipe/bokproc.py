@@ -118,14 +118,20 @@ def bok_polyfit_binnedim(im,nbin,order):
 
 def bok_getxy(hdr,coordsys='image'):
 	y,x = np.indices((hdr['NAXIS2'],hdr['NAXIS1']))
+	# FITS coordinates are 1-indexed (correct?)
+	#x += 1
+	#y += 1
 	if coordsys == 'image':
 		pass
 	elif coordsys == 'physical':
 		x = hdr['LTM1_1']*(x - hdr['LTV1'])
 		y = hdr['LTM2_2']*(y - hdr['LTV2'])
 	elif coordsys == 'sky':
-		x = np.sign(hdr['CD1_1'])*(x - hdr['CRPIX1'])
-		y = np.sign(hdr['CD2_2'])*(y - hdr['CRPIX2'])
+		# hacky assumption of orthogonal coordinates but true at this stage
+		dx = hdr['CD1_1'] + hdr['CD2_1']
+		dy = hdr['CD1_2'] + hdr['CD2_2']
+		x = np.sign(dx)*(x - hdr['CRPIX1'])
+		y = np.sign(dy)*(y - hdr['CRPIX2'])
 	else:
 		raise ValueError
 	return x,y
@@ -622,8 +628,8 @@ def process_round1(fileList,biasFile,flatFile,**kwargs):
 #                                                                             #
 ###############################################################################
 
-def apply_gain_correction(inFits,extGroup,hdr,skyGainCor,inputGain,
-                          ampCorStatReg,ccdCorStatReg,clipArgs,skyIn,refAmp):
+def multiply_gain(inFits,extGroup,hdr,skyGainCor,inputGain,
+                  ampCorStatReg,ccdCorStatReg,clipArgs,skyIn,refAmp):
 	# the mode doesn't seem to be well-behaved here (why?), 
 	#sky_est = lambda x: mode(x,axis=None)[0][0]
 	# mean seems robust
@@ -672,6 +678,66 @@ def apply_gain_correction(inFits,extGroup,hdr,skyGainCor,inputGain,
 	ampIms = [ im*g for im,g in zip(ampIms,gain) ]
 	return ampIms,skyCounts
 
+def _orient_mosaic(hdr,ims,ccdNum,origin):
+	im1,im2,im3,im4 = ims
+	# orient the channel images N through E and stack into CCD image
+	outIm = np.vstack([ np.hstack([ np.flipud(np.rot90(im2)),
+	                                np.rot90(im4,3) ]),
+	                    np.hstack([ np.rot90(im1),
+	                                np.fliplr(np.rot90(im3)) ]) ])
+	if origin == 'lower left':
+		pass
+	elif origin == 'center':
+		if ccdNum == 1:
+			outIm = np.fliplr(outIm)
+		elif ccdNum == 2:
+			outIm = np.rot90(outIm,2)
+		elif ccdNum == 3:
+			pass
+		elif ccdNum == 4:
+			outIm = np.flipud(outIm)
+	ny,nx = outIm.shape
+	det_i = (ccdNum-1) // 2
+	det_j = ccdNum % 2
+	hdr['DATASEC'] = '[1:%d,1:%d]' % (nx,ny)
+	hdr['DETSEC'] = '[%d:%d,%d:%d]' % (nx*det_i+1,nx*(det_i+1),
+	                                   ny*det_j+1,ny*(det_j+1))
+	plateScale = np.max(np.abs([hdr['CD1_1'],hdr['CD1_2']]))
+	# --> these two disagree in physical coords by 1 pixel for det_i==1
+	if origin == 'center':
+		# works for WCS but not IRAF for some reason
+		hdr['CD1_1'] = 0.0
+		hdr['CD2_2'] = 0.0
+		signx = [-1,+1][det_i]
+		signy = [-1,+1][det_j]
+		hdr['CD2_1'] = -signx*plateScale
+		hdr['CD1_2'] = signy*plateScale
+		hdr['CRPIX1'] = -182.01
+		hdr['CRPIX2'] = -59.04
+		hdr['LTM1_1'] = float(signx)
+		hdr['LTM2_2'] = float(signy)
+		hdr['LTV1'] = [4096.0,-4097.0][det_i]
+		hdr['LTV2'] = [4033.0,-4032.0][det_j]
+	elif origin == 'lower left':
+		hdr['LTM1_1'] = 1.0
+		hdr['LTM2_2'] = 1.0
+		hdr['LTV1'] = 0 if det_i == 0 else -nx
+		hdr['LTV2'] = 0 if det_j == 0 else -ny
+		hdr['CD1_1'] = 0.0
+		hdr['CD1_2'] = plateScale
+		hdr['CD2_1'] = -plateScale
+		hdr['CD2_2'] = 0.0
+		crpix1,crpix2 = hdr['CRPIX1'],hdr['CRPIX2']
+		if det_i==0:
+			hdr['CRPIX1'] = 1 + nx - crpix2  # not really sure why +1
+		else:
+			hdr['CRPIX1'] = 1 + crpix2
+		if det_j==0:
+			hdr['CRPIX2'] = ny - crpix1
+		else:
+			hdr['CRPIX2'] = crpix1
+	return outIm,hdr
+
 def combine_ccds(fileList,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
 	tmpFileName = 'tmp.fits'
@@ -687,6 +753,8 @@ def combine_ccds(fileList,**kwargs):
 	clipArgs = {'iters':kwargs.get('clip_iters',3),
 	            'sig':kwargs.get('clip_sig',2.5),
 	            'cenfunc':np.ma.mean}
+	#origin = kwargs.get('origin','lower left')
+	origin = kwargs.get('origin','center')
 	# 2,8 are fairly stable and not in corner (4 is worst on CCD1, 7 on CCD2)
 	# 11 is on CCD3 but not affected by bias ramp
 	# 16 is by far the least affected by A/D errors on CCD4
@@ -714,42 +782,14 @@ def combine_ccds(fileList,**kwargs):
 			# load the individual channels and balance them with a gain
 			# correction (either default values or using sky counts)
 			(im1,im2,im3,im4),skyCounts = \
-			        apply_gain_correction(inFits,extGroup,hdr,skyGainCor,
-			                              inputGain,ampCorStatReg,
-			                              ccdCorStatReg,clipArgs,refSkyCounts,
-			                              refAmps[ccdNum-1])
+			        multiply_gain(inFits,extGroup,hdr,skyGainCor,
+			                      inputGain,ampCorStatReg,ccdCorStatReg,
+			                      clipArgs,refSkyCounts,refAmps[ccdNum-1])
 			if ccdNum == 1:
 				refSkyCounts = skyCounts
-			# orient the channel images N through E and stack into CCD image
-			outIm = np.vstack([ np.hstack([ np.flipud(np.rot90(im2)),
-			                                np.rot90(im4,3) ]),
-			                    np.hstack([ np.rot90(im1),
-			                                np.fliplr(np.rot90(im3)) ]) ])
+			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords
-			ny,nx = outIm.shape
-			det_i = (ccdNum-1) // 2
-			det_j = ccdNum % 2
-			hdr['DATASEC'] = '[1:%d,1:%d]' % (nx,ny)
-			hdr['DETSEC'] = '[%d:%d,%d:%d]' % (nx*det_i+1,nx*(det_i+1),
-			                                   ny*det_j+1,ny*(det_j+1))
-			hdr['LTM1_1'] = 1.0
-			hdr['LTM2_2'] = 1.0
-			hdr['LTV1'] = 0 if det_i == 0 else -nx
-			hdr['LTV2'] = 0 if det_j == 0 else -ny
-			plateScale = np.max(np.abs([hdr['CD1_1'],hdr['CD1_2']]))
-			hdr['CD1_1'] = 0.0
-			hdr['CD1_2'] = plateScale
-			hdr['CD2_1'] = -plateScale
-			hdr['CD2_2'] = 0.0
-			crpix1,crpix2 = hdr['CRPIX1'],hdr['CRPIX2']
-			if det_i==0:
-				hdr['CRPIX1'] = 1 + nx - crpix2  # not really sure why +1
-			else:
-				hdr['CRPIX1'] = 1 + crpix2
-			if det_j==0:
-				hdr['CRPIX2'] = ny - crpix1
-			else:
-				hdr['CRPIX2'] = crpix1
+			outIm,hdr = _orient_mosaic(hdr,(im1,im2,im3,im4),ccdNum,origin)
 			outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
 		outFits.close()
 		if outputFileMap is None:
