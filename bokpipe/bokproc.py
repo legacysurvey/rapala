@@ -106,16 +106,6 @@ def bok_rebin(im,nbin):
 	s = np.array(im.shape) / nbin
 	return im.reshape(s[0],nbin,s[1],nbin).swapaxes(1,2).reshape(s[0],s[1],-1)
 
-def bok_polyfit_binnedim(im,nbin,order):
-	binnedIm = sigma_clip(bok_rebin(im,nbin),axis=-1).mean(axis=-1)
-	Y,X = np.indices(im.shape)
-	poly_model = models.Polynomial2D(degree=order)
-	fitfun = fitting.LevMarLSQFitter()
-	p = fitfun(poly_model, 
-	           X[nbin/2::nbin,nbin/2::nbin], Y[nbin/2::nbin,nbin/2::nbin], 
-	           binnedIm)
-	return p(X,Y)
-
 def bok_getxy(hdr,coordsys='image'):
 	y,x = np.indices((hdr['NAXIS2'],hdr['NAXIS1']))
 	# FITS coordinates are 1-indexed (correct?)
@@ -136,35 +126,87 @@ def bok_getxy(hdr,coordsys='image'):
 		raise ValueError
 	return x,y
 
-def bok_fov_rebin(fn,nbin):
-	raise NotImplementedError
-	xall,yall,imall = [],[],[]
-	f = fitsio.FITS(fn)
-	for hdu in f[1:]:
-		im = hdu.read()
-		hdr = hdu.read_header()
-		_x,_y = bok_getxy(hdr,'sky')
-		bin_im = bok_rebin(im,nbin)
-		bin_x = _x[nbin/2::nbin,nbin/2::nbin]
-		bin_y = _y[nbin/2::nbin,nbin/2::nbin]
-		extn = hdu.get_extname()
-		xall.append(bin_x)
-		yall.append(bin_y)
-		imall.append(bin_im)
-
-def bok_make_image(fits,pngfn,**kwargs):
-	nbin = kwargs.get('nbin',1)
-	kwargs.setdefault('cmap',plt.cm.heat)
-	kwargs.setdefault('interpolation','nearest')
+def bok_fov_rebin(fits,nbin,coordsys='sky'):
+	rv = {}
 	if type(fits) is str:
 		fits = fitsio.FITS(fits)
-	fig = plt.figure()
-	for plotNum,hdu in enumerate(fits[1:],start=1):
+	for hdu in fits[1:]:
 		im = hdu.read()
+		hdr = hdu.read_header()
+		x,y = bok_getxy(hdr,coordsys)
 		if nbin > 1:
 			im = bok_rebin(im,nbin)
-		ax.imshow(im,origin='lower',**kwargs)
-	raise NotImplementedError
+			x = x[nbin//2::nbin,nbin//2::nbin]
+			y = y[nbin//2::nbin,nbin//2::nbin]
+		extn = hdu.get_extname()
+		rv[extn] = {'x':x,'y':y,'im':im}
+	return rv
+
+def bok_polyfit(fits,nbin,order):
+	binnedIm = bok_fov_rebin(fits,nbin,'sky')
+	# XXX need bad pixel and object masks here
+	# collect the CCD mosaic into a single image
+	X,Y,fovIm = [],[],[]
+	for ccd in ['CCD%d'%i for i in range(1,5)]:
+		print 'getting sky for ',ccd
+		im = fits[ccd].read()
+		if True:
+			# hacky way of masking objects for now
+			sky = sigma_clip(im[100:1500,100:1500],iters=5,sig=2.5)
+			skym,skys = np.ma.median(sky),sky.std()
+			mask = (im > skym+5*skys) | (im < skym-5*skys)
+			print skym,skys,mask.sum()
+			mask = bok_rebin(mask,nbin)
+		mim = np.ma.masked_array(binnedIm[ccd]['im'],mask)
+		im = mim.mean(axis=-1)
+		X.append(binnedIm[ccd]['x'].flatten())
+		Y.append(binnedIm[ccd]['y'].flatten())
+		fovIm.append(im.flatten())
+	X = np.concatenate(X)
+	Y = np.concatenate(Y)
+	fovIm = np.concatenate(fovIm)
+	print X.shape,Y.shape,fovIm.shape
+	# fit a polynomial to the binned mosaic image
+	poly_model = models.Polynomial2D(degree=order)
+	fitfun = fitting.LevMarLSQFitter()
+	p = fitfun(poly_model,X,Y,fovIm)
+	# return the model images for each CCD at native resolution
+	rv = {}
+	for ccd in ['CCD%d'%i for i in range(1,5)]:
+		x,y = bok_getxy(fits[ccd].read_header(),'sky')
+		rv[ccd] = p(x,y)
+	rv['skymodel'] = p
+	return rv
+
+def bok_make_image(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
+	import matplotlib.pyplot as plt
+	#kwargs.setdefault('cmap',plt.cm.hot_r)
+	kwargs.setdefault('interpolation','nearest')
+	w = 0.4575
+	h = 0.465
+	fov = bok_fov_rebin(fits,nbin,coordsys)
+	fig = plt.figure(figsize=(6,6))
+	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
+		if n == 0:
+			im = fov[ccd]['im']
+			i1,i2 = 100//nbin,1500//nbin
+			background = sigma_clip(im[i1:i2,i1:i2],iters=3,sig=2.2)
+			m,s = background.mean(),background.std()
+		im = fov[ccd]['im'].mean(axis=-1)
+		x = fov[ccd]['x']
+		y = fov[ccd]['y']
+		i = n % 2
+		j = n // 2
+		pos = [ 0.025 + i*w + i*0.04, (j+1)*0.025 + j*h, w, h ]
+		ax = fig.add_axes(pos)
+		ax.imshow(im,origin='lower',
+		          extent=[x[0,0],x[0,-1],y[0,0],y[-1,0]],
+		          vmin=m-2*s,vmax=m+8*s,**kwargs)
+		if coordsys=='sky':
+			ax.set_xlim(x.max(),x.min())
+		else:
+			ax.set_xlim(x.min(),x.max())
+		ax.set_ylim(y.min(),y.max())
 
 def stack_image_cube(imCube,**kwargs):
 	reject = kwargs.get('reject','sigma_clip')
@@ -817,6 +859,34 @@ def sextract_pass1(fileList,**kwargs):
 			                  '-CHECKIMAGE_NAME',objMaskFileMap(f)])
 		cmd = cmd.append(f)
 		subprocess.call(cmd)
+
+def subtract_sky(fileList,**kwargs):
+	outputFileMap = kwargs.get('output_file_map')
+	for f in fileList:
+		print f
+		if outputFileMap is None:
+			# modify the file in-place
+			outFits = fitsio.FITS(f,'rw')
+			inFits = outFits
+			hdr0 = inFits[0].read_header()
+		else:
+			inFits = fitsio.FITS(f)
+			hdr0 = inFits[0].read_header()
+			outFits = fitsio.FITS(outputFileMap(f),'rw')
+			outFits.write(None,header=hdr0)
+		#
+		skyFit = bok_polyfit(inFits,64,1)
+		# subtract the sky level at the origin so as to only remove 
+		# the gradient
+		sky0 = skyFit['skymodel'](0,0)
+		for ccd in ['CCD%d'%i for i in range(1,5)]:
+			hdr = inFits[ccd].read_header()
+			data = inFits[ccd][:,:] - (skyFit[ccd] - sky0)
+			hdr['SKYVAL'] = sky0
+			outFits.write(data,extname=ccd,header=hdr)
+		if outFits != inFits:
+			outFits.close()
+		inFits.close()
 
 def process_round2(fileList,superSkyFlatFile,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
