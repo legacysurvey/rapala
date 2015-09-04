@@ -153,7 +153,7 @@ def bok_fov_rebin(fits,nbin,coordsys='sky',maskFits=None):
 		hdr = hdu.read_header()
 		x,y = bok_getxy(hdr,coordsys)
 		if maskFits is not None:
-			im = np.ma.masked_array(im,maskFits[extn].astype(np.bool))
+			im = np.ma.masked_array(im,maskFits[extn][:,:].astype(np.bool))
 		if nbin > 1:
 			im = bok_rebin(im,nbin)
 			x = x[nbin//2::nbin,nbin//2::nbin]
@@ -204,17 +204,19 @@ def bok_polyfit(fits,nbin,order,maskFits=None,writeImg=False):
 
 def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
+	from matplotlib import colors
 	maskFile = kwargs.get('mask')
 	#kwargs.setdefault('cmap',plt.cm.hot_r)
 	cmap = plt.cm.jet
 	cmap.set_bad('w',1.0)
 	losig = 2.5
-	hisig = 2.5
+	hisig = 5.0
 	w = 0.4575
-	h = 0.465
+	h = 0.455
 	if maskFile is not None:
 		maskFits = fitsio.FITS(maskFile)
-	fig = plt.figure(figsize=(6,6))
+	fig = plt.figure(figsize=(6,6.5))
+	cax = fig.add_axes([0.1,0.03,0.8,0.01])
 	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
 		im = fov[ccd]['im']
 		if maskFile is not None:
@@ -223,23 +225,27 @@ def make_fov_image(fov,pngfn,**kwargs):
 			i1,i2 = 100//fov['nbin'],1500//fov['nbin']
 			background = sigma_clip(im[i1:i2,i1:i2],iters=3,sig=2.2)
 			m,s = background.mean(),background.std()
+			print m,s,m-losig*s,m+hisig*s
+			norm = colors.Normalize(vmin=m-losig*s,vmax=m+hisig*s)
 		if im.ndim == 3:
 			im = im.mean(axis=-1)
 		x = fov[ccd]['x']
 		y = fov[ccd]['y']
 		i = n % 2
 		j = n // 2
-		pos = [ 0.025 + i*w + i*0.04, (j+1)*0.025 + j*h, w, h ]
+		pos = [ 0.025 + i*w + i*0.04, 0.06 + j*h + j*0.025, w, h ]
 		ax = fig.add_axes(pos)
-		ax.imshow(im,origin='lower',
-		          extent=[x[0,0],x[0,-1],y[0,0],y[-1,0]],
-		          vmin=m-losig*s,vmax=m+hisig*s,cmap=cmap,
-		          interpolation=kwargs.get('interpolation','nearest'))
+		_im = ax.imshow(im,origin='lower',
+		                extent=[x[0,0],x[0,-1],y[0,0],y[-1,0]],
+		                norm=norm,cmap=cmap,
+		                interpolation=kwargs.get('interpolation','nearest'))
 		if fov['coordsys']=='sky':
 			ax.set_xlim(x.max(),x.min())
 		else:
 			ax.set_xlim(x.min(),x.max())
 		ax.set_ylim(y.min(),y.max())
+		if n == 0:
+			fig.colorbar(_im,cax,orientation='horizontal')
 
 def make_fov_image_fromfile(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
 	fov = bok_fov_rebin(fits,nbin,coordsys)
@@ -918,6 +924,7 @@ def sextract_pass1(fileList,**kwargs):
 
 def subtract_sky(fileList,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
+	maskFileMap = kwargs.get('mask_file_map')
 	for f in fileList:
 		print f
 		if outputFileMap is None:
@@ -930,8 +937,12 @@ def subtract_sky(fileList,**kwargs):
 			hdr0 = inFits[0].read_header()
 			outFits = fitsio.FITS(outputFileMap(f),'rw')
 			outFits.write(None,header=hdr0)
+		if maskFileMap is not None:
+			maskFits = fitsio.FITS(maskFileMap(f))
+		else:
+			maskFits = None
 		#
-		skyFit = bok_polyfit(inFits,64,1)
+		skyFit = bok_polyfit(inFits,64,1,maskFits=maskFits)
 		# subtract the sky level at the origin so as to only remove 
 		# the gradient
 		sky0 = skyFit['skymodel'](0,0)
