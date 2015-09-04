@@ -102,6 +102,20 @@ def build_cube(fileList,extn,masks=None):
 	cube = np.ma.masked_array(cube,mask)
 	return cube
 
+def build_cube_subset(fileList,extn,rows,masks=None):
+	i1,i2 = rows
+	cube = np.dstack( [ fitsio.FITS(f)[extn][i1:i2,:] for f in fileList ] )
+	if masks is not None:
+		if isinstance(masks,FileNameMap):
+			mask = np.dstack([ fitsio.FITS(masks(f))[extn][i1:i2,:] 
+			           for f in fileList ])
+		else:
+			mask = np.dstack([ fitsio.FITS(f)[extn][i1:i2,:] for f in masks ])
+	else:
+		mask = None
+	cube = np.ma.masked_array(cube,mask)
+	return cube
+
 def bok_rebin(im,nbin):
 	s = np.array(im.shape) / nbin
 	return im.reshape(s[0],nbin,s[1],nbin).swapaxes(1,2).reshape(s[0],s[1],-1)
@@ -127,7 +141,7 @@ def bok_getxy(hdr,coordsys='image'):
 	return x,y
 
 def bok_fov_rebin(fits,nbin,coordsys='sky'):
-	rv = {}
+	rv = {'coordsys':coordsys,'nbin':nbin}
 	if type(fits) is str:
 		fits = fitsio.FITS(fits)
 	for hdu in fits[1:]:
@@ -142,7 +156,7 @@ def bok_fov_rebin(fits,nbin,coordsys='sky'):
 		rv[extn] = {'x':x,'y':y,'im':im}
 	return rv
 
-def bok_polyfit(fits,nbin,order):
+def bok_polyfit(fits,nbin,order,writeImg=False):
 	binnedIm = bok_fov_rebin(fits,nbin,'sky')
 	# XXX need bad pixel and object masks here
 	# collect the CCD mosaic into a single image
@@ -162,6 +176,7 @@ def bok_polyfit(fits,nbin,order):
 		X.append(binnedIm[ccd]['x'].flatten())
 		Y.append(binnedIm[ccd]['y'].flatten())
 		fovIm.append(im.flatten())
+		binnedIm[ccd]['im'] = im
 	X = np.concatenate(X)
 	Y = np.concatenate(Y)
 	fovIm = np.concatenate(fovIm)
@@ -176,23 +191,31 @@ def bok_polyfit(fits,nbin,order):
 		x,y = bok_getxy(fits[ccd].read_header(),'sky')
 		rv[ccd] = p(x,y)
 	rv['skymodel'] = p
+	if True: #writeImg:
+		# save the original binned image
+		make_fov_image(binnedIm,'tmp1.png')
+		# and the sky model fit
+		for ccd in ['CCD%d'%i for i in range(1,5)]:
+			binnedIm[ccd]['im'] = p(binnedIm[ccd]['x'],binnedIm[ccd]['y'])
+		make_fov_image(binnedIm,'tmp2.png')
 	return rv
 
-def bok_make_image(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
+def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
 	#kwargs.setdefault('cmap',plt.cm.hot_r)
 	kwargs.setdefault('interpolation','nearest')
 	w = 0.4575
 	h = 0.465
-	fov = bok_fov_rebin(fits,nbin,coordsys)
 	fig = plt.figure(figsize=(6,6))
 	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
 		if n == 0:
 			im = fov[ccd]['im']
-			i1,i2 = 100//nbin,1500//nbin
+			i1,i2 = 100//fov['nbin'],1500//fov['nbin']
 			background = sigma_clip(im[i1:i2,i1:i2],iters=3,sig=2.2)
 			m,s = background.mean(),background.std()
-		im = fov[ccd]['im'].mean(axis=-1)
+		im = fov[ccd]['im']
+		if im.ndim == 3:
+			im = im.mean(axis=-1)
 		x = fov[ccd]['x']
 		y = fov[ccd]['y']
 		i = n % 2
@@ -202,11 +225,15 @@ def bok_make_image(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
 		ax.imshow(im,origin='lower',
 		          extent=[x[0,0],x[0,-1],y[0,0],y[-1,0]],
 		          vmin=m-2*s,vmax=m+8*s,**kwargs)
-		if coordsys=='sky':
+		if fov['coordsys']=='sky':
 			ax.set_xlim(x.max(),x.min())
 		else:
 			ax.set_xlim(x.min(),x.max())
 		ax.set_ylim(y.min(),y.max())
+
+def bok_make_fov_image_fromfile(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
+	fov = bok_fov_rebin(fits,nbin,coordsys)
+	return make_fov_image(fov,pngfn,**kwargs)
 
 def stack_image_cube(imCube,**kwargs):
 	reject = kwargs.get('reject','sigma_clip')
