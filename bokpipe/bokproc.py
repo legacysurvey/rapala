@@ -623,26 +623,44 @@ def stack_flat_frames(fileList,biasFile,**kwargs):
 	if withVariance:
 		varFits.close()
 
-# XXX num running images
-def make_supersky_flats(fileList,objectMasks,**kwargs):
+def make_supersky_flats(fileList,maskFileMap,**kwargs):
 	#extensions = kwargs.get('extensions',bok90mef_extensions)
 	extensions = ['CCD%d' % i for i in range(1,5)]
 	outputDir = kwargs.get('output_dir','./')
 	outputFile = kwargs.get('output_file','superskyflat.fits')
-	_kwargs = copy(kwargs)
-	_kwargs.setdefault('scale','normalize')
+	nsplit = 10
+	shape = (4032,4096)
+	# first get the normalizations
+	ccd = 'CCD1' # XXX harcoded region to normalize from
+	x1,x2,y1,y2 = 100,1500,100,1500
+	norms = np.zeros(len(fileList),dtype=np.float32)
+	for i,f in enumerate(fileList):
+		fits = fitsio.FITS(f)
+		maskFits = fitsio.FITS(maskFileMap(f))
+		mask = maskFits[ccd][y1:y2,x1:x2]>0
+		normpix = np.ma.masked_array(fits[ccd][y1:y2,x1:x2],mask)
+		normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
+		norms[i] = 1/normpix.mean()
+	print 'sky vals is ',1/norms
+	print 'norms is ',norms
+	# then make the stacked flat image
 	fits = fitsio.FITS(os.path.join(outputDir,outputFile),'rw')
 	hdr = _write_stack_header_cards(fileList,'SKYFLAT')
 	fits.write(None,header=hdr)
 	for extn in extensions:
-		flatCube = build_cube(fileList,extn,masks=objectMasks)
-		stack,extras = stack_image_cube(flatCube,**_kwargs)
-		flatNorm = mode(stack[y1:y2,x1:x2],axis=None)[0][0]
-		stack /= flatNorm
+		# hacky way to divide the array, hardcoded number of rows
+		rowsplit = np.arange(0,shape[0],shape[0]//nsplit)
+		rowsplit[-1] = -1 # and grow the last split to the end of the array
+		stack = []
+		for rows in zip(rowsplit[:-1],rowsplit[1:]):
+			print 'processing rows ',rows
+			flatCube = build_cube_subset(fileList,extn,rows,masks=maskFileMap)
+			rowstack,extras = stack_image_cube(flatCube,scale=norms)
+			stack.append(rowstack)
+		stack = np.vstack(stack)
 		# XXX smooth it
 		stack = stack.filled(1.0)
 		hdr = fitsio.read_header(fileList[0],extn)
-		hdr['FLATNORM'] = flatNorm
 		fits.write(stack,extname=extn,header=hdr)
 	fits.close()
 
@@ -897,14 +915,17 @@ def grow_mask(mask,niter):
 	return mask
 
 def sextract_pass1(fileList,**kwargs):
+	overwrite = kwargs.get('overwrite',False)
 	catalogFileNameMap = kwargs.get('catalog_name_map',
-	                                FileNameMap(newSuffix='.cat'))
+	                                FileNameMap(newSuffix='.cat1'))
 	withPsf = kwargs.get('with_psf',False)
 	objMaskFileMap = kwargs.get('object_mask_map',
 	                             FileNameMap(newSuffix='.obj'))
 	#bkgImgFileMap = FileNameMap(newSuffix='.back')
 	for f in fileList:
 		catalogFile = catalogFileNameMap(f)
+		if os.path.exists(catalogFile) and not overwrite:
+			continue
 		cmd = ['sex','-c','config/bok_pass1.sex',
 		       '-CATALOG_NAME',catalogFile]
 		if objMaskFileMap is not None:
