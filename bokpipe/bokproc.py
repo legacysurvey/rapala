@@ -161,6 +161,22 @@ def bok_fov_rebin(fits,nbin,coordsys='sky',maskFits=None):
 		rv[extn] = {'x':x,'y':y,'im':im}
 	return rv
 
+from astropy.convolution.convolve import convolve
+from astropy.convolution.kernels import Gaussian2DKernel
+
+def make_snr_im(fovIm):
+	rv = { k:v for k,v in fovIm.items() if not k.startswith('CCD') }
+	for ccd in ['CCD%d'%i for i in range(1,5)]:
+		im = fovIm[ccd]['im']
+		skypix = sigma_clip(im,iters=5,sig=2.5,
+		                    cenfunc=np.ma.mean)
+		skym,skys = skypix.mean(),skypix.std()
+		snrIm = (im - skym) / skys
+		snrIm = convolve(snrIm.filled(np.nan),Gaussian2DKernel(1.0))
+		snrIm = np.ma.masked_array(snrIm,np.isnan(snrIm))
+		rv[ccd] = {'x':fovIm[ccd]['x'],'y':fovIm[ccd]['y'],'im':snrIm}
+	return rv
+
 def bok_polyfit(fits,nbin,order,maskFits=None,writeImg=False):
 	binnedIm = bok_fov_rebin(fits,nbin,'sky',maskFits=maskFits)
 	# XXX need bad pixel and object masks here
