@@ -2,6 +2,7 @@
 
 import os
 import re
+import subprocess
 from copy import copy
 from collections import OrderedDict
 import numpy as np
@@ -140,42 +141,42 @@ def bok_getxy(hdr,coordsys='image'):
 		raise ValueError
 	return x,y
 
-def bok_fov_rebin(fits,nbin,coordsys='sky'):
+def bok_fov_rebin(fits,nbin,coordsys='sky',maskFits=None):
 	rv = {'coordsys':coordsys,'nbin':nbin}
 	if type(fits) is str:
 		fits = fitsio.FITS(fits)
+	if type(maskFits) is str:
+		maskFits = fitsio.FITS(maskFits)
 	for hdu in fits[1:]:
+		extn = hdu.get_extname()
 		im = hdu.read()
 		hdr = hdu.read_header()
 		x,y = bok_getxy(hdr,coordsys)
+		if maskFits is not None:
+			im = np.ma.masked_array(im,maskFits[extn].astype(np.bool))
 		if nbin > 1:
 			im = bok_rebin(im,nbin)
 			x = x[nbin//2::nbin,nbin//2::nbin]
 			y = y[nbin//2::nbin,nbin//2::nbin]
-		extn = hdu.get_extname()
 		rv[extn] = {'x':x,'y':y,'im':im}
 	return rv
 
-def bok_polyfit(fits,nbin,order,writeImg=False):
-	binnedIm = bok_fov_rebin(fits,nbin,'sky')
+def bok_polyfit(fits,nbin,order,maskFits=None,writeImg=False):
+	binnedIm = bok_fov_rebin(fits,nbin,'sky',maskFits=maskFits)
 	# XXX need bad pixel and object masks here
 	# collect the CCD mosaic into a single image
 	X,Y,fovIm = [],[],[]
 	for ccd in ['CCD%d'%i for i in range(1,5)]:
 		print 'getting sky for ',ccd
-		im = fits[ccd].read()
-		if True:
-			# hacky way of masking objects for now
-			sky = sigma_clip(im[100:1500,100:1500],iters=5,sig=2.5)
-			skym,skys = np.ma.median(sky),sky.std()
-			mask = (im > skym+5*skys) | (im < skym-5*skys)
-			print skym,skys,mask.sum()
-			mask = bok_rebin(mask,nbin)
-		mim = np.ma.masked_array(binnedIm[ccd]['im'],mask)
-		im = mim.mean(axis=-1)
-		X.append(binnedIm[ccd]['x'].flatten())
-		Y.append(binnedIm[ccd]['y'].flatten())
-		fovIm.append(im.flatten())
+		clippedIm = sigma_clip(binnedIm[ccd]['im'],iters=2,sig=2.5,
+		                       cenfunc=np.ma.mean)
+		im = clippedIm.mean(axis=-1)
+		#im = binnedIm[ccd]['im'].mean(axis=-1)
+		nbad = clippedIm.mask.sum(axis=-1)
+		ii = np.where(nbad < nbin*2//3)
+		X.append(binnedIm[ccd]['x'][ii])
+		Y.append(binnedIm[ccd]['y'][ii])
+		fovIm.append(im[ii])
 		binnedIm[ccd]['im'] = im
 	X = np.concatenate(X)
 	Y = np.concatenate(Y)
@@ -183,7 +184,8 @@ def bok_polyfit(fits,nbin,order,writeImg=False):
 	print X.shape,Y.shape,fovIm.shape
 	# fit a polynomial to the binned mosaic image
 	poly_model = models.Polynomial2D(degree=order)
-	fitfun = fitting.LevMarLSQFitter()
+	#fitfun = fitting.LevMarLSQFitter()
+	fitfun = fitting.LinearLSQFitter()
 	p = fitfun(poly_model,X,Y,fovIm)
 	# return the model images for each CCD at native resolution
 	rv = {}
@@ -202,18 +204,25 @@ def bok_polyfit(fits,nbin,order,writeImg=False):
 
 def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
+	maskFile = kwargs.get('mask')
 	#kwargs.setdefault('cmap',plt.cm.hot_r)
-	kwargs.setdefault('interpolation','nearest')
+	cmap = plt.cm.jet
+	cmap.set_bad('w',1.0)
+	losig = 2.5
+	hisig = 2.5
 	w = 0.4575
 	h = 0.465
+	if maskFile is not None:
+		maskFits = fitsio.FITS(maskFile)
 	fig = plt.figure(figsize=(6,6))
 	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
+		im = fov[ccd]['im']
+		if maskFile is not None:
+			im = np.ma.masked_array(im,maskFits[ccd][:,:].astype(bool))
 		if n == 0:
-			im = fov[ccd]['im']
 			i1,i2 = 100//fov['nbin'],1500//fov['nbin']
 			background = sigma_clip(im[i1:i2,i1:i2],iters=3,sig=2.2)
 			m,s = background.mean(),background.std()
-		im = fov[ccd]['im']
 		if im.ndim == 3:
 			im = im.mean(axis=-1)
 		x = fov[ccd]['x']
@@ -224,14 +233,15 @@ def make_fov_image(fov,pngfn,**kwargs):
 		ax = fig.add_axes(pos)
 		ax.imshow(im,origin='lower',
 		          extent=[x[0,0],x[0,-1],y[0,0],y[-1,0]],
-		          vmin=m-2*s,vmax=m+8*s,**kwargs)
+		          vmin=m-losig*s,vmax=m+hisig*s,cmap=cmap,
+		          interpolation=kwargs.get('interpolation','nearest'))
 		if fov['coordsys']=='sky':
 			ax.set_xlim(x.max(),x.min())
 		else:
 			ax.set_xlim(x.min(),x.max())
 		ax.set_ylim(y.min(),y.max())
 
-def bok_make_fov_image_fromfile(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
+def make_fov_image_fromfile(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
 	fov = bok_fov_rebin(fits,nbin,coordsys)
 	return make_fov_image(fov,pngfn,**kwargs)
 
@@ -873,19 +883,38 @@ def combine_ccds(fileList,**kwargs):
 #                                                                             #
 ###############################################################################
 
+from scipy.signal import convolve2d
+
+def grow_mask(mask,niter):
+	for i in range(niter):
+		mask = convolve2d(mask,np.ones((3,3)),mode='same',boundary='symm')
+	return mask
+
 def sextract_pass1(fileList,**kwargs):
-	catalogFileNameMap = kwargs.get('catalog_name_map',FileNameMap('.cat'))
+	catalogFileNameMap = kwargs.get('catalog_name_map',
+	                                FileNameMap(newSuffix='.cat'))
 	withPsf = kwargs.get('with_psf',False)
-	objMaskFileMap = kwargs.get('object_mask_map')
+	objMaskFileMap = kwargs.get('object_mask_map',
+	                             FileNameMap(newSuffix='.obj'))
+	#bkgImgFileMap = FileNameMap(newSuffix='.back')
 	for f in fileList:
 		catalogFile = catalogFileNameMap(f)
 		cmd = ['sex','-c','config/bok_pass1.sex',
 		       '-CATALOG_NAME',catalogFile]
-		if objMaskFileMap:
-			cmd = cmd.extend(['-CHECKIMAGE_TYPE','OBJECT',
-			                  '-CHECKIMAGE_NAME',objMaskFileMap(f)])
-		cmd = cmd.append(f)
+		if objMaskFileMap is not None:
+			#cmd.extend(['-CHECKIMAGE_TYPE','SEGMENTATION,MINIBACKGROUND',
+			#            '-CHECKIMAGE_NAME',
+			#                objMaskFileMap(f)+','+bkgImgFileMap(f)])
+			cmd.extend(['-CHECKIMAGE_TYPE','SEGMENTATION',
+			            '-CHECKIMAGE_NAME',objMaskFileMap(f)])
+		cmd.append(f)
+		print cmd
 		subprocess.call(cmd)
+		fits = fitsio.FITS(objMaskFileMap(f),'rw')
+		for ccd in ['CCD%d'%i for i in range(1,5)]:
+			mask = grow_mask(fits[ccd][:,:]>0,3)
+			fits[ccd].write(mask.astype(np.int16),clobber=True)
+		fits.close()
 
 def subtract_sky(fileList,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
@@ -908,7 +937,8 @@ def subtract_sky(fileList,**kwargs):
 		sky0 = skyFit['skymodel'](0,0)
 		for ccd in ['CCD%d'%i for i in range(1,5)]:
 			hdr = inFits[ccd].read_header()
-			data = inFits[ccd][:,:] - (skyFit[ccd] - sky0)
+			skyfit = (skyFit[ccd] - sky0).astype(np.float32)
+			data = inFits[ccd][:,:] - skyfit
 			hdr['SKYVAL'] = sky0
 			outFits.write(data,extname=ccd,header=hdr)
 		if outFits != inFits:
