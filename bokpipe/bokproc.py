@@ -88,6 +88,8 @@ def stats_region(statreg):
 	elif statreg == 'centeramp_corner_fovcenter':
 		# for the 4 central amps, this is the corner towards the field center
 		return (50,1024,50,1024)
+	elif statreg == 'ccd_central_quadrant':
+		return (1024,-1024,1024,-1024)
 	else:
 		raise ValueError
 
@@ -147,6 +149,8 @@ def bok_fov_rebin(fits,nbin,coordsys='sky',maskFits=None):
 		fits = fitsio.FITS(fits)
 	if type(maskFits) is str:
 		maskFits = fitsio.FITS(maskFits)
+	hdr0 = fits[0].read_header()
+	rv['objname'] = hdr0['OBJECT'].strip()
 	for hdu in fits[1:]:
 		extn = hdu.get_extname()
 		im = hdu.read()
@@ -161,22 +165,6 @@ def bok_fov_rebin(fits,nbin,coordsys='sky',maskFits=None):
 		rv[extn] = {'x':x,'y':y,'im':im}
 	return rv
 
-from astropy.convolution.convolve import convolve
-from astropy.convolution.kernels import Gaussian2DKernel
-
-def make_snr_im(fovIm):
-	rv = { k:v for k,v in fovIm.items() if not k.startswith('CCD') }
-	for ccd in ['CCD%d'%i for i in range(1,5)]:
-		im = fovIm[ccd]['im']
-		skypix = sigma_clip(im,iters=5,sig=2.5,
-		                    cenfunc=np.ma.mean)
-		skym,skys = skypix.mean(),skypix.std()
-		snrIm = (im - skym) / skys
-		snrIm = convolve(snrIm.filled(np.nan),Gaussian2DKernel(1.0))
-		snrIm = np.ma.masked_array(snrIm,np.isnan(snrIm))
-		rv[ccd] = {'x':fovIm[ccd]['x'],'y':fovIm[ccd]['y'],'im':snrIm}
-	return rv
-
 def bok_polyfit(fits,nbin,order,maskFits=None,writeImg=False):
 	binnedIm = bok_fov_rebin(fits,nbin,'sky',maskFits=maskFits)
 	# XXX need bad pixel and object masks here
@@ -189,7 +177,9 @@ def bok_polyfit(fits,nbin,order,maskFits=None,writeImg=False):
 		im = clippedIm.mean(axis=-1)
 		#im = binnedIm[ccd]['im'].mean(axis=-1)
 		nbad = clippedIm.mask.sum(axis=-1)
-		ii = np.where(nbad < nbin*2//3)
+		too_few_pixels = nbad < nbin*2//3
+		ii = np.where(~too_few_pixels)
+		im[too_few_pixels] = np.ma.masked
 		X.append(binnedIm[ccd]['x'][ii])
 		Y.append(binnedIm[ccd]['y'][ii])
 		fovIm.append(im[ii])
@@ -222,17 +212,17 @@ def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
 	from matplotlib import colors
 	maskFile = kwargs.get('mask')
+	losig = kwargs.get('lo',2.5)
+	hisig = kwargs.get('hi',5.0)
 	#kwargs.setdefault('cmap',plt.cm.hot_r)
 	cmap = plt.cm.jet
 	cmap.set_bad('w',1.0)
-	losig = 2.5
-	hisig = 5.0
 	w = 0.4575
 	h = 0.455
 	if maskFile is not None:
 		maskFits = fitsio.FITS(maskFile)
 	fig = plt.figure(figsize=(6,6.5))
-	cax = fig.add_axes([0.1,0.03,0.8,0.01])
+	cax = fig.add_axes([0.1,0.04,0.8,0.01])
 	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
 		im = fov[ccd]['im']
 		if maskFile is not None:
@@ -249,7 +239,7 @@ def make_fov_image(fov,pngfn,**kwargs):
 		y = fov[ccd]['y']
 		i = n % 2
 		j = n // 2
-		pos = [ 0.025 + i*w + i*0.04, 0.06 + j*h + j*0.025, w, h ]
+		pos = [ 0.0225 + i*w + i*0.04, 0.05 + j*h + j*0.005, w, h ]
 		ax = fig.add_axes(pos)
 		_im = ax.imshow(im,origin='lower',
 		                extent=[x[0,0],x[0,-1],y[0,0],y[-1,0]],
@@ -260,11 +250,20 @@ def make_fov_image(fov,pngfn,**kwargs):
 		else:
 			ax.set_xlim(x.min(),x.max())
 		ax.set_ylim(y.min(),y.max())
+		ax.xaxis.set_visible(False)
+		ax.yaxis.set_visible(False)
 		if n == 0:
-			fig.colorbar(_im,cax,orientation='horizontal')
+			cb = fig.colorbar(_im,cax,orientation='horizontal')
+			cb.ax.tick_params(labelsize=9)
+	title = kwargs.get('title',fov.get('file','')+' '+fov.get('objname',''))
+	fig.text(0.5,0.99,title,ha='center',va='top',size=12)
 
-def make_fov_image_fromfile(fits,pngfn,nbin=1,coordsys='sky',**kwargs):
-	fov = bok_fov_rebin(fits,nbin,coordsys)
+def make_fov_image_fromfile(fileName,pngfn,nbin=1,coordsys='sky',**kwargs):
+	maskFits = kwargs.get('mask')
+	if maskFits is not None:
+		maskFits = fitsio.FITS(maskFits)
+	fov = bok_fov_rebin(fileName,nbin,coordsys,maskFits=maskFits)
+	fov['file'] = fileName
 	return make_fov_image(fov,pngfn,**kwargs)
 
 def stack_image_cube(imCube,**kwargs):
@@ -930,6 +929,23 @@ def grow_mask(mask,niter):
 		mask = convolve2d(mask,np.ones((3,3)),mode='same',boundary='symm')
 	return mask
 
+from astropy.convolution.convolve import convolve
+from astropy.convolution.kernels import Gaussian2DKernel
+from scipy.ndimage.morphology import binary_dilation
+
+def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
+	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
+	                                      'ccd_central_quadrant'))
+	skypix = sigma_clip(im[y1:y2,x1:x2],iters=5,sig=2.5,cenfunc=np.ma.mean)
+	skym,skys = skypix.mean(),skypix.std()
+	snrIm = (im - skym) / skys
+	snrIm = convolve(snrIm,Gaussian2DKernel(0.75))
+	snrIm[np.isnan(snrIm)] = np.inf
+	#im.mask |= binary_dilation(im.mask,mask=(snrIm>thresh),
+	#                           iterations=0)
+	mask = binary_dilation(objsIm>0,mask=(snrIm>thresh),iterations=0)
+	return mask
+
 def sextract_pass1(fileList,**kwargs):
 	overwrite = kwargs.get('overwrite',False)
 	catalogFileNameMap = kwargs.get('catalog_name_map',
@@ -953,11 +969,13 @@ def sextract_pass1(fileList,**kwargs):
 		cmd.append(f)
 		print cmd
 		subprocess.call(cmd)
-		fits = fitsio.FITS(objMaskFileMap(f),'rw')
+		fits = fitsio.FITS(f,'rw')
+		maskFits = fitsio.FITS(objMaskFileMap(f),'rw')
 		for ccd in ['CCD%d'%i for i in range(1,5)]:
-			mask = grow_mask(fits[ccd][:,:]>0,3)
-			fits[ccd].write(mask.astype(np.int16),clobber=True)
-		fits.close()
+			#mask = grow_mask(maskFits[ccd][:,:]>0,3)
+			mask = grow_obj_mask(fits[ccd][:,:],maskFits[ccd][:,:])
+			maskFits[ccd].write(mask.astype(np.int16),clobber=True)
+		maskFits.close()
 
 def subtract_sky(fileList,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
