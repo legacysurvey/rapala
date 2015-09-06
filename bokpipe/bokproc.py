@@ -45,12 +45,6 @@ nominal_gain = np.array(
 #                                                                             #
 ###############################################################################
 
-class OutputExistsError(Exception):
-	def __init__(self,value):
-		self.value = value
-	def __str__(self):
-		return repr(self.value)
-
 class FileNameMap(object):
 	def __init__(self,newDir=None,newSuffix=None,strip_gz=True):
 		self.newDir = newDir
@@ -931,7 +925,7 @@ def grow_mask(mask,niter):
 
 from astropy.convolution.convolve import convolve
 from astropy.convolution.kernels import Gaussian2DKernel
-from scipy.ndimage.morphology import binary_dilation
+from scipy.ndimage.morphology import binary_dilation,binary_closing
 
 def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
 	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
@@ -941,9 +935,14 @@ def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
 	snrIm = (im - skym) / skys
 	snrIm = convolve(snrIm,Gaussian2DKernel(0.75))
 	snrIm[np.isnan(snrIm)] = np.inf
-	#im.mask |= binary_dilation(im.mask,mask=(snrIm>thresh),
-	#                           iterations=0)
 	mask = binary_dilation(objsIm>0,mask=(snrIm>thresh),iterations=0)
+	# fill holes on the object footprints
+	#mask = binary_closing(mask)
+	# fix the corners: pre-illumination-correction images have a gradient
+	# at the corners, if it is positive (which it is for the upper two CCDs)
+	# then objects in those corners are grown until the whole corner is 
+	# filled. This simply reverts the corners to the original mask.
+	# XXX
 	return mask
 
 def sextract_pass1(fileList,**kwargs):
