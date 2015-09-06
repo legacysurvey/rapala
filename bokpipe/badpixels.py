@@ -44,3 +44,11 @@ def build_mask_from_flat(flatFn,outFn,**kwargs):
 	if flatName is not None:
 		normedFlat.close()
 
+def make_sextractor_gain_map(flatFn,bpMaskFn,gainMapFn,**kwargs):
+	flat = BokMefImage(flatFn,output_file=gainMapFn,**kwargs)
+	mask = fitsio.FITS(bpMaskFn)
+	for data,hdr in flat:
+		# invert the mask, makes bad pixels = 0
+		data *= (1 - mask[flat.curExtName].read())
+		flat.update(data,hdr)
+	flat.close()
