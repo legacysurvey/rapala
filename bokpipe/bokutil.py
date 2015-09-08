@@ -3,6 +3,9 @@
 import os
 import fitsio
 import numpy as np
+from scipy.stats.mstats import mode
+
+from astropy.stats import sigma_clip
 
 def rebin(im,nbin):
 	s = np.array(im.shape) / nbin
@@ -28,6 +31,49 @@ def bok_getxy(hdr,coordsys='image'):
 		raise ValueError
 	return x,y
 
+def stats_region(statreg):
+	if statreg is None:
+		return np.s_[:,:]
+	elif type(statreg) is tuple:
+		x1,x2,y1,y2 = statreg
+	elif statreg == 'amp_central_quadrant':
+		x1,x2,y1,y2 = (512,-512,512,-512)
+	elif statreg == 'amp_corner_ccdcenter_small':
+		x1,x2,y1,y2 = (-512,-50,-512,-50)
+	elif statreg == 'amp_corner_ccdcenter':
+		x1,x2,y1,y2 = (-1024,-1,-1024,-1)
+	elif statreg == 'centeramp_corner_fovcenter':
+		# for the 4 central amps, this is the corner towards the field center
+		x1,x2,y1,y2 = (50,1024,50,1024)
+	elif statreg == 'ccd_central_quadrant':
+		x1,x2,y1,y2 = (1024,-1024,1024,-1024)
+	else:
+		raise ValueError
+	return np.s_[y1:y2,x1:x2]
+
+def _write_stack_header_cards(fileList,cardPrefix):
+	hdr = fitsio.read_header(fileList[0])
+	for num,f in enumerate(fileList,start=1):
+		hdr['%s%03d'%(cardPrefix,num)] = os.path.basename(f)
+	return hdr
+
+def build_cube(fileList,extn,masks=None,rows=None):
+	if rows is None:
+		s = np.s_[:,:]
+	else:
+		s = np.s_[rows[0]:rows[1],:]
+	cube = np.dstack( [ fitsio.FITS(f)[extn][s] for f in fileList ] )
+	if masks is not None:
+		if isinstance(masks,FileNameMap):
+			mask = np.dstack([ fitsio.FITS(masks(f))[extn][s]
+			           for f in fileList ])
+		else:
+			mask = np.dstack([ fitsio.FITS(f)[extn][s] for f in masks ])
+	else:
+		mask = None
+	cube = np.ma.masked_array(cube,mask)
+	return cube
+
 class OutputExistsError(Exception):
 	def __init__(self,value):
 		self.value = value
@@ -45,8 +91,9 @@ class BokMefImage(object):
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.outFileName = kwargs.get('output_file')
 		self.extensions = kwargs.get('extensions')
-		self.closeFiles = []
 		maskFits = kwargs.get('mask_file')
+		headerCards = kwargs.get('add_header',{})
+		self.closeFiles = []
 		if self.outFileName is None:
 			self.fits = fitsio.FITS(fileName,'rw')
 			self.outFits = self.fits
@@ -58,9 +105,12 @@ class BokMefImage(object):
 				if self.overwrite:
 					os.unlink(self.outFileName)
 				else:
-					raise OutputExistsError
+					raise OutputExistsError("%s already exists" % 
+					                        self.outFileName)
 			self.outFits = fitsio.FITS(self.outFileName,'rw')
 			hdr = None if not self.keepHeaders else self.fits[0].read_header()
+			for k,v in headerCards.items():
+				hdr[k] = v
 			self.outFits.write(None,header=hdr)
 			self.clobber = False
 			self.closeFiles.extend([self.fits,self.outFits])
@@ -89,7 +139,7 @@ class BokMefImage(object):
 				for m in self.masks[1:]:
 					mask |= m[self.curExtName].read().astype(np.bool)
 				data = np.ma.masked_array(data,mask=mask)
-			yield data,hdr
+			yield self.curExtName,data,hdr
 	def get(self,extName,rows=None,cols=None,header=False):
 		if rows is None and cols is None:
 			data = self.fits[extName].read()
@@ -101,7 +151,160 @@ class BokMefImage(object):
 			return data,self.fits[extName].read_header()
 		else:
 			return data
+	def get_header(self,extName):
+		return self.fits[extName].read_header()
 	def close(self):
 		for fits in self.closeFiles:
 			fits.close()
+
+IdentityNameMap = lambda f: f
+NullNameMap = lambda f: None
+
+class FileNameMap(object):
+	def __init__(self,newDir=None,newSuffix=None,strip_gz=True):
+		self.newDir = newDir
+		self.newSuffix = newSuffix
+		self.strip_gz = strip_gz
+	def __call__(self,fileName):
+		if self.newDir is None:
+			newDir = os.path.dirname(fileName)
+		else:
+			newDir = self.newDir
+		fn = os.path.basename(fileName)
+		if self.strip_gz and fn.endswith('.gz'):
+			fn = fn[:-3]
+		if self.newSuffix is not None:
+			fn = fn.replace('.fits',self.newSuffix+'.fits')
+		return os.path.join(newDir,fn)
+
+class BokProcess(object):
+	def __init__(self,**kwargs):
+		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
+		self.outputNameMap = kwargs.get('output_map',NullNameMap)
+		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
+		self.overwrite = kwargs.get('overwrite',False)
+		self.keepHeaders = kwargs.get('keep_headers',True)
+	def _preprocess(self,fits):
+		pass
+	def process_hdu(self,extName,data,hdr):
+		raise NotImplementedError
+	def _postprocess(self):
+		pass
+	def process_files(self,fileList):
+		for f in fileList:
+			fits = BokMefImage(self.inputNameMap(f),
+			                   output_file=self.outputNameMap(f),
+			                   mask_file=self.maskNameMap(f),
+			                   keep_headers=self.keepHeaders,
+			                   overwrite=self.overwrite)
+			self._preprocess(fits)
+			for extName,data,hdr in fits:
+				data,hdr = self.process_hdu(extName,data,hdr)
+				fits.update(data,hdr)
+			fits.close()
+		self._postprocess()
+
+class BokImArith(BokProcess):
+	def __init__(self,op,operand,**kwargs):
+		super(BokImArith,self).__init__(**kwargs)
+		ops = {'+':np.add,'-':np.subtract,'*':np.multiply,'/':np.divide}
+		try:
+			self.op = ops[op]
+		except:
+			raise ValueError("operation %s not supported" % op)
+		self.operand = operand
+		self.operandFits = fitsio.FITS(self.operand)
+	def process_hdu(self,extName,data,hdr):
+		return self.op(data,self.operandFits[extName][:,:]),hdr
+
+class BokMefImageCube(object):
+	def __init__(self,**kwargs):
+		self.withVariance = kwargs.get('with_variance',False)
+		self.scale = kwargs.get('scale')
+		self.reject = kwargs.get('reject','sigma_clip')
+		self.statsRegion = kwargs.get('stats_region')
+		self.statsPix = stats_region(self.statsRegion)
+		self.clipArgs = {'iters':kwargs.get('clip_iters',2),
+		                 'sig':kwargs.get('clip_sig',2.5),
+		                 'cenfunc':np.ma.mean}
+		self.overwrite = kwargs.get('overwrite',False)
+		self.headerKey = 'CUBE'
+		self.extensions = None
+	def _rescale(self,imCube,scales=None):
+		if scales is not None:
+			pass
+		elif self.scale is None:
+			return imCube
+		elif self.scale.startswith('normalize'):
+			imScales = imCube[self.statsPix] / imCube[self.statsPix+([0],)]
+			imScales = imScales.reshape(-1,imCube.shape[-1])
+			scales = sigma_clip(imScales,cenfunc=np.ma.mean,axis=0)
+			if self.scale.endswith('_mean'):
+				scales = scales.mean(axis=0)
+			else:
+				# default is the mode
+				scales,_ = mode(scales,axis=0)
+			scales /= scales.max()
+			scales **= -1
+		else:
+			scales = self.scale(imCube)
+		self.scales = scales.squeeze()
+		return imCube * scales
+	def _reject_pixels(self,imCube):
+		if self.reject == 'sigma_clip':
+			imCube = sigma_clip(imCube,axis=-1,**self.clipArgs)
+		elif self.reject == 'minmax':
+			imCube = np.ma.masked_array(imCube)
+			imCube[:,:,imCube.argmax(axis=-1)] = np.ma.masked
+			imCube[:,:,imCube.argmin(axis=-1)] = np.ma.masked
+		return imCube
+	def _stack_cube(self,imCube,**kwargs):
+		raise NotImplementedError
+	def _postprocess(self,stack,hdr):
+		return stack,hdr
+	def stack(self,fileList,outputFile,scales=None,**kwargs):
+		if os.path.exists(outputFile):
+			if self.overwrite:
+				os.unlink(outputFile)
+			else:
+				raise OutputExistsError("%s already exists" % outputFile)
+		outFits = fitsio.FITS(outputFile,'rw')
+		hdr = _write_stack_header_cards(fileList,self.headerKey)
+		outFits.write(None,header=hdr)
+		if self.withVariance:
+			varFn = outputFile.replace('.fits','_var.fits')
+			try:
+				os.unlink(varFn)
+			except:
+				pass
+			varFits = fitsio.FITS(varFn,'rw')
+			varFits.write(None,header=hdr)
+		extensions = self.extensions
+		if extensions is None:
+			_fits = fitsio.FITS(fileList[0])
+			extensions = [ h.get_extname() for h in _fits[1:] ]
+		for extn in extensions:
+			print '::: %s extn %s' % (outputFile,extn)
+			imCube = build_cube(fileList,extn)
+			imCube = self._rescale(imCube,scales=scales)
+			imCube = self._reject_pixels(imCube)
+			stack = self._stack_cube(imCube,**kwargs)
+			stack = stack.filled().astype(np.float32)
+			hdr = fitsio.read_header(fileList[0],extn)
+			stack,hdr = self._postprocess(stack,hdr)
+			outFits.write(stack,extname=extn,header=hdr)
+			if self.withVariance:
+				var = np.ma.var(imCube,axis=-1).filled(0).astype(np.float32)
+				varFits.write(var,extname=extn,header=hdr)
+		outFits.close()
+		if self.withVariance:
+			varFits.close()
+
+class ClippedMeanStack(BokMefImageCube):
+	def _stack_cube(self,imCube,weights=None):
+		return np.ma.average(imCube,weights=weights,axis=-1)
+
+class MedianStack(BokMefImageCube):
+	def _stack_cube(self,imCube,weights=None):
+		return np.ma.median(imCube,axis=-1)
 
