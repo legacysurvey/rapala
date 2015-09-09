@@ -8,9 +8,10 @@ from collections import OrderedDict
 import numpy as np
 from scipy.stats.mstats import mode
 from scipy.interpolate import LSQUnivariateSpline
-import fitsio
+from scipy.signal import spline_filter
 from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
+import fitsio
 
 import bokutil
 
@@ -40,28 +41,6 @@ nominal_gain = np.array(
     1.42733335,  1.38764536,  1.40, 1.45403028
   ] )
 
-
-def bok_fov_rebin(fits,nbin,coordsys='sky',maskFits=None):
-	rv = {'coordsys':coordsys,'nbin':nbin}
-	if type(fits) is str:
-		fits = fitsio.FITS(fits)
-	if type(maskFits) is str:
-		maskFits = fitsio.FITS(maskFits)
-	hdr0 = fits[0].read_header()
-	rv['objname'] = hdr0['OBJECT'].strip()
-	for hdu in fits[1:]:
-		extn = hdu.get_extname()
-		im = hdu.read()
-		hdr = hdu.read_header()
-		x,y = bok_getxy(hdr,coordsys)
-		if maskFits is not None:
-			im = np.ma.masked_array(im,maskFits[extn][:,:].astype(np.bool))
-		if nbin > 1:
-			im = bok_rebin(im,nbin)
-			x = x[nbin//2::nbin,nbin//2::nbin]
-			y = y[nbin//2::nbin,nbin//2::nbin]
-		rv[extn] = {'x':x,'y':y,'im':im}
-	return rv
 
 def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
@@ -114,10 +93,8 @@ def make_fov_image(fov,pngfn,**kwargs):
 	fig.text(0.5,0.99,title,ha='center',va='top',size=12)
 
 def make_fov_image_fromfile(fileName,pngfn,nbin=1,coordsys='sky',**kwargs):
-	maskFits = kwargs.get('mask')
-	if maskFits is not None:
-		maskFits = fitsio.FITS(maskFits)
-	fov = bok_fov_rebin(fileName,nbin,coordsys,maskFits=maskFits)
+	fits = bokutil.BokMefImage(fileName,mask_file=kwargs.get('mask'))
+	fov = fits.make_fov_image(nbin,coordsys)
 	fov['file'] = fileName
 	return make_fov_image(fov,pngfn,**kwargs)
 
@@ -191,16 +168,30 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','ccd_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
-		super(BokDomeFlatStack,self).__init__(**kwargs)
+		kwargs.setdefault('nsplit',10)
+		super(BokNightSkyFlatStack,self).__init__(**kwargs)
+		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.normCCD = 'CCD1'
-		self.headerKey = 'SKYIM'
+		self.headerKey = 'SKYFL'
 	def _preprocess(self,fileList):
 		self.norms = np.zeros(len(fileList),dtype=np.float32)
 		for i,f in enumerate(fileList):
-			fits = BokMefImage(f,mask_file=self.maskNameMap(f))
-			normpix = np.ma.masked_array(fits[ccd][y1:y2,x1:x2],mask)
+			fits = bokutil.BokMefImage(self.inputNameMap(f),
+			                           mask_file=self.maskNameMap(f),
+			                           read_only=True)
+			normpix = fits.get(self.normCCD,self.statsPix)
 			normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
 			self.norms[i] = 1/normpix.mean()
+	def _rescale(self,imCube,scales=None):
+		if scales is not None:
+			_scales = scales[np.newaxis,:]
+		else:
+			_scales = self.norms[np.newaxis,:]
+		self.scales = _scales.squeeze()
+		return imCube * _scales
+	def _postprocess(self,stack,hdr):
+		stack = spline_filter(stack,self.smoothingLength)
+		return stack,hdr
 
 class BokDebiasFlatten(bokutil.BokProcess):
 	def __init__(self,biasFits,flatFits,illumFits=None,**kwargs):

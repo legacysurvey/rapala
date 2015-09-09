@@ -90,11 +90,14 @@ class BokMefImage(object):
 		self.overwrite = kwargs.get('overwrite',False)
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.outFileName = kwargs.get('output_file')
+		self.readOnly = kwargs.get('read_only',False)
 		self.extensions = kwargs.get('extensions')
 		maskFits = kwargs.get('mask_file')
 		headerCards = kwargs.get('add_header',{})
 		self.closeFiles = []
-		if self.outFileName is None:
+		if self.readOnly:
+			self.fits = fitsio.FITS(fileName)
+		elif self.outFileName is None:
 			self.fits = fitsio.FITS(fileName,'rw')
 			self.outFits = self.fits
 			self.clobber = True
@@ -118,7 +121,8 @@ class BokMefImage(object):
 		if maskFits is not None:
 			self.add_mask(maskFits)
 		if self.extensions is None:
-			self.extensions = [ h.get_extname() for h in self.fits[1:] ]
+			self.extensions = [ h.get_extname().upper() 
+			                     for h in self.fits[1:] ]
 		self.curExtName = None
 	def add_mask(self,maskFits):
 		if type(maskFits) is str:
@@ -140,13 +144,10 @@ class BokMefImage(object):
 					mask |= m[self.curExtName].read().astype(np.bool)
 				data = np.ma.masked_array(data,mask=mask)
 			yield self.curExtName,data,hdr
-	def get(self,extName,rows=None,cols=None,header=False):
-		if rows is None and cols is None:
-			data = self.fits[extName].read()
-		else:
-			y1,y2 = rows
-			x1,x2 = cols
-			data = self.fits[extName][y1:y2,x1:x2]
+	def get(self,extName,subset=None,header=False):
+		if subset is None:
+			subset = np.s_[:,:]
+		data = self.fits[extName][subset]
 		if header:
 			return data,self.fits[extName].read_header()
 		else:
@@ -160,10 +161,10 @@ class BokMefImage(object):
 		rv = {'coordsys':coordsys,'nbin':nbin}
 		hdr0 = self.fits[0].read_header()
 		rv['objname'] = hdr0['OBJECT'].strip()
-		for extName,data,hdr in self:
+		for extName,im,hdr in self:
 			x,y = bok_getxy(hdr,coordsys)
 			if nbin > 1:
-				im = rebin(data,nbin)
+				im = rebin(im,nbin)
 				x = x[nbin//2::nbin,nbin//2::nbin]
 				y = y[nbin//2::nbin,nbin//2::nbin]
 			rv[extName] = {'x':x,'y':y,'im':im}
@@ -237,11 +238,14 @@ class BokMefImageCube(object):
 		self.withVariance = kwargs.get('with_variance',False)
 		self.scale = kwargs.get('scale')
 		self.reject = kwargs.get('reject','sigma_clip')
+		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
+		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
 		self.statsRegion = kwargs.get('stats_region')
 		self.statsPix = stats_region(self.statsRegion)
 		self.clipArgs = {'iters':kwargs.get('clip_iters',2),
 		                 'sig':kwargs.get('clip_sig',2.5),
 		                 'cenfunc':np.ma.mean}
+		self.nSplit = kwargs.get('nsplit',1)
 		self.overwrite = kwargs.get('overwrite',False)
 		self.headerKey = 'CUBE'
 		self.extensions = None
@@ -275,6 +279,8 @@ class BokMefImageCube(object):
 		return imCube
 	def _stack_cube(self,imCube,**kwargs):
 		raise NotImplementedError
+	def _preprocess(self,fileList):
+		pass
 	def _postprocess(self,stack,hdr):
 		return stack,hdr
 	def stack(self,fileList,outputFile,scales=None,**kwargs):
@@ -283,8 +289,9 @@ class BokMefImageCube(object):
 				os.unlink(outputFile)
 			else:
 				raise OutputExistsError("%s already exists" % outputFile)
+		inputFiles = [ self.inputNameMap(f) for f in fileList ]
 		outFits = fitsio.FITS(outputFile,'rw')
-		hdr = _write_stack_header_cards(fileList,self.headerKey)
+		hdr = _write_stack_header_cards(inputFiles,self.headerKey)
 		outFits.write(None,header=hdr)
 		if self.withVariance:
 			varFn = outputFile.replace('.fits','_var.fits')
@@ -296,16 +303,30 @@ class BokMefImageCube(object):
 			varFits.write(None,header=hdr)
 		extensions = self.extensions
 		if extensions is None:
-			_fits = fitsio.FITS(fileList[0])
+			_fits = fitsio.FITS(inputFiles[0])
 			extensions = [ h.get_extname() for h in _fits[1:] ]
+		if self.nSplit == 1:
+			rowChunks = [None,]
+		else:
+			# hacky way to divide the array, hardcoded number of rows
+			shape = (4032,4096)
+			rowSplit = np.arange(0,shape[0],shape[0]//self.nSplit)
+			rowSplit[-1] = -1 # grow last split to end of array
+			rowChunks = [ (row1,row2) 
+			         for row1,row2 in zip(rowSplit[:-1],rowSplit[1:]) ]
+		self._preprocess(fileList)
+		masks = [ self.maskNameMap(f) for f in fileList ]
 		for extn in extensions:
-			print '::: %s extn %s' % (outputFile,extn)
-			imCube = build_cube(fileList,extn)
-			imCube = self._rescale(imCube,scales=scales)
-			imCube = self._reject_pixels(imCube)
-			stack = self._stack_cube(imCube,**kwargs)
-			stack = stack.filled().astype(np.float32)
-			hdr = fitsio.read_header(fileList[0],extn)
+			stack = []
+			for rows in rowChunks:
+				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
+				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows)
+				imCube = self._rescale(imCube,scales=scales)
+				imCube = self._reject_pixels(imCube)
+				_stack = self._stack_cube(imCube,**kwargs)
+				stack.append(_stack)
+			stack = np.vstack(stack)
+			hdr = fitsio.read_header(inputFiles[0],extn)
 			stack,hdr = self._postprocess(stack,hdr)
 			outFits.write(stack,extname=extn,header=hdr)
 			if self.withVariance:
