@@ -153,6 +153,21 @@ class BokMefImage(object):
 			return data
 	def get_header(self,extName):
 		return self.fits[extName].read_header()
+	def get_xy(self,extName,coordsys='image'):
+		hdr = self.fits[extName].read_header()
+		return bok_getxy(hdr,coordsys)
+	def make_fov_image(self,nbin=1,coordsys='sky'):
+		rv = {'coordsys':coordsys,'nbin':nbin}
+		hdr0 = self.fits[0].read_header()
+		rv['objname'] = hdr0['OBJECT'].strip()
+		for extName,data,hdr in self:
+			x,y = bok_getxy(hdr,coordsys)
+			if nbin > 1:
+				im = rebin(data,nbin)
+				x = x[nbin//2::nbin,nbin//2::nbin]
+				y = y[nbin//2::nbin,nbin//2::nbin]
+			rv[extName] = {'x':x,'y':y,'im':im}
+		return rv
 	def close(self):
 		for fits in self.closeFiles:
 			fits.close()

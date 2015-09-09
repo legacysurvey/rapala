@@ -122,8 +122,7 @@ def make_fov_image_fromfile(fileName,pngfn,nbin=1,coordsys='sky',**kwargs):
 	return make_fov_image(fov,pngfn,**kwargs)
 
 def bok_polyfit(fits,nbin,order,writeImg=False):
-	binnedIm = bok_fov_rebin(fits,nbin,'sky')
-	# XXX need bad pixel and object masks here
+	binnedIm = fits.make_fov_image(nbin,'sky')
 	# collect the CCD mosaic into a single image
 	X,Y,fovIm = [],[],[]
 	for ccd in ['CCD%d'%i for i in range(1,5)]:
@@ -152,8 +151,7 @@ def bok_polyfit(fits,nbin,order,writeImg=False):
 	# return the model images for each CCD at native resolution
 	rv = {}
 	for ccd in ['CCD%d'%i for i in range(1,5)]:
-		x,y = bok_getxy(fits[ccd].read_header(),'sky')
-		rv[ccd] = p(x,y)
+		rv[ccd] = p(*fits.get_xy(ccd,'sky'))
 	rv['skymodel'] = p
 	if True: #writeImg:
 		# save the original binned image
@@ -217,6 +215,8 @@ class BokDebiasFlatten(bokutil.BokProcess):
 		self.biasFits = _open_fits(biasFits)
 		self.flatFits = _open_fits(flatFits)
 		self.illumFits = _open_fits(illumFits)
+	def _preprocess(self,fits):
+		print 'debias and flat-field ',fits.fileName,fits.outFileName
 	def process_hdu(self,extName,data,hdr):
 		data -= self.biasFits[extName][:,:]
 		data /= self.flatFits[extName][:,:]
@@ -235,9 +235,10 @@ class BokSkySubtract(bokutil.BokProcess):
 		# the gradient
 		self.sky0 = self.skyFit['skymodel'](0,0)
 	def _preprocess(self,fits):
+		print 'sky subtracting ',fits.fileName,fits.outFileName
 		self.fit_sky_model(fits)
 	def process_hdu(self,extName,data,hdr):
-		skyFit = (self.skyFit[ccd] - self.sky0).astype(np.float32)
+		skyFit = (self.skyFit[extName] - self.sky0).astype(np.float32)
 		data -= skyFit
 		hdr['SKYVAL'] = self.sky0
 		return data,hdr
@@ -257,9 +258,9 @@ def multiply_gain(inFits,extGroup,hdr,skyGainCor,inputGain,
 	#sky_est = np.ma.median
 	sky_est = np.ma.mean
 	# the stats region used to balance amps within a CCD using sky values
-	xa1,xa2,ya1,ya2 = ampCorStatReg
+	#xa1,xa2,ya1,ya2 = ampCorStatReg
 	# the stats region used to balance CCDs across the field using sky values
-	xc1,xc2,yc1,yc2 = ccdCorStatReg
+	#xc1,xc2,yc1,yc2 = ccdCorStatReg
 	# load the per-amp images
 	ampIms = [ inFits[ext].read() for ext in extGroup ]
 	# start with the input gain values (from header keywords or input by user)
@@ -267,8 +268,7 @@ def multiply_gain(inFits,extGroup,hdr,skyGainCor,inputGain,
 	# use the sky counts to balance the gains
 	if skyGainCor:
 		# first balance across amplifers
-		rawSky = np.array([ sky_est(sigma_clip(im[ya1:ya2,xa1:xa2],
-		                                       **clipArgs))
+		rawSky = np.array([ sky_est(sigma_clip(im[ampCorStatReg],**clipArgs))
 		                           for im in ampIms ])
 		skyCounts = rawSky * gain
 		refAmpIndex = np.where(extGroup == refAmp)[0][0]
@@ -276,7 +276,7 @@ def multiply_gain(inFits,extGroup,hdr,skyGainCor,inputGain,
 		# then balance across CCDs
 		centerAmp = (set(extGroup) & set(bokCenterAmps)).pop()
 		ci = np.where(extGroup == centerAmp)[0][0]
-		skyCounts = sky_est(sigma_clip(ampIms[ci][yc1:yc2,xc1:xc2],**clipArgs))
+		skyCounts = sky_est(sigma_clip(ampIms[ci][ccdCorStatReg],**clipArgs))
 		__rawSky2 = skyCounts
 		skyCounts *= gain[ci] * gain2[ci]
 		if skyIn is None:
@@ -360,17 +360,17 @@ def _orient_mosaic(hdr,ims,ccdNum,origin):
 	return outIm,hdr
 
 def combine_ccds(fileList,**kwargs):
-	outputFileMap = kwargs.get('output_file_map')
+	outputFileMap = kwargs.get('output_map')
 	tmpFileName = 'tmp.fits'
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
 	#
 	inputGain = kwargs.get('input_gain')
 	skyGainCor = kwargs.get('sky_gain_correct',True)
-	ampCorStatReg = stats_region(kwargs.get('stats_region',
+	ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
 	                                      'amp_corner_ccdcenter'))
 	# not a keyword (?)
-	ccdCorStatReg = stats_region('centeramp_corner_fovcenter')
+	ccdCorStatReg = bokutil.stats_region('centeramp_corner_fovcenter')
 	clipArgs = {'iters':kwargs.get('clip_iters',3),
 	            'sig':kwargs.get('clip_sig',2.5),
 	            'cenfunc':np.ma.mean}
@@ -437,9 +437,9 @@ from astropy.convolution.kernels import Gaussian2DKernel
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 
 def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
-	x1,x2,y1,y2 = stats_region(kwargs.get('stats_region',
-	                                      'ccd_central_quadrant'))
-	skypix = sigma_clip(im[y1:y2,x1:x2],iters=5,sig=2.5,cenfunc=np.ma.mean)
+	statsPix = bokutil.stats_region(kwargs.get('stats_region',
+	                                           'ccd_central_quadrant'))
+	skypix = sigma_clip(im[statsPix],iters=5,sig=2.5,cenfunc=np.ma.mean)
 	skym,skys = skypix.mean(),skypix.std()
 	snrIm = (im - skym) / skys
 	snrIm = convolve(snrIm,Gaussian2DKernel(0.75))
@@ -457,10 +457,10 @@ def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
 def sextract_pass1(fileList,**kwargs):
 	overwrite = kwargs.get('overwrite',False)
 	catalogFileNameMap = kwargs.get('catalog_name_map',
-	                                FileNameMap(newSuffix='.cat1'))
+	                                bokutil.FileNameMap(newSuffix='.cat1'))
 	withPsf = kwargs.get('with_psf',False)
 	objMaskFileMap = kwargs.get('object_mask_map',
-	                             FileNameMap(newSuffix='.obj'))
+	                             bokutil.FileNameMap(newSuffix='.obj'))
 	#bkgImgFileMap = FileNameMap(newSuffix='.back')
 	for f in fileList:
 		catalogFile = catalogFileNameMap(f)
