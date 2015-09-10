@@ -3,8 +3,6 @@
 import os
 import re
 import subprocess
-from copy import copy
-from collections import OrderedDict
 import numpy as np
 from scipy.stats.mstats import mode
 from scipy.interpolate import LSQUnivariateSpline
@@ -194,27 +192,29 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		return stack,hdr
 
 class BokDebiasFlatten(bokutil.BokProcess):
-	def __init__(self,biasFits,flatFits,illumFits=None,**kwargs):
+	def __init__(self,biasFits=None,flatFits=None,illumFits=None,**kwargs):
 		super(BokDebiasFlatten,self).__init__(**kwargs)
 		def _open_fits(fits):
 			if type(fits) is str:
-				return fitsio.FITS(fits)
+				return fits,fitsio.FITS(fits)
 			else:
-				return fits
-		self.biasFile = biasFits
-		self.flatFile = flatFits
-		self.biasFits = _open_fits(biasFits)
-		self.flatFits = _open_fits(flatFits)
-		self.illumFits = _open_fits(illumFits)
+				# a hack to access the filename from fitsio internals
+				return fits._filename,fits
+		self.biasFile,self.biasFits = _open_fits(biasFits)
+		self.flatFile,self.flatFits = _open_fits(flatFits)
+		self.illumFile,self.illumFits = _open_fits(illumFits)
 	def _preprocess(self,fits):
 		print 'debias and flat-field ',fits.fileName,fits.outFileName
 	def process_hdu(self,extName,data,hdr):
-		data -= self.biasFits[extName][:,:]
-		data /= self.flatFits[extName][:,:]
+		if self.biasFits is not None:
+			data -= self.biasFits[extName][:,:]
+		if self.flatFits is not None:
+			data /= self.flatFits[extName][:,:]
 		if self.illumFits is not None:
 			data /= self.illumFits[extName][:,:]
-		hdr['BIASFILE'] = self.biasFile
-		hdr['FLATFILE'] = self.flatFile
+		hdr['BIASFILE'] = str(self.biasFile)
+		hdr['FLATFILE'] = str(self.flatFile)
+		hdr['ILLMFILE'] = str(self.illumFile)
 		return data,hdr
 
 class BokSkySubtract(bokutil.BokProcess):
