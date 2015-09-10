@@ -1,10 +1,17 @@
 #!/usr/bin/env python
 
+import os
 import re
+from collections import OrderedDict
 import numpy as np
 from astropy.stats import sigma_clip
+import fitsio
 
 from bokutil import BokProcess
+
+# argh
+ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
+bok90mef_extensions = ['IM%d' % a for a in ampOrder]
 
 def _convertfitsreg(regstr):
 	regpattern = r'\[(\d+):(\d+),(\d+):(\d+)\]'
@@ -95,11 +102,14 @@ class OverscanCollection(object):
 		os.unlink(self.tmpfn1)
 		os.unlink(self.tmpfn2)
 	def append(self,oscan,oscanFit,fileName):
-		np.save(self.tmpOscanImgFile,oscan)
 		if self.along=='columns':
 			resim = (oscan - oscanFit[:,np.newaxis]).astype(np.float32)
 		else:
 			resim = (oscan - oscanFit[np.newaxis,:]).astype(np.float32)
+		try:
+			np.save(self.tmpOscanImgFile,oscan.filled(np.nan))
+		except:
+			np.save(self.tmpOscanImgFile,oscan)
 		np.save(self.tmpOscanResImgFile,resim.filled(-999))
 		self.files.append(os.path.basename(fileName))
 	def write_image(self):
@@ -135,16 +145,19 @@ class BokOverscanSubtract(BokProcess):
 		                              'mask_along','clip_iters','clip_sig',
 		                              'spline_interval'] }
 		self.writeOscanImg = kwargs.get('write_overscan_image',False)
+		self.oscanColsImgFile = kwargs.get('oscan_cols_file')
+		self.oscanRowsImgFile = kwargs.get('oscan_rows_file')
 		self.curFileName = None
+		self._init_oscan_images()
 	def _init_oscan_images(self):
 		if self.writeOscanImg:
-			self.colImg = { extn:OverscanCollection(oscanColsImgFile+
+			self.colImg = { extn:OverscanCollection(self.oscanColsImgFile+
 			                                        '_'+extn)
 			                   for extn in bok90mef_extensions }
-			self.rowImg = { extn:OverscanCollection(oscanRowsImgFile+
+			self.rowImg = { extn:OverscanCollection(self.oscanRowsImgFile+
 			                                        '_'+extn,along='rows')
 			                   for extn in bok90mef_extensions }
-	def _save_oscan_data(self,oscan_cols,oscan_rows,colbias,rowbias,f):
+	def _save_oscan_data(self,oscan_cols,colbias,oscan_rows,rowbias,f,extn):
 		if self.writeOscanImg:
 			self.colImg[extn].append(oscan_cols,colbias,f)
 			if oscan_rows is not None:
@@ -158,7 +171,7 @@ class BokOverscanSubtract(BokProcess):
 					self.rowImg[extn].write_image()
 				self.rowImg[extn].close()
 	def _preprocess(self,fits):
-		self.curFileName = fits.get_header(0)['FILENAME']
+		self.curFileName = fits.fileName
 		print 'overscan subtracting ',self.curFileName
 	def process_hdu(self,extName,data,hdr):
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
@@ -183,8 +196,8 @@ class BokOverscanSubtract(BokProcess):
 		except:
 			hdr['OSCANMED'] = float(np.ma.median(colbias))
 		self._save_oscan_data(oscan_cols,colbias,oscan_rows,rowbias,
-		                      self.curFileName)
+		                      self.curFileName,extName)
 		return data,hdr
-	def finish(self):
+	def _postprocess(self):
 		self._finish_oscan_images()
 
