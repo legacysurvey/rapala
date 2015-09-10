@@ -315,7 +315,11 @@ class BokMefImageCube(object):
 			rowChunks = [ (row1,row2) 
 			         for row1,row2 in zip(rowSplit[:-1],rowSplit[1:]) ]
 		self._preprocess(fileList)
-		masks = [ self.maskNameMap(f) for f in fileList ]
+		if self.maskNameMap == NullNameMap:
+			# argh, this is a hacky way to check for masks
+			masks = None
+		else:
+			masks = [ self.maskNameMap(f) for f in fileList ]
 		for extn in extensions:
 			stack = []
 			for rows in rowChunks:
