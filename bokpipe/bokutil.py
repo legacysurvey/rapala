@@ -163,7 +163,10 @@ class BokMefImage(object):
 	def make_fov_image(self,nbin=1,coordsys='sky'):
 		rv = {'coordsys':coordsys,'nbin':nbin}
 		hdr0 = self.fits[0].read_header()
-		rv['objname'] = hdr0['OBJECT'].strip()
+		try:
+			rv['objname'] = hdr0['OBJECT'].strip()
+		except:
+			rv['objname'] = 'none'
 		for extName,im,hdr in self:
 			x,y = bok_getxy(hdr,coordsys)
 			if nbin > 1:
