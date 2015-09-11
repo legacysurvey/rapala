@@ -195,7 +195,9 @@ class BokDebiasFlatten(bokutil.BokProcess):
 	def __init__(self,biasFits=None,flatFits=None,illumFits=None,**kwargs):
 		super(BokDebiasFlatten,self).__init__(**kwargs)
 		def _open_fits(fits):
-			if type(fits) is str:
+			if fits is None:
+				return None,None
+			elif type(fits) is str:
 				return fits,fitsio.FITS(fits)
 			else:
 				# a hack to access the filename from fitsio internals

@@ -131,7 +131,10 @@ class BokMefImage(object):
 		elif type(maskFits) is not fitsio.fitslib.FITS:
 			return ValueError
 		self.masks.append(maskFits)
-	def update(self,data,header=None):
+	def update(self,data,header=None,noconvert=False):
+		if not noconvert:
+			# should probably instead track down all the upcasts
+			data = data.astype(np.float32)
 		self.outFits.write(data,extname=self.curExtName,header=header,
 		                   clobber=self.clobber)
 	def __iter__(self):
@@ -332,7 +335,7 @@ class BokMefImageCube(object):
 			stack = np.vstack(stack)
 			hdr = fitsio.read_header(inputFiles[0],extn)
 			stack,hdr = self._postprocess(stack,hdr)
-			outFits.write(stack,extname=extn,header=hdr)
+			outFits.write(stack.astype(np.float32),extname=extn,header=hdr)
 			if self.withVariance:
 				var = np.ma.var(imCube,axis=-1).filled(0).astype(np.float32)
 				varFits.write(var,extname=extn,header=hdr)
