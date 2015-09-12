@@ -139,7 +139,7 @@ def bok_polyfit(fits,nbin,order,writeImg=False):
 	for ccd in ['CCD%d'%i for i in range(1,5)]:
 		rv[ccd] = p(*fits.get_xy(ccd,'sky'))
 	rv['skymodel'] = p
-	if True: #writeImg:
+	if False: #writeImg:
 		# save the original binned image
 		make_fov_image(binnedIm,'tmp1.png')
 		# and the sky model fit
@@ -245,6 +245,9 @@ class BokSkySubtract(bokutil.BokProcess):
 		skyFit = (self.skyFit[extName] - self.sky0).astype(np.float32)
 		data -= skyFit
 		hdr['SKYVAL'] = self.sky0
+		skyModel = self.skyFit['skymodel']
+		for k,v in zip(skyModel.param_names,skyModel.parameters):
+			hdr['SKY'+k.upper()] = v
 		return data,hdr
 
 ###############################################################################
