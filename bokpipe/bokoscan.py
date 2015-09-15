@@ -193,8 +193,12 @@ class BokOverscanSubtract(BokProcess):
 		# something changed about what median returns...
 		try:
 			hdr['OSCANMED'] = float(np.ma.median(colbias).filled(-999))
+			if rowbias is not None:
+				hdr['OSCNRMED'] = float(np.ma.median(rowbias).filled(-999))
 		except:
 			hdr['OSCANMED'] = float(np.ma.median(colbias))
+			if rowbias is not None:
+				hdr['OSCNRMED'] = float(np.ma.median(rowbias))
 		self._save_oscan_data(oscan_cols,colbias,oscan_rows,rowbias,
 		                      self.curFileName,extName)
 		return data,hdr
