@@ -104,32 +104,35 @@ class BokMefImage(object):
 		if self.readOnly:
 			self.fits = fitsio.FITS(self.fileName)
 		else:
+			ts = datetime.fromtimestamp(time()).strftime('%Y-%m-%d %H:%M:%S')
 			if self.outFileName is None:
 				self._check_header_key(self.fileName)
 				self.outFits = self.fits = fitsio.FITS(self.fileName,'rw')
 				self.closeFiles.append(self.fits)
 				self.clobberHdus = True
+				if self.headerKey is not None:
+					self.outFits[0].write_key(self.headerKey,ts)
 			else:
 				if os.path.exists(self.outFileName):
 					# first see if the output file has already generated
 					if not self.clobber:
 						self._check_header_key(self.outFileName)
-					# can't seem to overwite extension 0 with fitsio, so
+					# can't seem to overwrite extension 0 with fitsio, so
 					# for now just deleting the existing file
 					os.unlink(self.outFileName)
 				self.clobberHdus = False
 				self.fits = fitsio.FITS(self.fileName)
 				self.outFits = fitsio.FITS(self.outFileName,'rw')
 				self.closeFiles.extend([self.fits,self.outFits])
-			hdr = {} if not self.keepHeaders else self.fits[0].read_header()
-			for k,v in headerCards.items():
-				hdr[k] = v
-			if self.headerKey is not None:
-				hdr[self.headerKey] = datetime.fromtimestamp(time()).strftime(
-				                                          '%Y-%m-%d %H:%M:%S')
-			self.outFits.write(None,header=hdr)
-			self.closeFiles.extend([self.fits,self.outFits])
-
+				if self.keepHeaders:
+					hdr = self.fits[0].read_header()
+				else:
+					hdr = {}
+				for k,v in headerCards.items():
+					hdr[k] = v
+				if self.headerKey is not None:
+					hdr[self.headerKey] = ts
+				self.outFits.write(None,header=hdr)
 		self.masks = []
 		if maskFits is not None:
 			self.add_mask(maskFits)
@@ -246,8 +249,10 @@ class BokProcess(object):
 			except OutputExistsError,msg:
 				if self.ignoreExisting:
 					if self.verbose > 0:
-						print '%s already processed by %s' % \
-						         (self.outputNameMap(f),self.headerKey)
+						_f = self.outputNameMap(f)
+						if _f is None:
+							_f = self.inputNameMap(f)
+						print '%s already processed by %s'%(_f,self.headerKey)
 					continue
 				else:
 					raise OutputExistsError(msg)
