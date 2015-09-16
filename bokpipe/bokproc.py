@@ -204,6 +204,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 
 class BokDebiasFlatten(bokutil.BokProcess):
 	def __init__(self,biasFits=None,flatFits=None,illumFits=None,**kwargs):
+		kwargs.setdefault('header_key','DBFLT')
 		super(BokDebiasFlatten,self).__init__(**kwargs)
 		def _open_fits(fits):
 			if fits is None:
@@ -232,6 +233,7 @@ class BokDebiasFlatten(bokutil.BokProcess):
 
 class BokSkySubtract(bokutil.BokProcess):
 	def __init__(self,**kwargs):
+		kwargs.setdefault('header_key','SKYSUB')
 		super(BokSkySubtract,self).__init__(**kwargs)
 	def fit_sky_model(self,fits):
 		self.skyFit = bok_polyfit(fits,64,1)
@@ -375,7 +377,7 @@ def combine_ccds(fileList,**kwargs):
 	inputGain = kwargs.get('input_gain')
 	skyGainCor = kwargs.get('sky_gain_correct',True)
 	ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
-	                                      'amp_corner_ccdcenter'))
+	                                     'amp_corner_ccdcenter'))
 	# not a keyword (?)
 	ccdCorStatReg = bokutil.stats_region('centeramp_corner_fovcenter')
 	clipArgs = {'iters':kwargs.get('clip_iters',3),
@@ -462,7 +464,7 @@ def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
 	return mask
 
 def sextract_pass1(fileList,**kwargs):
-	overwrite = kwargs.get('overwrite',False)
+	clobber = kwargs.get('clobber',False)
 	catalogFileNameMap = kwargs.get('catalog_name_map',
 	                                bokutil.FileNameMap(newSuffix='.cat1'))
 	withPsf = kwargs.get('with_psf',False)
@@ -471,7 +473,7 @@ def sextract_pass1(fileList,**kwargs):
 	#bkgImgFileMap = FileNameMap(newSuffix='.back')
 	for f in fileList:
 		catalogFile = catalogFileNameMap(f)
-		if os.path.exists(catalogFile) and not overwrite:
+		if os.path.exists(catalogFile) and not clobber:
 			continue
 		cmd = ['sex','-c','config/bok_pass1.sex',
 		       '-CATALOG_NAME',catalogFile]

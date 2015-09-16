@@ -139,6 +139,7 @@ class OverscanCollection(object):
 
 class BokOverscanSubtract(BokProcess):
 	def __init__(self,**kwargs):
+		kwargs.setdefault('header_key','OSCNSUB')
 		super(BokOverscanSubtract,self).__init__(**kwargs)
 		self.fit_kwargs = { k:v for k,v in kwargs.items()
 		                     if k in ['reject','method','apply_filter',

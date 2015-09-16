@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 import os
+from time import time
+from datetime import datetime
 import fitsio
 import numpy as np
 from scipy.stats.mstats import mode
@@ -31,6 +33,9 @@ def bok_getxy(hdr,coordsys='image'):
 		raise ValueError
 	return x,y
 
+# be careful - these slices can't be applied to read a subregion using fitsio.
+# i.e., fitsio.FITS(f)[extn][slice] will not work (reads to end of image),
+# but fitsio.FITS(f)[extn].read()[slice] will
 def stats_region(statreg):
 	if statreg is None:
 		return np.s_[:,:]
@@ -87,36 +92,44 @@ class BokMefImage(object):
 	   carried with the data.'''
 	def __init__(self,fileName,**kwargs):
 		self.fileName = fileName
-		self.overwrite = kwargs.get('overwrite',False)
-		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.outFileName = kwargs.get('output_file')
+		self.clobber = kwargs.get('clobber',False)
+		self.headerKey = kwargs.get('header_key')
 		self.readOnly = kwargs.get('read_only',False)
+		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.extensions = kwargs.get('extensions')
 		maskFits = kwargs.get('mask_file')
 		headerCards = kwargs.get('add_header',{})
 		self.closeFiles = []
 		if self.readOnly:
-			self.fits = fitsio.FITS(fileName)
-		elif self.outFileName is None:
-			self.fits = fitsio.FITS(fileName,'rw')
-			self.outFits = self.fits
-			self.clobber = True
-			self.closeFiles.append(self.fits)
+			self.fits = fitsio.FITS(self.fileName)
 		else:
-			self.fits = fitsio.FITS(fileName)
-			if os.path.exists(self.outFileName):
-				if self.overwrite:
+			if self.outFileName is None:
+				self._check_header_key(self.fileName)
+				self.outFits = self.fits = fitsio.FITS(self.fileName,'rw')
+				self.closeFiles.append(self.fits)
+				self.clobberHdus = True
+			else:
+				if os.path.exists(self.outFileName):
+					# first see if the output file has already generated
+					if not self.clobber:
+						self._check_header_key(self.outFileName)
+					# can't seem to overwite extension 0 with fitsio, so
+					# for now just deleting the existing file
 					os.unlink(self.outFileName)
-				else:
-					raise OutputExistsError("%s already exists" % 
-					                        self.outFileName)
-			self.outFits = fitsio.FITS(self.outFileName,'rw')
-			hdr = None if not self.keepHeaders else self.fits[0].read_header()
+				self.clobberHdus = False
+				self.fits = fitsio.FITS(self.fileName)
+				self.outFits = fitsio.FITS(self.outFileName,'rw')
+				self.closeFiles.extend([self.fits,self.outFits])
+			hdr = {} if not self.keepHeaders else self.fits[0].read_header()
 			for k,v in headerCards.items():
 				hdr[k] = v
+			if self.headerKey is not None:
+				hdr[self.headerKey] = datetime.fromtimestamp(time()).strftime(
+				                                          '%Y-%m-%d %H:%M:%S')
 			self.outFits.write(None,header=hdr)
-			self.clobber = False
 			self.closeFiles.extend([self.fits,self.outFits])
+
 		self.masks = []
 		if maskFits is not None:
 			self.add_mask(maskFits)
@@ -124,6 +137,12 @@ class BokMefImage(object):
 			self.extensions = [ h.get_extname().upper() 
 			                     for h in self.fits[1:] ]
 		self.curExtName = None
+	def _check_header_key(self,fileName):
+		if self.headerKey is not None:
+			hdr0 = fitsio.read_header(fileName,0)
+			if self.headerKey in hdr0:
+				raise OutputExistsError('key %s already exists' % 
+				                        self.headerKey)
 	def add_mask(self,maskFits):
 		if type(maskFits) is str:
 			maskFits = fitsio.FITS(maskFits)
@@ -136,7 +155,7 @@ class BokMefImage(object):
 			# should probably instead track down all the upcasts
 			data = data.astype(np.float32)
 		self.outFits.write(data,extname=self.curExtName,header=header,
-		                   clobber=self.clobber)
+		                   clobber=self.clobberHdus)
 	def __iter__(self):
 		for self.curExtName in self.extensions:
 			data = self.fits[self.curExtName].read()
@@ -204,8 +223,11 @@ class BokProcess(object):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
 		self.outputNameMap = kwargs.get('output_map',NullNameMap)
 		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
-		self.overwrite = kwargs.get('overwrite',False)
+		self.clobber = kwargs.get('clobber',False)
+		self.headerKey = kwargs.get('header_key')
+		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
+		self.verbose = kwargs.get('verbose',0)
 	def _preprocess(self,fits):
 		pass
 	def process_hdu(self,extName,data,hdr):
@@ -214,11 +236,21 @@ class BokProcess(object):
 		pass
 	def process_files(self,fileList):
 		for f in fileList:
-			fits = BokMefImage(self.inputNameMap(f),
-			                   output_file=self.outputNameMap(f),
-			                   mask_file=self.maskNameMap(f),
-			                   keep_headers=self.keepHeaders,
-			                   overwrite=self.overwrite)
+			try:
+				fits = BokMefImage(self.inputNameMap(f),
+				                   output_file=self.outputNameMap(f),
+				                   mask_file=self.maskNameMap(f),
+				                   keep_headers=self.keepHeaders,
+				                   clobber=self.clobber,
+				                   header_key=self.headerKey)
+			except OutputExistsError,msg:
+				if self.ignoreExisting:
+					if self.verbose > 0:
+						print '%s already processed by %s' % \
+						         (self.outputNameMap(f),self.headerKey)
+					continue
+				else:
+					raise OutputExistsError(msg)
 			self._preprocess(fits)
 			for extName,data,hdr in fits:
 				data,hdr = self.process_hdu(extName,data,hdr)
@@ -252,7 +284,9 @@ class BokMefImageCube(object):
 		                 'sig':kwargs.get('clip_sig',2.5),
 		                 'cenfunc':np.ma.mean}
 		self.nSplit = kwargs.get('nsplit',1)
-		self.overwrite = kwargs.get('overwrite',False)
+		self.clobber = kwargs.get('clobber',False)
+		self.ignoreExisting = kwargs.get('ignore_existing',True)
+		self.verbose = kwargs.get('verbose',0)
 		self.headerKey = 'CUBE'
 		self.extensions = None
 	def _rescale(self,imCube,scales=None):
@@ -291,12 +325,19 @@ class BokMefImageCube(object):
 		return stack,hdr
 	def stack(self,fileList,outputFile,scales=None,**kwargs):
 		if os.path.exists(outputFile):
-			if self.overwrite:
-				os.unlink(outputFile)
+			if self.clobber:
+				clobberHdus = True
 			else:
-				raise OutputExistsError("%s already exists" % outputFile)
+				if self.ignoreExisting:
+					if self.verbose > 0:
+						print '%s already stacked' % outputFile
+					return
+				else:
+					raise OutputExistsError("%s already exists" % outputFile)
+		else:
+			clobberHdus = False
 		inputFiles = [ self.inputNameMap(f) for f in fileList ]
-		outFits = fitsio.FITS(outputFile,'rw')
+		outFits = fitsio.FITS(outputFile,'rw',clobber=clobberHdus)
 		hdr = _write_stack_header_cards(inputFiles,self.headerKey)
 		outFits.write(None,header=hdr)
 		if self.withVariance:
