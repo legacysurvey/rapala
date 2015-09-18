@@ -182,7 +182,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.normCCD = 'CCD1'
 		self.headerKey = 'SKYFL'
-	def _preprocess(self,fileList):
+	def _preprocess(self,fileList,f):
 		self.norms = np.zeros(len(fileList),dtype=np.float32)
 		for i,f in enumerate(fileList):
 			fits = bokutil.BokMefImage(self.inputNameMap(f),
@@ -203,32 +203,51 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		return stack,hdr
 
 class BokDebiasFlatten(bokutil.BokProcess):
-	def __init__(self,biasFits=None,flatFits=None,illumFits=None,**kwargs):
+	def __init__(self,bias=None,flat=None,**kwargs):
 		kwargs.setdefault('header_key','DBFLT')
 		super(BokDebiasFlatten,self).__init__(**kwargs)
-		def _open_fits(fits):
-			if fits is None:
-				return None,None
-			elif type(fits) is str:
-				return fits,fitsio.FITS(fits)
-			else:
-				# a hack to access the filename from fitsio internals
-				return fits._filename,fits
-		self.biasFile,self.biasFits = _open_fits(biasFits)
-		self.flatFile,self.flatFits = _open_fits(flatFits)
-		self.illumFile,self.illumFits = _open_fits(illumFits)
-	def _preprocess(self,fits):
+		#
+		self.biasFile = '<none>'
+		self.biasFits = None
+		self.biasIsMaster = True
+		if type(bias) is fitsio.fitslib.FITS:
+			self.biasFile = fits._filename
+			self.biasFits = bias
+		elif type(bias) is str:
+			self.biasFile = bias
+			self.biasFits = fitsio.FITS(self.biasFile)
+		elif type(bias) is dict:
+			self.biasMap = bias
+			self.biasIsMaster = False
+		#
+		self.flatFile = '<none>'
+		self.flatFits = None
+		self.flatIsMaster = True
+		if type(flat) is fitsio.fitslib.FITS:
+			self.flatFile = fits._filename
+			self.flatFits = flat
+		elif type(flat) is str:
+			self.flatFile = flat
+			self.flatFits = fitsio.FITS(self.flatFile)
+		elif type(flat) is dict:
+			self.flatMap = flat
+			self.flatIsMaster = False
+	def _preprocess(self,fits,f):
 		print 'debias and flat-field ',fits.fileName,fits.outFileName
+		if not self.biasIsMaster:
+			biasFile = self.biasMap[f]
+			if self.biasFile != biasFile:
+				if self.biasFits is not None:
+					self.biasFits.close()
+				self.biasFile = biasFile
+				self.biasFits = fitsio.FITS(self.biasFile)
 	def process_hdu(self,extName,data,hdr):
 		if self.biasFits is not None:
 			data -= self.biasFits[extName][:,:]
 		if self.flatFits is not None:
 			data /= self.flatFits[extName][:,:]
-		if self.illumFits is not None:
-			data /= self.illumFits[extName][:,:]
 		hdr['BIASFILE'] = str(self.biasFile)
 		hdr['FLATFILE'] = str(self.flatFile)
-		hdr['ILLMFILE'] = str(self.illumFile)
 		return data,hdr
 
 class BokSkySubtract(bokutil.BokProcess):
@@ -240,7 +259,7 @@ class BokSkySubtract(bokutil.BokProcess):
 		# subtract the sky level at the origin so as to only remove 
 		# the gradient
 		self.sky0 = self.skyFit['skymodel'](0,0)
-	def _preprocess(self,fits):
+	def _preprocess(self,fits,f):
 		print 'sky subtracting ',fits.fileName,fits.outFileName
 		self.fit_sky_model(fits)
 	def process_hdu(self,extName,data,hdr):

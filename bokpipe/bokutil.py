@@ -157,8 +157,15 @@ class BokMefImage(object):
 		if not noconvert:
 			# should probably instead track down all the upcasts
 			data = data.astype(np.float32)
-		self.outFits.write(data,extname=self.curExtName,header=header,
-		                   clobber=self.clobberHdus)
+		# I thought this was overwriting existing HDUs, but doesn't seem to..
+		#self.outFits.write(data,extname=self.curExtName,header=header,
+		#                   clobber=self.clobberHdus)
+		if self.clobberHdus:
+			self.outFits[self.curExtName].write(data)
+			self.outFits[self.curExtName].write_keys(header)
+		else:
+			self.outFits.write(data,extname=self.curExtName,header=header,
+			                   clobber=False)
 	def __iter__(self):
 		for self.curExtName in self.extensions:
 			data = self.fits[self.curExtName].read()
@@ -237,7 +244,7 @@ class BokProcess(object):
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.verbose = kwargs.get('verbose',0)
-	def _preprocess(self,fits):
+	def _preprocess(self,fits,f):
 		pass
 	def process_hdu(self,extName,data,hdr):
 		raise NotImplementedError
@@ -262,7 +269,7 @@ class BokProcess(object):
 					continue
 				else:
 					raise OutputExistsError(msg)
-			self._preprocess(fits)
+			self._preprocess(fits,f)
 			for extName,data,hdr in fits:
 				data,hdr = self.process_hdu(extName,data,hdr)
 				fits.update(data,hdr)
