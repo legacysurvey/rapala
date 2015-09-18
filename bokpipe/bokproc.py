@@ -241,6 +241,13 @@ class BokDebiasFlatten(bokutil.BokProcess):
 					self.biasFits.close()
 				self.biasFile = biasFile
 				self.biasFits = fitsio.FITS(self.biasFile)
+		if not self.flatIsMaster:
+			flatFile = self.flatMap[f]
+			if self.flatFile != flatFile:
+				if self.flatFits is not None:
+					self.flatFits.close()
+				self.flatFile = flatFile
+				self.flatFits = fitsio.FITS(self.flatFile)
 	def process_hdu(self,extName,data,hdr):
 		if self.biasFits is not None:
 			data -= self.biasFits[extName][:,:]
