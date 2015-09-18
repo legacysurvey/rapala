@@ -223,9 +223,15 @@ class FileNameMap(object):
 
 class BokProcess(object):
 	def __init__(self,**kwargs):
-		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
-		self.outputNameMap = kwargs.get('output_map',NullNameMap)
-		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
+		self.inputNameMap = kwargs.get('input_map')
+		if self.inputNameMap is None:
+			self.inputNameMap = IdentityNameMap
+		self.outputNameMap = kwargs.get('output_map')
+		if self.outputNameMap is None:
+			self.outputNameMap = NullNameMap
+		self.maskNameMap = kwargs.get('mask_map')
+		if self.maskNameMap is None:
+			self.maskNameMap = NullNameMap
 		self.clobber = kwargs.get('clobber',False)
 		self.headerKey = kwargs.get('header_key')
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
