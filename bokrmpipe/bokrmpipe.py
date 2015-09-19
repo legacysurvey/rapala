@@ -194,6 +194,8 @@ def make_supersky_flats(file_map,utds=None,skysub=True,**kwargs):
 	for utd in utds:
 		for filt in 'gi':
 			files = get_files(logs,utd,imType='object',filt=filt)
+			if files is None:
+				continue
 			bokproc.sextract_pass1(files,
 			                       input_map=file_map('comb',False),
 			                       catalog_map=file_map('pass1cat'),

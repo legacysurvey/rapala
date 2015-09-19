@@ -184,7 +184,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.normCCD = 'CCD1'
 		self.headerKey = 'SKYFL'
-	def _preprocess(self,fileList,f):
+	def _preprocess(self,fileList):
 		self.norms = np.zeros(len(fileList),dtype=np.float32)
 		for i,f in enumerate(fileList):
 			fits = bokutil.BokMefImage(self.inputNameMap(f),
@@ -515,6 +515,7 @@ def sextract_pass1(fileList,**kwargs):
 	for f in fileList:
 		inputFile = inputNameMap(f)
 		catalogFile = catalogFileNameMap(f)
+		print 'generating ',inputFile,catalogFile
 		if os.path.exists(catalogFile) and not clobber:
 			continue
 		cmd = ['sex','-c',os.path.join(configdir,'bok_pass1.sex'),
