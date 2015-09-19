@@ -49,8 +49,9 @@ class processInPlace(object):
 class processToNewFiles(object):
 	def __init__(self):
 		self.fmap = {'bias':'_b','proc':'_p','comb':'_c',
+		             'pass1cat':'.cat1','objmask':'.obj',
 		             'sky':'_s','proc2':'_q'}
-	def __call__(self,t):
+	def __call__(self,t,output=True):
 		return RMFileNameMap(self.fmap[t])
 
 def get_utds(utds=None):
@@ -190,7 +191,8 @@ def make_supersky_flats(file_map,utds=None,skysub=False,**kwargs):
 			files = get_files(logs,utd,imType='object',filt=filt)
 			bokproc.sextract_pass1(files,
 			                       input_map=file_map('comb',False),
-			                       mask_map=file_map('objmask'),
+			                       catalog_mask_map=file_map('pass1cat'),
+			                       object_mask_map=file_map('objmask'),
 			                       **kwargs)
 			if skysub:
 				skySub.process_files(files)
@@ -211,7 +213,11 @@ def rmpipe():
 	make_2d_biases(utds,**kwargs)
 	biasMap = get_bias_map(utds)
 	make_dome_flats(fileMap,biasMap,utds,**kwargs)
-	# XXX bad pixel mask(s)
+	if True:
+		utd,filt,flatNum = '201404025','g',1
+		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
+		bpMaskFile = os.path.join(caldir,'badpix_master.fits')
+		build_mask_from_flat(flatFn,bpMaskFile,**kwargs)
 	flatMap = get_flat_map(utds)
 	# XXX propagate bpm
 	process_all(fileMap,biasMap,flatMap,utds,**kwargs)

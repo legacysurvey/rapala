@@ -491,6 +491,9 @@ def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
 
 def sextract_pass1(fileList,**kwargs):
 	clobber = kwargs.get('clobber',False)
+	inputNameMap = kwargs.get('input_map')
+	if inputNameMap is None:
+		inputNameMap = bokutil.IdentityNameMap
 	catalogFileNameMap = kwargs.get('catalog_name_map',
 	                                bokutil.FileNameMap(newSuffix='.cat1'))
 	withPsf = kwargs.get('with_psf',False)
@@ -498,6 +501,7 @@ def sextract_pass1(fileList,**kwargs):
 	                             bokutil.FileNameMap(newSuffix='.obj'))
 	#bkgImgFileMap = FileNameMap(newSuffix='.back')
 	for f in fileList:
+		inputFile = inputNameMap(f)
 		catalogFile = catalogFileNameMap(f)
 		if os.path.exists(catalogFile) and not clobber:
 			continue
@@ -509,10 +513,10 @@ def sextract_pass1(fileList,**kwargs):
 			#                objMaskFileMap(f)+','+bkgImgFileMap(f)])
 			cmd.extend(['-CHECKIMAGE_TYPE','SEGMENTATION',
 			            '-CHECKIMAGE_NAME',objMaskFileMap(f)])
-		cmd.append(f)
+		cmd.append(inputFile)
 		print cmd
 		subprocess.call(cmd)
-		fits = fitsio.FITS(f,'rw')
+		fits = fitsio.FITS(inputFile,'rw')
 		maskFits = fitsio.FITS(objMaskFileMap(f),'rw')
 		for ccd in ['CCD%d'%i for i in range(1,5)]:
 			#mask = grow_mask(maskFits[ccd][:,:]>0,3)
