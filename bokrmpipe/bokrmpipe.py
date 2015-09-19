@@ -213,7 +213,7 @@ def rmpipe():
 	make_2d_biases(utds,**kwargs)
 	biasMap = get_bias_map(utds)
 	make_dome_flats(fileMap,biasMap,utds,**kwargs)
-	if True:
+	if False:
 		utd,filt,flatNum = '201404025','g',1
 		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
 		bpMaskFile = os.path.join(caldir,'badpix_master.fits')

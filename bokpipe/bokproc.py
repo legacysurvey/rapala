@@ -395,6 +395,9 @@ def _orient_mosaic(hdr,ims,ccdNum,origin):
 	return outIm,hdr
 
 def combine_ccds(fileList,**kwargs):
+	inputFileMap = kwargs.get('input_map')
+	if inputFileMap is None:
+		inputFileMap = bokutil.IdentityNameMap
 	outputFileMap = kwargs.get('output_map')
 	tmpFileName = 'tmp.fits'
 	# do the extensions in numerical order, instead of HDU list order
@@ -421,12 +424,15 @@ def combine_ccds(fileList,**kwargs):
 		                  for ampNum,g in zip(ampOrder,nominal_gain)}
 	#
 	for f in fileList:
-		print 'combine: ',f
-		inFits = fitsio.FITS(f)
+		inputFile = inputFileMap(f)
+		print 'combine: ',inputFile
+		inFits = fitsio.FITS(inputFile)
 		if outputFileMap is not None:
 			outFits = fitsio.FITS(outputFileMap(f),'rw')
 		else:
 			# have to use a temporary file to change format
+			if os.path.exists(tmpFileName):
+				os.unlinke(tmpFileName)
 			outFits = fitsio.FITS(tmpFileName,'rw')
 		hdr = inFits[0].read_header()
 		hdr['DETSIZE'] = '[1:%d,1:%d]' % (8192,8064) # hardcoded
@@ -449,7 +455,7 @@ def combine_ccds(fileList,**kwargs):
 			outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
 		outFits.close()
 		if outputFileMap is None:
-			os.rename(tmpFileName,f)
+			os.rename(tmpFileName,inputFile)
 
 
 
