@@ -427,7 +427,7 @@ def combine_ccds(fileList,**kwargs):
 		inputFile = inputFileMap(f)
 		print 'combine: ',inputFile
 		inFits = fitsio.FITS(inputFile)
-		if 'CCDJOIN' in inFits.read_header():
+		if 'CCDJOIN' in inFits[0].read_header():
 			inFits.close()
 			continue
 		if outputFileMap is not None:
