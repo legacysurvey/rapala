@@ -85,6 +85,9 @@ class OutputExistsError(Exception):
 	def __str__(self):
 		return repr(self.value)
 
+def get_timestamp():
+	return datetime.fromtimestamp(time()).strftime('%Y-%m-%d %H:%M:%S')
+
 class BokMefImage(object):
 	'''A wrapper around fitsio that allows the MEF files to be iterated
 	   over while updating the data arrays and headers either in-place or
@@ -104,14 +107,13 @@ class BokMefImage(object):
 		if self.readOnly:
 			self.fits = fitsio.FITS(self.fileName)
 		else:
-			ts = datetime.fromtimestamp(time()).strftime('%Y-%m-%d %H:%M:%S')
 			if self.outFileName is None:
 				self._check_header_key(self.fileName)
 				self.outFits = self.fits = fitsio.FITS(self.fileName,'rw')
 				self.closeFiles.append(self.fits)
 				self.clobberHdus = True
 				if self.headerKey is not None:
-					self.outFits[0].write_key(self.headerKey,ts)
+					self.outFits[0].write_key(self.headerKey,get_timestamp())
 			else:
 				if os.path.exists(self.outFileName):
 					# first see if the output file has already generated
@@ -131,7 +133,7 @@ class BokMefImage(object):
 				for k,v in headerCards.items():
 					hdr[k] = v
 				if self.headerKey is not None:
-					hdr[self.headerKey] = ts
+					hdr[self.headerKey] = get_timestamp()
 				self.outFits.write(None,header=hdr)
 		self.masks = []
 		if maskFits is not None:

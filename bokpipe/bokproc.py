@@ -427,6 +427,9 @@ def combine_ccds(fileList,**kwargs):
 		inputFile = inputFileMap(f)
 		print 'combine: ',inputFile
 		inFits = fitsio.FITS(inputFile)
+		if 'CCDJOIN' in inFits.read_header():
+			inFits.close()
+			continue
 		if outputFileMap is not None:
 			outFits = fitsio.FITS(outputFileMap(f),'rw')
 		else:
@@ -437,6 +440,7 @@ def combine_ccds(fileList,**kwargs):
 		hdr = inFits[0].read_header()
 		hdr['DETSIZE'] = '[1:%d,1:%d]' % (8192,8064) # hardcoded
 		hdr['NEXTEND'] = 4
+		hdr['CCDJOIN'] = bokutil.get_timestamp()
 		outFits.write(None,header=hdr)
 		refSkyCounts = None
 		for ccdNum,extGroup in enumerate(np.hsplit(extns,4),start=1):
