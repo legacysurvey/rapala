@@ -432,7 +432,7 @@ def combine_ccds(fileList,**kwargs):
 		else:
 			# have to use a temporary file to change format
 			if os.path.exists(tmpFileName):
-				os.unlinke(tmpFileName)
+				os.unlink(tmpFileName)
 			outFits = fitsio.FITS(tmpFileName,'rw')
 		hdr = inFits[0].read_header()
 		hdr['DETSIZE'] = '[1:%d,1:%d]' % (8192,8064) # hardcoded
