@@ -40,7 +40,12 @@ class RMFileNameMap(bokutil.FileNameMap):
 class processInPlace(object):
 	def __init__(self):
 		self.fmap = RMFileNameMap()
+		self.fremap = {'pass1cat':'.cat1','objmask':'.obj',
+		               '_sky':'_tmpsky'}
 	def __call__(self,t,output=True):
+		if t in self.fremap:
+			# some files nned to be remapped even when processing in-place
+			return RMFileNameMap(self.fremap[t])
 		if output:
 			return None
 		else:
@@ -50,7 +55,7 @@ class processToNewFiles(object):
 	def __init__(self):
 		self.fmap = {'bias':'_b','proc':'_p','comb':'_c',
 		             'pass1cat':'.cat1','objmask':'.obj',
-		             'sky':'_s','proc2':'_q'}
+		             '_sky':'_tmpsky','sky':'_s','proc2':'_q'}
 	def __call__(self,t,output=True):
 		return RMFileNameMap(self.fmap[t])
 
@@ -175,13 +180,13 @@ def process_all(file_map,bias_map,flat_map,utds=None,**kwargs):
 	                     output_map=file_map('comb'),
 	                     **kwargs)
 
-def make_supersky_flats(file_map,utds=None,skysub=False,**kwargs):
-	utds = ['ut20140427']
+def make_supersky_flats(file_map,utds=None,skysub=True,**kwargs):
+	utds = ['20140427']
 	if skysub:
 		skySub = bokproc.BokSkySubtract(input_map=file_map('comb',False),
-		                                output_map=file_map('sky'),
+		                                output_map=file_map('_sky'),
 		                                mask_map=file_map('objmask'))
-		stackin = file_map('sky',False)
+		stackin = file_map('_sky',False)
 	else:
 		stackin = file_map('comb',False)
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
@@ -191,7 +196,7 @@ def make_supersky_flats(file_map,utds=None,skysub=False,**kwargs):
 			files = get_files(logs,utd,imType='object',filt=filt)
 			bokproc.sextract_pass1(files,
 			                       input_map=file_map('comb',False),
-			                       catalog_mask_map=file_map('pass1cat'),
+			                       catalog_map=file_map('pass1cat'),
 			                       object_mask_map=file_map('objmask'),
 			                       **kwargs)
 			if skysub:

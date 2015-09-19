@@ -39,6 +39,8 @@ nominal_gain = np.array(
     1.42733335,  1.38764536,  1.40, 1.45403028
   ] )
 
+# XXX
+configdir = os.environ['BOKPIPE']+'/config/'
 
 def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
@@ -504,7 +506,7 @@ def sextract_pass1(fileList,**kwargs):
 	inputNameMap = kwargs.get('input_map')
 	if inputNameMap is None:
 		inputNameMap = bokutil.IdentityNameMap
-	catalogFileNameMap = kwargs.get('catalog_name_map',
+	catalogFileNameMap = kwargs.get('catalog_map',
 	                                bokutil.FileNameMap(newSuffix='.cat1'))
 	withPsf = kwargs.get('with_psf',False)
 	objMaskFileMap = kwargs.get('object_mask_map',
@@ -515,7 +517,7 @@ def sextract_pass1(fileList,**kwargs):
 		catalogFile = catalogFileNameMap(f)
 		if os.path.exists(catalogFile) and not clobber:
 			continue
-		cmd = ['sex','-c','config/bok_pass1.sex',
+		cmd = ['sex','-c',os.path.join(configdir,'bok_pass1.sex'),
 		       '-CATALOG_NAME',catalogFile]
 		if objMaskFileMap is not None:
 			#cmd.extend(['-CHECKIMAGE_TYPE','SEGMENTATION,MINIBACKGROUND',
