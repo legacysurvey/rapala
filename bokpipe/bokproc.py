@@ -5,7 +5,7 @@ import re
 import subprocess
 import numpy as np
 from scipy.stats.mstats import mode
-from scipy.interpolate import LSQUnivariateSpline
+from scipy.interpolate import LSQUnivariateSpline,griddata
 from scipy.signal import spline_filter
 from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
@@ -41,6 +41,11 @@ nominal_gain = np.array(
 
 # XXX
 configdir = os.environ['BOKPIPE']+'/config/'
+
+def interpolate_masked_pixels(data,along='twod',method='linear'):
+	y,x = np.indices(data.shape)
+	interpfun = griddata([y[~data.mask],x[~data.mask]],data[~data.mask],
+	                     (y,x),method=method)
 
 def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
@@ -180,6 +185,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		kwargs.setdefault('stats_region','ccd_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
 		kwargs.setdefault('nsplit',10)
+		kwargs.setdefault('fill_value',1.0)
 		super(BokNightSkyFlatStack,self).__init__(**kwargs)
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.normCCD = 'CCD1'
@@ -201,13 +207,18 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.scales = _scales.squeeze()
 		return imCube * _scales
 	def _postprocess(self,stack,hdr):
+		# XXX need to fixpix
 		stack = spline_filter(stack,self.smoothingLength)
+		# XXX need to renormalize
 		return stack,hdr
 
-class BokDebiasFlatten(bokutil.BokProcess):
+class BokCCDProcess(bokutil.BokProcess):
 	def __init__(self,bias=None,flat=None,**kwargs):
-		kwargs.setdefault('header_key','DBFLT')
-		super(BokDebiasFlatten,self).__init__(**kwargs)
+		kwargs.setdefault('header_key','CCDPROC')
+		super(BokCCDProcess,self).__init__(**kwargs)
+		self.fixPix = kwargs.get('fixpix',False)
+		self.fixPixAlong = kwargs.get('fixpix_along','rows')
+		self.fixPixMethod = kwargs.get('fixpix_method','linear')
 		#
 		self.biasFile = '<none>'
 		self.biasFits = None
@@ -255,8 +266,13 @@ class BokDebiasFlatten(bokutil.BokProcess):
 			data -= self.biasFits[extName][:,:]
 		if self.flatFits is not None:
 			data /= self.flatFits[extName][:,:]
+		if self.fixPix:
+			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
+			                                 method=self.fixPixMethod)
 		hdr['BIASFILE'] = str(self.biasFile)
 		hdr['FLATFILE'] = str(self.flatFile)
+		if self.fixPix:
+			hdr['FIXPIX'] = self.fixPixAlong
 		return data,hdr
 
 class BokSkySubtract(bokutil.BokProcess):

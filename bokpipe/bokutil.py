@@ -60,9 +60,10 @@ def _write_stack_header_cards(fileList,cardPrefix):
 	hdr = fitsio.read_header(fileList[0])
 	for num,f in enumerate(fileList,start=1):
 		hdr['%s%03d'%(cardPrefix,num)] = os.path.basename(f)
+	hdr['NCOMBINE'] = len(fileList)
 	return hdr
 
-def build_cube(fileList,extn,masks=None,rows=None):
+def build_cube(fileList,extn,masks=None,rows=None,masterMask=None):
 	if rows is None:
 		s = np.s_[:,:]
 	else:
@@ -76,6 +77,11 @@ def build_cube(fileList,extn,masks=None,rows=None):
 			mask = np.dstack([ fitsio.FITS(f)[extn][s] for f in masks ])
 	else:
 		mask = None
+	if masterMask is not None:
+		if mask is None:
+			mask = masterMask[extn][s].astype(np.bool)
+		else:
+			mask |= masterMask[extn][s].astype(np.bool)
 	cube = np.ma.masked_array(cube,mask)
 	return cube
 
@@ -298,17 +304,23 @@ class BokMefImageCube(object):
 		self.reject = kwargs.get('reject','sigma_clip')
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
 		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
+		self.expTimeNameMap = kwargs.get('exposure_time_map',NullNameMap)
+		self.withExpTimeMap = self.expTimeNameMap != NullNameMap
 		self.statsRegion = kwargs.get('stats_region')
 		self.statsPix = stats_region(self.statsRegion)
 		self.clipArgs = {'iters':kwargs.get('clip_iters',2),
 		                 'sig':kwargs.get('clip_sig',2.5),
 		                 'cenfunc':np.ma.mean}
+		self.fillValue = kwargs.get('fill_value',np.nan)
 		self.nSplit = kwargs.get('nsplit',1)
 		self.clobber = kwargs.get('clobber',False)
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.verbose = kwargs.get('verbose',0)
 		self.headerKey = 'CUBE'
 		self.extensions = None
+		self.badPixelMask = None
+	def set_badpixelmask(self,maskFits):
+		self.badPixelMask = maskFits
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
 			pass
@@ -360,6 +372,17 @@ class BokMefImageCube(object):
 		outFits = fitsio.FITS(outputFile,'rw',clobber=clobberHdus)
 		hdr = _write_stack_header_cards(inputFiles,self.headerKey)
 		outFits.write(None,header=hdr)
+		if self.withExpTimeMap:
+			expFn = self.expTimeNameMap(outputFile)
+			try:
+				os.unlink(expFn)
+			except:
+				pass
+			expTimeFits = fitsio.FITS(expFn,'rw')
+			expTimeFits.write(None,header=hdr)
+			expTimes = [ fitsio.read_header(_f,ext=0)['EXPTIME']
+			                 for _f in inputFiles]
+			expTimes = np.array(expTimes)[np.newaxis,np.newaxis,:]
 		if self.withVariance:
 			varFn = outputFile.replace('.fits','_var.fits')
 			try:
@@ -391,7 +414,8 @@ class BokMefImageCube(object):
 			stack = []
 			for rows in rowChunks:
 				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
-				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows)
+				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows,
+				                    masterMask=self.badPixelMask)
 				imCube = self._rescale(imCube,scales=scales)
 				imCube = self._reject_pixels(imCube)
 				_stack = self._stack_cube(imCube,**kwargs)
@@ -399,11 +423,18 @@ class BokMefImageCube(object):
 			stack = np.vstack(stack)
 			hdr = fitsio.read_header(inputFiles[0],extn)
 			stack,hdr = self._postprocess(stack,hdr)
-			outFits.write(stack.astype(np.float32),extname=extn,header=hdr)
+			finalStack = stack.filled(self.fillValue).astype(np.float32)
+			outFits.write(finalStack,extname=extn,header=hdr)
+			if self.withExpTimeMap:
+				expWeight = (~stack.mask).astype(np.int)
+				expTime = np.sum(expTimes*expWeight,axis=-1)
+				expTimeFits.write(expTime,extname=extn,header=hdr)
 			if self.withVariance:
 				var = np.ma.var(imCube,axis=-1).filled(0).astype(np.float32)
 				varFits.write(var,extname=extn,header=hdr)
 		outFits.close()
+		if self.withExpTimeMap:
+			expTimeFits.close()
 		if self.withVariance:
 			varFits.close()
 

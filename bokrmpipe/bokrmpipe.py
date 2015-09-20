@@ -37,6 +37,12 @@ class RMFileNameMap(bokutil.FileNameMap):
 		else:
 			return os.path.join(rdxdir,fn)
 
+class MasterBadPixMask(bokutil.FileNameMap):
+	def __init__(self,*args,**kwargs):
+		pass
+	def __call__(self,*args,**kwargs):
+		return os.path.join(caldir,'master_badpix.fits')
+
 class processInPlace(object):
 	def __init__(self):
 		self.fmap = RMFileNameMap()
@@ -147,11 +153,11 @@ def make_2d_biases(utds=None,nSkip=2,reject=None,**kwargs):
 		biasStack.stack(files,caldir+'bias_%s_%d.fits' % (utd,biasNum))
 
 def make_dome_flats(file_map,bias_map,utds=None,nSkip=1,reject=None,**kwargs):
-	bias2Dsub = bokproc.BokDebiasFlatten(bias_map,
-	                                     input_map=RMFileNameMap(),
-	                                     output_map=file_map('bias'),
-	                                     header_key='BIAS2D',
-	                                     **kwargs)
+	bias2Dsub = bokproc.BokCCDProcess(bias_map,
+	                                  input_map=RMFileNameMap(),
+	                                  output_map=file_map('bias'),
+	                                  header_key='BIAS2D',
+	                                  **kwargs)
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
 	                                     input_map=file_map('bias',False),
 	                                     **kwargs)
@@ -167,12 +173,14 @@ def make_dome_flats(file_map,bias_map,utds=None,nSkip=1,reject=None,**kwargs):
 			flatStack.stack(files,
 			                caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 
-def process_all(file_map,bias_map,flat_map,utds=None,**kwargs):
-	proc = bokproc.BokDebiasFlatten(bias_map,
-	                                flat_map,
-	                                input_map=RMFileNameMap(),
-	                                output_map=file_map('proc'),
-	                                **kwargs)
+def process_all(file_map,bias_map,flat_map,utds=None,fixpix=False,**kwargs):
+	proc = bokproc.BokCCDProcess(bias_map,
+	                             flat_map,
+	                             input_map=RMFileNameMap(),
+	                             output_map=file_map('proc'),
+	                             mask_map=MasterBadPixMask(),
+	                             fixpix=fixpix,
+	                             **kwargs)
 	files = get_files(logs,utds,imType='object')
 	proc.process_files(files)
 	bokproc.combine_ccds(files,
@@ -191,6 +199,7 @@ def make_supersky_flats(file_map,utds=None,skysub=True,**kwargs):
 		stackin = file_map('comb',False)
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=file_map('objmask'))
+	skyFlatStack.set_badpixelmask(fitsio.FITS(MasterBadPixMask()()))
 	for utd in utds:
 		for filt in 'gi':
 			files = get_files(logs,utd,imType='object',filt=filt)
@@ -229,6 +238,8 @@ def rmpipe():
 	# XXX propagate bpm
 	process_all(fileMap,biasMap,flatMap,utds,**kwargs)
 	make_supersky_flats(fileMap,utds,**kwargs)
+	# XXX for testing
+	fileMap = processToNewFiles()
 
 if __name__=='__main__':
 	rmpipe()
