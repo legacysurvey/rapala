@@ -204,6 +204,7 @@ def make_supersky_flats(file_map,utds=None,filt=None,
                         skysub=True,**kwargs):
 	utds = ['20140427']
 	if skysub:
+		# XXX need to add in bad pixel mask
 		skySub = bokproc.BokSkySubtract(input_map=file_map('comb',False),
 		                                output_map=file_map('_sky'),
 		                                mask_map=file_map('objmask'))
@@ -224,6 +225,7 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 			files = get_files(logs,utd,imType='object',filt=filt)
 			if files is None:
 				continue
+			# XXX need to use the bad pix mask for weighting
 			bokproc.sextract_pass1(files,
 			                       input_map=file_map('comb',False),
 			                       catalog_map=file_map('pass1cat'),
@@ -241,7 +243,8 @@ def rmpipe():
 	kwargs = {'clobber':False,'verbose':10}
 	inplace = True
 	filt = 'g'
-	fixpix = True
+	# fixpix is sticking nan's into the images in unmasked pixels (???)
+	fixpix = False #True
 	fileMap = processInPlace() if inplace else processToNewFiles()
 	for utd in utds:
 		utdir = os.path.join(rdxdir,'ut'+utd)
@@ -258,6 +261,7 @@ def rmpipe():
 	flatMap = get_flat_map(utds,filt=filt)
 	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
 	            fixpix=fixpix,**kwargs)
+	return
 	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
 	# XXX for testing
 	#fileMap = processToNewFiles()
