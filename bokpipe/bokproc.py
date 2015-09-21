@@ -42,10 +42,32 @@ nominal_gain = np.array(
 # XXX
 configdir = os.environ['BOKPIPE']+'/config/'
 
+from scipy.interpolate import interp1d,interp2d
+
 def interpolate_masked_pixels(data,along='twod',method='linear'):
-	y,x = np.indices(data.shape)
-	interpfun = griddata([y[~data.mask],x[~data.mask]],data[~data.mask],
-	                     (y,x),method=method)
+	if along=='rows':
+		xx = np.arange(data.shape[1])
+		for i in range(data.shape[0]):
+			interpFun = interp1d(xx[~data.mask[i]],
+			                     data.data[i][~data.mask[i]],kind='linear',
+			                     bounds_error=False,fill_value=None)
+			data.data[i][data.mask[i]] = interpFun(xx[data.mask[i]])
+			interpData = data.data
+	elif along=='twod':
+		y,x = np.indices(data.shape)
+		yy = np.arange(data.shape[0])
+		xx = np.arange(data.shape[1])
+		interpFun = interp2d(x[~data.mask],y[~data.mask],
+		                     data.data[~data.mask],kind='linear',
+		                     bounds_error=False,fill_value=None)
+		data.data[data.mask] = interpFun(x[data.mask],y[data.mask])
+		print interpData.shape
+		#interpData = griddata((y[~data.mask],x[~data.mask]),
+		#                      data.data[~data.mask],
+		#                      (yy,xx),method=method)
+	else:
+		raise ValueError
+	return interpData
 
 def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
@@ -267,6 +289,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		if self.flatFits is not None:
 			data /= self.flatFits[extName][:,:]
 		if self.fixPix:
+			print 'fixing pixels on extension ',extName
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
 		hdr['BIASFILE'] = str(self.biasFile)

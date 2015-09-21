@@ -12,8 +12,8 @@ import fitsio
 
 
 def build_mask_from_flat(flatFn,outFn,**kwargs):
-	loCut,hiCut = kwargs.get('good_range',(0.8,1.2))
-	loCut2,hiCut2 = kwargs.get('grow_range',(0.9,1.1))
+	loCut,hiCut = kwargs.get('good_range',(0.92,1.08))
+	loCut2,hiCut2 = kwargs.get('grow_range',(0.97,1.03))
 	nbin = kwargs.get('nbin',32)
 	flatName = kwargs.get('normed_flat_file')
 	bpMask = BokMefImage(flatFn,output_file=outFn,**kwargs)
@@ -22,7 +22,7 @@ def build_mask_from_flat(flatFn,outFn,**kwargs):
 			os.unlink(flatName)
 		normedFlat = fitsio.FITS(flatName,'rw')
 		normedFlat.write(None,header=fitsio.read_header(flatFn,0))
-	for data,hdr in bpMask:
+	for extName,data,hdr in bpMask:
 		ny,nx = data.shape
 		x = np.arange(nbin/2,nx,nbin)
 		y = np.arange(nbin/2,ny,nbin)
@@ -34,7 +34,7 @@ def build_mask_from_flat(flatFn,outFn,**kwargs):
 		gradientIm = spfit(np.arange(nx),np.arange(ny)).T
 		im /= gradientIm
 		if flatName is not None:
-			normedFlat.write(im,extname=bpMask.curExtName,header=hdr)
+			normedFlat.write(im,extname=extName,header=hdr)
 		badpix = (im < loCut) | (im > hiCut)
 		badpix |= binary_dilation(badpix,mask=((im<loCut2)|(im>hiCut2)),
 		                          iterations=0)
@@ -47,8 +47,8 @@ def build_mask_from_flat(flatFn,outFn,**kwargs):
 def make_sextractor_gain_map(flatFn,bpMaskFn,gainMapFn,**kwargs):
 	flat = BokMefImage(flatFn,output_file=gainMapFn,**kwargs)
 	mask = fitsio.FITS(bpMaskFn)
-	for data,hdr in flat:
+	for extName,data,hdr in flat:
 		# invert the mask, makes bad pixels = 0
-		data *= (1 - mask[flat.curExtName].read())
+		data *= (1 - mask[extName].read())
 		flat.update(data,hdr)
 	flat.close()

@@ -13,6 +13,7 @@ loadpath()
 import bokutil
 from bokoscan import BokOverscanSubtract
 import bokproc
+import badpixels
 
 import boklog
 logs = boklog.load_Bok_logs()
@@ -41,7 +42,7 @@ class MasterBadPixMask(bokutil.FileNameMap):
 	def __init__(self,*args,**kwargs):
 		pass
 	def __call__(self,*args,**kwargs):
-		return os.path.join(caldir,'master_badpix.fits')
+		return os.path.join(caldir,'badpix_master.fits')
 
 class processInPlace(object):
 	def __init__(self):
@@ -229,11 +230,11 @@ def rmpipe():
 	make_2d_biases(utds,**kwargs)
 	biasMap = get_bias_map(utds)
 	make_dome_flats(fileMap,biasMap,utds,**kwargs)
-	if False:
-		utd,filt,flatNum = '201404025','g',1
+	if True:
+		utd,filt,flatNum = '20140425','g',1
 		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
 		bpMaskFile = os.path.join(caldir,'badpix_master.fits')
-		build_mask_from_flat(flatFn,bpMaskFile,**kwargs)
+		badpixels.build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
 	flatMap = get_flat_map(utds)
 	# XXX propagate bpm
 	process_all(fileMap,biasMap,flatMap,utds,**kwargs)
@@ -242,5 +243,24 @@ def rmpipe():
 	fileMap = processToNewFiles()
 
 if __name__=='__main__':
-	rmpipe()
+	#rmpipe()
+	if True:
+		utd,filt,flatNum = '20140425','g',1
+		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
+		bpMaskFile = os.path.join(caldir,'badpix_master.fits')
+		badpixels.build_mask_from_flat(flatFn,bpMaskFile,normed_flat_file=bpMaskFile.replace('.fits','_normed.fits'))#,**kwargs)
+	#proc = bokproc.BokCCDProcess(output_map=RMFileNameMap('_fixpix'),
+	#                             input_map=file_map('proc'),
+	#                             mask_map=MasterBadPixMask(),
+	#                             fixpix=True,
+	#                             verbose=10)
+	#files = get_files(logs,'20140427',imType='object',filt='g')
+	proc = bokproc.BokCCDProcess(output_map=lambda f: f.replace('.fits','_fixpix.fits'),
+	                             input_map=None,
+	                             mask_map=MasterBadPixMask(),
+	                             fixpix=True,
+	                             header_key='FIXPIX',
+	                             clobber=True,
+	                             verbose=10)
+	proc.process_files([caldir+'flat_20140425_g_1.fits',])
 
