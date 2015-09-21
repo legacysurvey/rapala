@@ -353,7 +353,7 @@ class BokMefImageCube(object):
 		raise NotImplementedError
 	def _preprocess(self,fileList):
 		pass
-	def _postprocess(self,stack,hdr):
+	def _postprocess(self,extName,stack,hdr):
 		return stack,hdr
 	def stack(self,fileList,outputFile,scales=None,**kwargs):
 		if os.path.exists(outputFile):
@@ -422,8 +422,11 @@ class BokMefImageCube(object):
 				stack.append(_stack)
 			stack = np.vstack(stack)
 			hdr = fitsio.read_header(inputFiles[0],extn)
-			stack,hdr = self._postprocess(stack,hdr)
-			finalStack = stack.filled(self.fillValue).astype(np.float32)
+			stack,hdr = self._postprocess(extn,stack,hdr)
+			try:
+				finalStack = stack.filled(self.fillValue).astype(np.float32)
+			except AttributeError:
+				finalStack = stack.astype(np.float32)
 			outFits.write(finalStack,extname=extn,header=hdr)
 			if self.withExpTimeMap:
 				expWeight = (~stack.mask).astype(np.int)
@@ -437,6 +440,9 @@ class BokMefImageCube(object):
 			expTimeFits.close()
 		if self.withVariance:
 			varFits.close()
+		self._cleanup()
+	def _cleanup(self):
+		pass
 
 class ClippedMeanStack(BokMefImageCube):
 	def _stack_cube(self,imCube,weights=None):

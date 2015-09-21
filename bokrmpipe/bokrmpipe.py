@@ -5,6 +5,7 @@ import re
 import glob
 import numpy as np
 from numpy.core.defchararray import add as char_add
+import fitsio
 
 # XXX
 from astrotools.idmstuff import loadpath
@@ -40,9 +41,10 @@ class RMFileNameMap(bokutil.FileNameMap):
 
 class MasterBadPixMask(bokutil.FileNameMap):
 	def __init__(self,*args,**kwargs):
-		pass
+		# only load it once
+		self.fits = fitsio.FITS(os.path.join(caldir,'badpix_master.fits'))
 	def __call__(self,*args,**kwargs):
-		return os.path.join(caldir,'badpix_master.fits')
+		return self.fits
 
 class processInPlace(object):
 	def __init__(self):
@@ -99,7 +101,7 @@ def get_files(logs,utds=None,imType=None,filt=None,imRange=None):
 	else:
 		return np.concatenate(files)
 
-def get_bias_map(utds=None):
+def get_bias_map(utds=None,filt=None):
 	biasMap = {}
 	biasFiles = sorted(glob.glob(caldir+'bias_*.fits'))
 	bias2utd = ".*bias_(\d+).*"
@@ -110,11 +112,11 @@ def get_bias_map(utds=None):
 	for i,utd in enumerate(utds):
 		j = np.argmin(np.abs(int(utd)-biasUtds))
 		biasFile = biasFiles[j]
-		for f in get_files(logs,utd):
+		for f in get_files(logs,utd,filt=filt):
 			biasMap[f] = biasFile
 	return biasMap
 
-def get_flat_map(utds=None):
+def get_flat_map(utds=None,filt=None):
 	flatMap = {}
 	flatFiles = sorted(glob.glob(caldir+'flat_*.fits'))
 	flat2utdfilt = ".*flat_(\d+)_(\w+)_.*"
@@ -123,7 +125,11 @@ def get_flat_map(utds=None):
 	flatFilt = np.array([filt for utd,filt in utdfilt])
 	if utds is None:
 		utds = sorted(logs.keys())
-	for filt in 'gi':
+	if filt is None:
+		filts = 'gi'
+	else:
+		filts = filt
+	for filt in filts:
 		for i,utd in enumerate(utds):
 			files = get_files(logs,utd,filt=filt)
 			if files is None:
@@ -135,25 +141,26 @@ def get_flat_map(utds=None):
 				flatMap[f] = flatFile
 	return flatMap
 
-def overscan_subtract(utds=None,**kwargs):
+def overscan_subtract(utds=None,filt=None,**kwargs):
 	oscanSubtract = BokOverscanSubtract(input_map=RMFileNameMap(fromRaw=True),
                                         output_map=RMFileNameMap(),
                                         **kwargs)
-	oscanSubtract.process_files(get_files(logs,utds))
+	oscanSubtract.process_files(get_files(logs,utds,filt=filt))
 
-def make_2d_biases(utds=None,nSkip=2,reject=None,**kwargs):
+def make_2d_biases(utds=None,nSkip=2,reject=None,filt=None,**kwargs):
 	biasStack = bokproc.BokBiasStack(input_map=RMFileNameMap(),
 	                                 reject=reject,
                                      **kwargs)
 	for utd in utds:
-		files = get_files(logs,utd,imType='zero')
+		files = get_files(logs,utd,imType='zero',filt=filt)
 		if files is None:
 			continue
 		files = files[nSkip:]
 		biasNum = 1
 		biasStack.stack(files,caldir+'bias_%s_%d.fits' % (utd,biasNum))
 
-def make_dome_flats(file_map,bias_map,utds=None,nSkip=1,reject=None,**kwargs):
+def make_dome_flats(file_map,bias_map,utds=None,filt=None,
+                    nSkip=1,reject=None,**kwargs):
 	bias2Dsub = bokproc.BokCCDProcess(bias_map,
 	                                  input_map=RMFileNameMap(),
 	                                  output_map=file_map('bias'),
@@ -162,19 +169,23 @@ def make_dome_flats(file_map,bias_map,utds=None,nSkip=1,reject=None,**kwargs):
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
 	                                     input_map=file_map('bias',False),
 	                                     **kwargs)
+	if filt is None:
+		filts = 'gi'
+	else:
+		filts = filt
 	for utd in utds:
-		for filt in 'gi':
+		for filt in filts:
 			files = get_files(logs,utd,imType='flat',filt=filt)
 			if files is None:
 				continue
 			files = files[nSkip:]
-			print filt,files
 			bias2Dsub.process_files(files)
 			flatNum = 1
 			flatStack.stack(files,
 			                caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 
-def process_all(file_map,bias_map,flat_map,utds=None,fixpix=False,**kwargs):
+def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
+                fixpix=False,**kwargs):
 	proc = bokproc.BokCCDProcess(bias_map,
 	                             flat_map,
 	                             input_map=RMFileNameMap(),
@@ -182,14 +193,15 @@ def process_all(file_map,bias_map,flat_map,utds=None,fixpix=False,**kwargs):
 	                             mask_map=MasterBadPixMask(),
 	                             fixpix=fixpix,
 	                             **kwargs)
-	files = get_files(logs,utds,imType='object')
+	files = get_files(logs,utds,imType='object',filt=filt)
 	proc.process_files(files)
 	bokproc.combine_ccds(files,
 	                     input_map=file_map('proc',False),
 	                     output_map=file_map('comb'),
 	                     **kwargs)
 
-def make_supersky_flats(file_map,utds=None,skysub=True,**kwargs):
+def make_supersky_flats(file_map,utds=None,filt=None,
+                        skysub=True,**kwargs):
 	utds = ['20140427']
 	if skysub:
 		skySub = bokproc.BokSkySubtract(input_map=file_map('comb',False),
@@ -199,10 +211,16 @@ def make_supersky_flats(file_map,utds=None,skysub=True,**kwargs):
 	else:
 		stackin = file_map('comb',False)
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
-	                                            mask_map=file_map('objmask'))
-	skyFlatStack.set_badpixelmask(fitsio.FITS(MasterBadPixMask()()))
+	                                            mask_map=file_map('objmask'),
+	                    exposure_time_map=bokutil.FileNameMap(caldir,'.exp'),
+	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'))
+	skyFlatStack.set_badpixelmask(MasterBadPixMask()())
+	if filt is None:
+		filts = 'gi'
+	else:
+		filts = filt
 	for utd in utds:
-		for filt in 'gi':
+		for filt in filts:
 			files = get_files(logs,utd,imType='object',filt=filt)
 			if files is None:
 				continue
@@ -222,28 +240,32 @@ def rmpipe():
 	utds = ['20140425','20140427']
 	kwargs = {'clobber':False,'verbose':10}
 	inplace = True
+	filt = 'g'
+	fixpix = True
 	fileMap = processInPlace() if inplace else processToNewFiles()
 	for utd in utds:
 		utdir = os.path.join(rdxdir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
-	overscan_subtract(utds,**kwargs)
-	make_2d_biases(utds,**kwargs)
-	biasMap = get_bias_map(utds)
-	make_dome_flats(fileMap,biasMap,utds,**kwargs)
+	overscan_subtract(utds,filt=filt,**kwargs)
+	make_2d_biases(utds,filt=filt,**kwargs)
+	biasMap = get_bias_map(utds,filt=filt)
+	make_dome_flats(fileMap,biasMap,utds,filt=filt,**kwargs)
 	if True:
 		utd,filt,flatNum = '20140425','g',1
 		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
 		bpMaskFile = os.path.join(caldir,'badpix_master.fits')
 		badpixels.build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
-	flatMap = get_flat_map(utds)
-	# XXX propagate bpm
-	process_all(fileMap,biasMap,flatMap,utds,**kwargs)
-	make_supersky_flats(fileMap,utds,**kwargs)
+	flatMap = get_flat_map(utds,filt=filt)
+	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
+	            fixpix=fixpix,**kwargs)
+	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
 	# XXX for testing
-	fileMap = processToNewFiles()
+	#fileMap = processToNewFiles()
 
 if __name__=='__main__':
-	#rmpipe()
+	rmpipe()
+
+if False:
 	if True:
 		utd,filt,flatNum = '20140425','g',1
 		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)

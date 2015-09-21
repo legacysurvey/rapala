@@ -189,7 +189,7 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		kwargs.setdefault('scale','normalize_mode')
 		super(BokDomeFlatStack,self).__init__(**kwargs)
 		self.headerKey = 'FLAT'
-	def _postprocess(self,stack,hdr):
+	def _postprocess(self,extName,stack,hdr):
 		flatNorm = mode(stack[self.statsPix],axis=None)[0][0]
 		stack /= flatNorm
 		try:
@@ -210,8 +210,10 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		kwargs.setdefault('fill_value',1.0)
 		super(BokNightSkyFlatStack,self).__init__(**kwargs)
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
+		self.rawStackFile = kwargs.get('raw_stack_file')
+		self.rawStackFits = None
 		self.normCCD = 'CCD1'
-		self.headerKey = 'SKYFL'
+		self.headerKey = 'SKYFLT'
 	def _preprocess(self,fileList):
 		self.norms = np.zeros(len(fileList),dtype=np.float32)
 		for i,f in enumerate(fileList):
@@ -221,6 +223,12 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			normpix = fits.get(self.normCCD,self.statsPix)
 			normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
 			self.norms[i] = 1/normpix.mean()
+		if self.rawStackFile is not None:
+			self.rawStackFits = fitsio.FITS(self.rawStackFile,'rw')
+			# if we've gotten to here, we already know any existing file 
+			# needs to be clobbered
+			self.rawStackFits.write(None,header=self.outFits[0].header,
+			                        clobber=True)
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
 			_scales = scales[np.newaxis,:]
@@ -228,11 +236,22 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			_scales = self.norms[np.newaxis,:]
 		self.scales = _scales.squeeze()
 		return imCube * _scales
-	def _postprocess(self,stack,hdr):
-		# XXX need to fixpix
+	def _postprocess(self,extName,stack,hdr):
+		if self.rawStackFile is not None:
+			self.rawStackFits.write(stack,extname=extName,header=hdr)
+		# XXX hardcoded params
+		stack = interpolate_masked_pixels(stack,along='rows',method='linear')
 		stack = spline_filter(stack,self.smoothingLength)
-		# XXX need to renormalize
+		# renormalize to unity
+		normpix = sigma_clip(stack[self.statsPix],iters=2,sig=2.5,
+		                     cenfunc=np.ma.mean)
+		stack /= normpix.mean()
 		return stack,hdr
+	def _cleanup(self):
+		super(BokNightSkyFlatStack,self).cleanup()
+		if self.rawStackFits is not None:
+			self.rawStackFits.close()
+			self.rawStackFits = None
 
 class BokCCDProcess(bokutil.BokProcess):
 	def __init__(self,bias=None,flat=None,**kwargs):
@@ -268,7 +287,7 @@ class BokCCDProcess(bokutil.BokProcess):
 			self.flatMap = flat
 			self.flatIsMaster = False
 	def _preprocess(self,fits,f):
-		print 'debias and flat-field ',fits.fileName,fits.outFileName
+		print 'ccdproc ',fits.fileName,fits.outFileName
 		if not self.biasIsMaster:
 			biasFile = self.biasMap[f]
 			if self.biasFile != biasFile:
@@ -289,7 +308,6 @@ class BokCCDProcess(bokutil.BokProcess):
 		if self.flatFits is not None:
 			data /= self.flatFits[extName][:,:]
 		if self.fixPix:
-			print 'fixing pixels on extension ',extName
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
 		hdr['BIASFILE'] = str(self.biasFile)
@@ -551,6 +569,7 @@ def sextract_pass1(fileList,**kwargs):
 	objMaskFileMap = kwargs.get('object_mask_map',
 	                             bokutil.FileNameMap(newSuffix='.obj'))
 	#bkgImgFileMap = FileNameMap(newSuffix='.back')
+	FNULL = open(os.devnull,'w')
 	for f in fileList:
 		inputFile = inputNameMap(f)
 		catalogFile = catalogFileNameMap(f)
@@ -564,17 +583,26 @@ def sextract_pass1(fileList,**kwargs):
 			#            '-CHECKIMAGE_NAME',
 			#                objMaskFileMap(f)+','+bkgImgFileMap(f)])
 			cmd.extend(['-CHECKIMAGE_TYPE','SEGMENTATION',
-			            '-CHECKIMAGE_NAME',objMaskFileMap(f)])
+			            '-CHECKIMAGE_NAME','tmpobj.fits'])
+#			            '-CHECKIMAGE_NAME',objMaskFileMap(f)])
 		cmd.append(inputFile)
-		print cmd
-		subprocess.call(cmd)
+		rv = subprocess.call(cmd,stdout=FNULL,stderr=FNULL)
 		fits = fitsio.FITS(inputFile,'rw')
+		# have to remake the mask file in order to change its data type
+		tmpMaskFits = fitsio.FITS('tmpobj.fits')
+		if os.path.exists(objMaskFileMap(f)):
+			os.unlink(objMaskFileMap(f))
 		maskFits = fitsio.FITS(objMaskFileMap(f),'rw')
+		maskFits.write(None,header=tmpMaskFits[0].read_header())
 		for ccd in ['CCD%d'%i for i in range(1,5)]:
 			#mask = grow_mask(maskFits[ccd][:,:]>0,3)
-			mask = grow_obj_mask(fits[ccd][:,:],maskFits[ccd][:,:])
-			maskFits[ccd].write(mask.astype(np.int16),clobber=True)
+			mask = grow_obj_mask(fits[ccd][:,:],tmpMaskFits[ccd][:,:])
+			#maskFits[ccd].write(mask.astype(np.uint8),clobber=True)
+			maskFits.write(mask.astype(np.uint8),extname=ccd,
+			               header=tmpMaskFits[ccd].read_header())
 		maskFits.close()
+		tmpMaskFits.close()
+		os.unlink('tmpobj.fits')
 
 def process_round2(fileList,superSkyFlatFile,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
