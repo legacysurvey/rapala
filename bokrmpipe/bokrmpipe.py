@@ -46,6 +46,13 @@ class MasterBadPixMask(bokutil.FileNameMap):
 	def __call__(self,*args,**kwargs):
 		return self.fits
 
+class MasterBadPixMask4(bokutil.FileNameMap):
+	def __init__(self,*args,**kwargs):
+		# only load it once
+		self.fits = fitsio.FITS(os.path.join(caldir,'badpix_master_4ccd.fits'))
+	def __call__(self,*args,**kwargs):
+		return self.fits
+
 class processInPlace(object):
 	def __init__(self):
 		self.fmap = RMFileNameMap()

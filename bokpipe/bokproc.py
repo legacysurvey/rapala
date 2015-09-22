@@ -464,6 +464,8 @@ def combine_ccds(fileList,**kwargs):
 		inputFileMap = bokutil.IdentityNameMap
 	outputFileMap = kwargs.get('output_map')
 	gainCor = kwargs.get('apply_gain_correction',True)
+	clobber = kwargs.get('clobber')
+	ignoreExisting = kwargs.get('ignore_existing',True)
 	tmpFileName = 'tmp.fits'
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
@@ -493,10 +495,20 @@ def combine_ccds(fileList,**kwargs):
 		print 'combine: ',inputFile
 		inFits = fitsio.FITS(inputFile)
 		if 'CCDJOIN' in inFits[0].read_header():
+			print '%s already combined, skipping' % inputFile
 			inFits.close()
 			continue
 		if outputFileMap is not None:
-			outFits = fitsio.FITS(outputFileMap(f),'rw')
+			outFn = outputFileMap(f)
+			if os.path.exists(outFn):
+				if clobber:
+					os.unlink(outFn)
+				elif ignoreExisting:
+					print '%s already exists, skipping' % outFn
+					continue
+				else:
+					raise bokutil.OutputExistsError('%s already exists'%outFn)
+			outFits = fitsio.FITS(outFn,'rw')
 		else:
 			# have to use a temporary file to change format
 			if os.path.exists(tmpFileName):

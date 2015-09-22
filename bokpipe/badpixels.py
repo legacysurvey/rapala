@@ -22,6 +22,7 @@ class BadPixelMaskFromFlats(BokProcess):
 		self.noConvert = True  # casting to unsigned int below
 		self.normedFlat = None
 		self.normedFlatFit = None
+		self.binnedFlat = None
 	def _preprocess(self,fits,f):
 		if self.flatName is not None:
 			if os.path.exists(self.flatName):
@@ -69,11 +70,14 @@ class BadPixelMaskFromFlats(BokProcess):
 		gradientIm = spfit(np.arange(nx),np.arange(ny)).T
 		im /= gradientIm
 		if self.normedFlat is not None:
-			self.normedFlat.write(im,extname=extName,header=hdr)
+			self.normedFlat.write(im.astype(np.float32),
+			                      extname=extName,header=hdr)
 		if self.normedFlatFit is not None:
-			self.normedFlatFit.write(gradientIm,extname=extName,header=hdr)
+			self.normedFlatFit.write(gradientIm.astype(np.float32),
+			                         extname=extName,header=hdr)
 		if self.binnedFlat is not None:
-			self.binnedFlat.write(binnedIm,extname=extName,header=hdr)
+			self.binnedFlat.write(binnedIm.astype(np.float32),
+			                      extname=extName,header=hdr)
 		badpix = (im < self.loCut) | (im > self.hiCut)
 		badpix |= binary_dilation(badpix,
 		                          mask=((im<self.loCut2)|(im>self.hiCut2)),
