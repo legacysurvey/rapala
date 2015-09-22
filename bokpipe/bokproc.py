@@ -48,11 +48,14 @@ def interpolate_masked_pixels(data,along='twod',method='linear'):
 	if along=='rows':
 		xx = np.arange(data.shape[1])
 		for i in range(data.shape[0]):
-			interpFun = interp1d(xx[~data.mask[i]],
-			                     data.data[i][~data.mask[i]],kind='linear',
+			row = data.data[i]
+			interpFun = interp1d(xx[~row.mask],row[~row.mask],kind='linear',
 			                     bounds_error=False,fill_value=None)
-			data.data[i][data.mask[i]] = interpFun(xx[data.mask[i]])
-			interpData = data.data
+			ii = np.where(row.mask)[0]
+			rowInterp = interpFun(xx[ii])
+			# XXX fix extrapolation; for now don't overwrite those pix
+			good = np.where(~np.isnan(rowInterp))[0]
+			row[ii[good]] = rowInterp[good]
 	elif along=='twod':
 		y,x = np.indices(data.shape)
 		yy = np.arange(data.shape[0])
@@ -67,7 +70,7 @@ def interpolate_masked_pixels(data,along='twod',method='linear'):
 		#                      (yy,xx),method=method)
 	else:
 		raise ValueError
-	return interpData
+	return data
 
 def make_fov_image(fov,pngfn,**kwargs):
 	import matplotlib.pyplot as plt
@@ -310,6 +313,8 @@ class BokCCDProcess(bokutil.BokProcess):
 		if self.fixPix:
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
+			# what should the fill value be?
+			data = data.filled(0)
 		hdr['BIASFILE'] = str(self.biasFile)
 		hdr['FLATFILE'] = str(self.flatFile)
 		if self.fixPix:
