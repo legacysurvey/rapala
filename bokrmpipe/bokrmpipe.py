@@ -184,6 +184,20 @@ def make_dome_flats(file_map,bias_map,utds=None,filt=None,
 			flatStack.stack(files,
 			                caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 
+def make_bad_pixel_masks(**kwargs):
+	utd,filt,flatNum = '20140425','g',1
+	flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
+	bpMaskFile = os.path.join(caldir,'badpix_master.fits')
+	badpixels.build_mask_from_flat(flatFn,bpMaskFile,
+	             normed_flat_file=flatFn.replace('.fits','_normed.fits'),
+	             normed_flat_fit_file=flatFn.replace('.fits','_fit.fits'),
+	             binned_flat_file=flatFn.replace('.fits','_binned.fits'),
+	             )#,**kwargs)
+	bokproc.combine_ccds([bpMaskFile,],
+	                     output_map=bokutil.FileNameMap(caldir,'_4ccd'),
+	                     apply_gain_correction=False,
+	                     **kwargs)
+
 def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
                 fixpix=False,**kwargs):
 	proc = bokproc.BokCCDProcess(bias_map,
@@ -204,10 +218,10 @@ def make_supersky_flats(file_map,utds=None,filt=None,
                         skysub=True,**kwargs):
 	utds = ['20140427']
 	if skysub:
-		# XXX need to add in bad pixel mask
 		skySub = bokproc.BokSkySubtract(input_map=file_map('comb',False),
 		                                output_map=file_map('_sky'),
 		                                mask_map=file_map('objmask'))
+		skySub.add_mask(MasterBadPixMask4()())
 		stackin = file_map('_sky',False)
 	else:
 		stackin = file_map('comb',False)
@@ -215,7 +229,7 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 	                                            mask_map=file_map('objmask'),
 	                    exposure_time_map=bokutil.FileNameMap(caldir,'.exp'),
 	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'))
-	skyFlatStack.set_badpixelmask(MasterBadPixMask()())
+	skyFlatStack.set_badpixelmask(MasterBadPixMask4()())
 	if filt is None:
 		filts = 'gi'
 	else:
@@ -253,15 +267,10 @@ def rmpipe():
 	make_2d_biases(utds,filt=filt,**kwargs)
 	biasMap = get_bias_map(utds,filt=filt)
 	make_dome_flats(fileMap,biasMap,utds,filt=filt,**kwargs)
-	if True:
-		utd,filt,flatNum = '20140425','g',1
-		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
-		bpMaskFile = os.path.join(caldir,'badpix_master.fits')
-		badpixels.build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
+	make_bad_pixel_masks()
 	flatMap = get_flat_map(utds,filt=filt)
 	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
 	            fixpix=fixpix,**kwargs)
-	return
 	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
 	# XXX for testing
 	#fileMap = processToNewFiles()
@@ -270,11 +279,6 @@ if __name__=='__main__':
 	rmpipe()
 
 if False:
-	if True:
-		utd,filt,flatNum = '20140425','g',1
-		flatFn = caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum)
-		bpMaskFile = os.path.join(caldir,'badpix_master.fits')
-		badpixels.build_mask_from_flat(flatFn,bpMaskFile,normed_flat_file=bpMaskFile.replace('.fits','_normed.fits'))#,**kwargs)
 	#proc = bokproc.BokCCDProcess(output_map=RMFileNameMap('_fixpix'),
 	#                             input_map=file_map('proc'),
 	#                             mask_map=MasterBadPixMask(),

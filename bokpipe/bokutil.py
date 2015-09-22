@@ -252,6 +252,15 @@ class BokProcess(object):
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.verbose = kwargs.get('verbose',0)
+		self.masks = []
+		self.noConvert = False
+	def add_mask(self,maskFits):
+		if type(maskFits) is str:
+			maskFits = fitsio.FITS(maskFits)
+			#self.closeFiles.append(maskFits)
+		elif type(maskFits) is not fitsio.fitslib.FITS:
+			return ValueError
+		self.masks.append(maskFits)
 	def _preprocess(self,fits,f):
 		pass
 	def process_hdu(self,extName,data,hdr):
@@ -277,10 +286,12 @@ class BokProcess(object):
 					continue
 				else:
 					raise OutputExistsError(msg)
+			for maskIm in self.masks:
+				fits.add_mask(maskIm)
 			self._preprocess(fits,f)
 			for extName,data,hdr in fits:
 				data,hdr = self.process_hdu(extName,data,hdr)
-				fits.update(data,hdr)
+				fits.update(data,hdr,noconvert=self.noConvert)
 			fits.close()
 		self._postprocess()
 

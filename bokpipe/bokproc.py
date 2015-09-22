@@ -463,6 +463,7 @@ def combine_ccds(fileList,**kwargs):
 	if inputFileMap is None:
 		inputFileMap = bokutil.IdentityNameMap
 	outputFileMap = kwargs.get('output_map')
+	gainCor = kwargs.get('apply_gain_correction',True)
 	tmpFileName = 'tmp.fits'
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
@@ -509,14 +510,17 @@ def combine_ccds(fileList,**kwargs):
 		refSkyCounts = None
 		for ccdNum,extGroup in enumerate(np.hsplit(extns,4),start=1):
 			hdr = inFits[bokCenterAmps[ccdNum-1]].read_header()
-			# load the individual channels and balance them with a gain
-			# correction (either default values or using sky counts)
-			(im1,im2,im3,im4),skyCounts = \
-			        multiply_gain(inFits,extGroup,hdr,skyGainCor,
-			                      inputGain,ampCorStatReg,ccdCorStatReg,
-			                      clipArgs,refSkyCounts,refAmps[ccdNum-1])
-			if ccdNum == 1:
-				refSkyCounts = skyCounts
+			if gainCor:
+				# load the individual channels and balance them with a gain
+				# correction (either default values or using sky counts)
+				(im1,im2,im3,im4),skyCounts = \
+				        multiply_gain(inFits,extGroup,hdr,skyGainCor,
+				                      inputGain,ampCorStatReg,ccdCorStatReg,
+				                      clipArgs,refSkyCounts,refAmps[ccdNum-1])
+				if ccdNum == 1:
+					refSkyCounts = skyCounts
+			else:
+				im1,im2,im3,im4 = [ inFits[ext].read() for ext in extGroup ]
 			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords
 			outIm,hdr = _orient_mosaic(hdr,(im1,im2,im3,im4),ccdNum,origin)
