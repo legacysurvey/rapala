@@ -227,7 +227,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
 			self.norms[i] = 1/normpix.mean()
 		if self.rawStackFile is not None:
-			self.rawStackFits = fitsio.FITS(self.rawStackFile,'rw')
+			self.rawStackFits = fitsio.FITS(self.rawStackFile(self.outFits.filename),'rw')
 			# if we've gotten to here, we already know any existing file 
 			# needs to be clobbered
 			self.rawStackFits.write(None,header=self.outFits[0].header,
@@ -550,13 +550,6 @@ def combine_ccds(fileList,**kwargs):
 #                                                                             #
 ###############################################################################
 
-from scipy.signal import convolve2d
-
-def grow_mask(mask,niter):
-	for i in range(niter):
-		mask = convolve2d(mask,np.ones((3,3)),mode='same',boundary='symm')
-	return mask
-
 from astropy.convolution.convolve import convolve
 from astropy.convolution.kernels import Gaussian2DKernel
 from scipy.ndimage.morphology import binary_dilation,binary_closing
@@ -576,7 +569,9 @@ def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
 	# at the corners, if it is positive (which it is for the upper two CCDs)
 	# then objects in those corners are grown until the whole corner is 
 	# filled. This simply reverts the corners to the original mask.
-	# XXX
+	Y,X = np.indices(im.shape)
+	corner = Y > ( 2950 + ((2950-4032.)/(4096.-2800))*(X-4096.) )
+	mask[corner] = objsIm[corner]
 	return mask
 
 def sextract_pass1(fileList,**kwargs):
