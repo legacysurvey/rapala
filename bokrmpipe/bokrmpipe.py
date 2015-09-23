@@ -259,6 +259,18 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 
 # process round 2: illum corr and sky sub
 
+def make_images():
+	import matplotlib.pyplot as plt
+	files = get_files(logs,'20140427',imType='object',filt='g')
+	_fmap = RMFileNameMap()
+	plt.ioff()
+	for ff in files:
+		f = _fmap(ff)
+		bokproc.make_fov_image_fromfile(f.replace('.fits','_tmpsky.fits'),
+		                                f.replace('.fits','.png'),
+		                                mask=f.replace('.fits','.obj.fits'))
+	plt.ion()
+
 def rmpipe():
 	utds = ['20140425','20140427']
 	kwargs = {'clobber':False,'verbose':10}
@@ -283,21 +295,9 @@ def rmpipe():
 	#fileMap = processToNewFiles()
 
 if __name__=='__main__':
-	rmpipe()
-
-if False:
-	#proc = bokproc.BokCCDProcess(output_map=RMFileNameMap('_fixpix'),
-	#                             input_map=file_map('proc'),
-	#                             mask_map=MasterBadPixMask(),
-	#                             fixpix=True,
-	#                             verbose=10)
-	#files = get_files(logs,'20140427',imType='object',filt='g')
-	proc = bokproc.BokCCDProcess(output_map=lambda f: f.replace('.fits','_fixpix.fits'),
-	                             input_map=None,
-	                             mask_map=MasterBadPixMask(),
-	                             fixpix=True,
-	                             header_key='FIXPIX',
-	                             clobber=True,
-	                             verbose=10)
-	proc.process_files([caldir+'flat_20140425_g_1.fits',])
+	import sys
+	if len(sys.argv)==0:
+		rmpipe()
+	elif sys.argv[1]=='images':
+		make_images()
 

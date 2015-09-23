@@ -49,13 +49,20 @@ def interpolate_masked_pixels(data,along='twod',method='linear'):
 		xx = np.arange(data.shape[1])
 		for i in range(data.shape[0]):
 			row = data.data[i]
-			interpFun = interp1d(xx[~row.mask],row[~row.mask],kind='linear',
+			rowMask = data.mask[i]
+			if rowMask.sum() > len(xx)-20:
+				# less than 20 pixels on this row are not masked, don't
+				# attempt interpolation
+				row[rowMask] = np.nan
+				continue
+			interpFun = interp1d(xx[~rowMask],row[~rowMask],kind=method,
 			                     bounds_error=False,fill_value=None)
-			ii = np.where(row.mask)[0]
+			ii = np.where(rowMask)[0]
 			rowInterp = interpFun(xx[ii])
-			# XXX fix extrapolation; for now don't overwrite those pix
-			good = np.where(~np.isnan(rowInterp))[0]
-			row[ii[good]] = rowInterp[good]
+			row[ii] = rowInterp
+			## XXX fix extrapolation; for now don't overwrite those pix
+			#good = np.where(~np.isnan(rowInterp))[0]
+			#row[ii[good]] = rowInterp[good]
 	elif along=='twod':
 		y,x = np.indices(data.shape)
 		yy = np.arange(data.shape[0])
@@ -72,9 +79,10 @@ def interpolate_masked_pixels(data,along='twod',method='linear'):
 		raise ValueError
 	return data
 
-def make_fov_image(fov,pngfn,**kwargs):
+def make_fov_image(fov,pngfn=None,**kwargs):
 	import matplotlib.pyplot as plt
 	from matplotlib import colors
+	from matplotlib import rc
 	maskFile = kwargs.get('mask')
 	losig = kwargs.get('lo',2.5)
 	hisig = kwargs.get('hi',5.0)
@@ -87,6 +95,7 @@ def make_fov_image(fov,pngfn,**kwargs):
 		maskFits = fitsio.FITS(maskFile)
 	input_vmin = kwargs.get('vmin')
 	input_vmax = kwargs.get('vmax')
+	rc('text',usetex=False)
 	fig = plt.figure(figsize=(6,6.5))
 	cax = fig.add_axes([0.1,0.04,0.8,0.01])
 	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
@@ -129,6 +138,9 @@ def make_fov_image(fov,pngfn,**kwargs):
 			cb.ax.tick_params(labelsize=9)
 	title = kwargs.get('title',fov.get('file','')+' '+fov.get('objname',''))
 	fig.text(0.5,0.99,title,ha='center',va='top',size=12)
+	if pngfn is not None:
+		plt.savefig(pngfn)
+		plt.close(fig)
 
 def make_fov_image_fromfile(fileName,pngfn,nbin=1,coordsys='sky',**kwargs):
 	fits = bokutil.BokMefImage(fileName,mask_file=kwargs.get('mask'),read_only=True)
@@ -226,11 +238,14 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			normpix = fits.get(self.normCCD,self.statsPix)
 			normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
 			self.norms[i] = 1/normpix.mean()
+			print 'norm for image %s is %f' % \
+			           (self.inputNameMap(f),normpix.mean())
 		if self.rawStackFile is not None:
-			self.rawStackFits = fitsio.FITS(self.rawStackFile(self.outFits.filename),'rw')
+			#self.rawStackFits = fitsio.FITS(self.rawStackFile(self.outFits.filename),'rw')
+			self.rawStackFits = fitsio.FITS('rawstack.fits','rw')
 			# if we've gotten to here, we already know any existing file 
 			# needs to be clobbered
-			self.rawStackFits.write(None,header=self.outFits[0].header,
+			self.rawStackFits.write(None,#header=self.outFits[0].header,
 			                        clobber=True)
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
@@ -240,18 +255,24 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.scales = _scales.squeeze()
 		return imCube * _scales
 	def _postprocess(self,extName,stack,hdr):
-		if self.rawStackFile is not None:
-			self.rawStackFits.write(stack,extname=extName,header=hdr)
 		# XXX hardcoded params
 		stack = interpolate_masked_pixels(stack,along='rows',method='linear')
-		stack = spline_filter(stack,self.smoothingLength)
-		# renormalize to unity
-		normpix = sigma_clip(stack[self.statsPix],iters=2,sig=2.5,
+		# ignore the input mask and adopt the interpolation mask;
+		#   nan values mean no interpolation was possible
+		interpMask = np.isnan(stack.data)
+		cleanStack = np.ma.masked_array(stack.data,mask=interpMask)
+		cleanStack = cleanStack.filled(1.0)
+		if self.rawStackFile is not None:
+			self.rawStackFits.write(cleanStack,extname=extName,header=hdr)
+		cleanStack = spline_filter(cleanStack,self.smoothingLength)
+		# renormalize to unity, using the combined interp and input mask
+		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
+		normpix = sigma_clip(_stack[self.statsPix],iters=2,sig=2.5,
 		                     cenfunc=np.ma.mean)
-		stack /= normpix.mean()
-		return stack,hdr
+		_stack /= normpix.mean()
+		return _stack,hdr
 	def _cleanup(self):
-		super(BokNightSkyFlatStack,self).cleanup()
+		super(BokNightSkyFlatStack,self)._cleanup()
 		if self.rawStackFits is not None:
 			self.rawStackFits.close()
 			self.rawStackFits = None

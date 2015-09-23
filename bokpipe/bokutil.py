@@ -79,9 +79,9 @@ def build_cube(fileList,extn,masks=None,rows=None,masterMask=None):
 		mask = None
 	if masterMask is not None:
 		if mask is None:
-			mask = masterMask[extn][s].astype(np.bool)
+			mask = masterMask[extn][s][:,:,np.newaxis].astype(np.bool)
 		else:
-			mask |= masterMask[extn][s].astype(np.bool)
+			mask |= masterMask[extn][s][:,:,np.newaxis].astype(np.bool)
 	cube = np.ma.masked_array(cube,mask)
 	return cube
 
@@ -423,6 +423,10 @@ class BokMefImageCube(object):
 			masks = [ self.maskNameMap(f) for f in fileList ]
 		for extn in extensions:
 			stack = []
+			if self.withExpTimeMap:
+				expTime = []
+			if self.withVariance:
+				var = []
 			for rows in rowChunks:
 				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
 				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows,
@@ -431,7 +435,14 @@ class BokMefImageCube(object):
 				imCube = self._reject_pixels(imCube)
 				_stack = self._stack_cube(imCube,**kwargs)
 				stack.append(_stack)
-			stack = np.vstack(stack)
+				if self.withExpTimeMap:
+					expTime.append(np.sum(~imCube.mask*expTimes,axis=-1))
+				if self.withVariance:
+					# XXX this isn't the right variance for a weighted sum,
+					#     really the var calculation needs to happen in 
+					#     _stack_cube since it is implementation-dependent
+					var.append(np.ma.var(imCube,axis=-1))
+			stack = np.ma.vstack(stack)
 			hdr = fitsio.read_header(inputFiles[0],extn)
 			stack,hdr = self._postprocess(extn,stack,hdr)
 			try:
@@ -440,11 +451,10 @@ class BokMefImageCube(object):
 				finalStack = stack.astype(np.float32)
 			outFits.write(finalStack,extname=extn,header=hdr)
 			if self.withExpTimeMap:
-				expWeight = (~stack.mask).astype(np.int)
-				expTime = np.sum(expTimes*expWeight,axis=-1)
+				expTime = np.ma.vstack(expTime)
 				expTimeFits.write(expTime,extname=extn,header=hdr)
 			if self.withVariance:
-				var = np.ma.var(imCube,axis=-1).filled(0).astype(np.float32)
+				var = var.filled(0).astype(np.float32)
 				varFits.write(var,extname=extn,header=hdr)
 		outFits.close()
 		if self.withExpTimeMap:
