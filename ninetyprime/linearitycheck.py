@@ -233,27 +233,22 @@ def get_first_saturated_frame(seq):
 		firstsat = -1
 	return firstsat
 
-def compare_oscan_levels(dataMap,st,imNum1,imNum2):
+def compare_oscan_levels(dataMap,st):
 	files = [ dataMap['oscan'](dataMap['files'][i]) 
 	                for i in dataMap['flatSequence'] ]
-	oscan1 = np.array([ fitsio.read_header(f,'IM%d'%imNum1)['OSCANMED']
-	                      for f in files ])
-	oscan2 = np.array([ fitsio.read_header(f,'IM%d'%imNum2)['OSCANMED']
-	                      for f in files ])
+	oscans = np.zeros((len(files),16))
+	for j in range(16):
+		oscans[:,j] = [ fitsio.read_header(f,'IM%d'%(j+1))['OSCANMED']
+	                      for f in files ]
 	seqno = 1 + np.arange(len(st))
 	plt.figure()
-	ax = plt.subplot(221)
-	i1 = get_first_saturated_frame(st['median'][:,imNum1-1])
-	plt.scatter(st['median'][:i1,imNum1-1],oscan1[:i1],c='b')
-	plt.ylabel('IM%d'%imNum1)
-	ax = plt.subplot(222)
-	plt.scatter(seqno[:i1],oscan1[:i1],c='b')
-	ax = plt.subplot(223)
-	i2 = get_first_saturated_frame(st['median'][:,imNum2-1])
-	plt.scatter(st['median'][:i2,imNum2-1],oscan2[:i2],c='g')
-	plt.ylabel('IM%d'%imNum2)
-	ax = plt.subplot(224)
-	plt.scatter(seqno[:i2],oscan2[:i2],c='g')
+	for j in range(8,16):
+		ax = plt.subplot(8,2,2*(j%8)+1)
+		i1 = get_first_saturated_frame(st['median'][:,j])
+		plt.scatter(st['median'][:i1,j],oscans[:i1,j],c='b')
+		plt.ylabel('IM%d'%(j+1))
+		ax = plt.subplot(8,2,2*(j%8)+2)
+		plt.scatter(seqno[:i1],oscans[:i1,j],c='b')
 
 def init_sep29ptc_data_map():
 	dataMap = init_data_map(
