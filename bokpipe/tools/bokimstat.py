@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import sys
+import os,sys
 import numpy as np
 from astropy.stats import sigma_clip
 import fitsio
