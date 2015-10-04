@@ -18,15 +18,20 @@ except:
 from bokoscan import BokOverscanSubtract,_convertfitsreg
 import bokproc
 
-def init_data_map(datadir,outdir):
+def init_data_map(datadir,outdir,expTimes=None):
 	dataMap = {}
+	if not os.path.exists(outdir):
+		os.mkdir(outdir)
 	dataMap['outdir'] = outdir
 	dataMap['files'] = sorted(glob.glob(datadir+'*.fits') + 
 	                          glob.glob(datadir+'*.fits.gz'))
 	dataMap['oscan'] = bokutil.FileNameMap(outdir)
 	dataMap['proc'] = bokutil.FileNameMap(outdir,'_p')
-	dataMap['expTime'] = np.array([fitsio.read_header(f)['EXPTIME']
-	                                  for f in dataMap['files']])
+	if expTimes is None:
+		dataMap['expTime'] = np.array([fitsio.read_header(f)['EXPTIME']
+		                                  for f in dataMap['files']])
+	else:
+		dataMap['expTime'] = expTimes
 	# assume they are all the same
 	dataMap['dataSec'] = \
 	         _convertfitsreg(fitsio.read_header(
@@ -39,7 +44,7 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 		                                write_overscan_image=oscanims,
 		                    oscan_cols_file=dataMap['outdir']+'oscan_cols',
 		                    oscan_rows_file=dataMap['outdir']+'oscan_rows',
-		                                )#method='median_value')
+		                                verbose=10)#method='median_value')
 	oscanSubtract.process_files(dataMap['files'])
 	if bias2d:
 		raise NotImplementedError
@@ -52,7 +57,7 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 		                                  output_map=dataMap['proc'])
 		imProcess.process_files(flatFrames)
 
-def imstat(dataMap):
+def imstat(dataMap,outfn='stats'):
 	from astropy.stats import sigma_clip
 	from scipy.stats import mode,scoreatpercentile
 	fnlen = len(os.path.basename(dataMap['files'][0]))
@@ -85,7 +90,7 @@ def imstat(dataMap):
 			st['iqr90'][_i,j] = scoreatpercentile(pix,90)
 			print '%5d ' % (modeVal),
 		print
-	fitsio.write('stats.fits',st,clobber=True)
+	fitsio.write(outfn+'.fits',st,clobber=True)
 
 def scaled_histograms(dataMap,nims=None,outfn='pixhist'):
 	pdf = PdfPages(outfn+'.pdf')
@@ -250,6 +255,22 @@ def compare_oscan_levels(dataMap,st):
 		ax = plt.subplot(8,2,2*(j%8)+2)
 		plt.scatter(seqno[:i1],oscans[:i1,j],c='b')
 
+def init_sep09bss_data_map():
+	datadir = os.environ.get('BASSDATA')+'/20150909/bss/20150908/'
+	exptimes = np.loadtxt(datadir+'../bss.20150909.log',usecols=(3,))
+	exptimes = exptimes[50:]
+	print exptimes
+	dataMap = init_data_map(datadir,
+	                        os.environ.get('GSCRATCH')+'/bss_sep09/',
+	                        expTimes=exptimes)
+	dataMap['files'] = dataMap['files'][50:]
+	dataMap['biasFiles'] = dataMap['files'][-5:]
+	#dataMap['flatSequence'] = range(50,68)
+	dataMap['flatSequence'] = range(18)
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	dataMap['refExpTime'] = 40.0
+	return dataMap
+
 def init_sep29ptc_data_map():
 	dataMap = init_data_map(
 	      "/home/ian/dev/rapala/bokpipe/scratch/sep29ptcs/ptc/",'sep29ptcs/')
@@ -258,4 +279,24 @@ def init_sep29ptc_data_map():
 	dataMap['statsPix'] = np.s_[20:-20,100:-100]
 	dataMap['refExpTime'] = 10.0
 	return dataMap
+
+def init_oct02ptc_data_map():
+	dataMap = init_data_map(os.environ.get('GSCRATCH')+'/02oct15/ptc/',
+	                        os.environ.get('GSCRATCH')+'/02oct15/ptc_proc/')
+	dataMap['biasFiles'] = [dataMap['files'][0],]
+	dataMap['flatSequence'] = range(1,len(dataMap['files']))
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	dataMap['refExpTime'] = 10.0
+	return dataMap
+
+if __name__=='__main__':
+	import sys
+	dataset = sys.argv[1] 
+	if dataset == 'sep09bss':
+		dataMap = init_sep09bss_data_map()
+	if dataset == 'oct02':
+		dataMap = init_oct02ptc_data_map()
+	print 'processing ',dataset
+	process_data(dataMap)
+	imstat(dataMap,outfn='stats_'+dataset)
 
