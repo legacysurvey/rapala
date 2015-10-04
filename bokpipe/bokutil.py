@@ -162,6 +162,8 @@ class BokMefImage(object):
 			return ValueError
 		self.masks.append(maskFits)
 	def update(self,data,header=None,noconvert=False):
+		if self.readOnly:
+			return
 		if not noconvert:
 			# should probably instead track down all the upcasts
 			data = data.astype(np.float32)
@@ -248,6 +250,7 @@ class BokProcess(object):
 		if self.maskNameMap is None:
 			self.maskNameMap = NullNameMap
 		self.clobber = kwargs.get('clobber',False)
+		self.readOnly = kwargs.get('read_only',False)
 		self.headerKey = kwargs.get('header_key')
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
@@ -275,7 +278,8 @@ class BokProcess(object):
 				                   mask_file=self.maskNameMap(f),
 				                   keep_headers=self.keepHeaders,
 				                   clobber=self.clobber,
-				                   header_key=self.headerKey)
+				                   header_key=self.headerKey,
+				                   read_only=self.readOnly)
 			except OutputExistsError,msg:
 				if self.ignoreExisting:
 					if self.verbose > 0:

@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import sys
-import fitsio
 import numpy as np
+import fitsio
 import bokutil
 
 class BokDiff(bokutil.BokProcess):
 	def __init__(self,file1,file2,**kwargs):
+		kwargs.setdefault('read_only',True)
 		super(BokDiff,self).__init__(**kwargs)
 		self.fits2 = fitsio.FITS(file2)
 		self.isSame = True
