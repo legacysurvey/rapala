@@ -140,36 +140,47 @@ def plot_sequence(dataMap,st,imNum):
 	plt.title('IM%d'%imNum)
 	plt.xlim(0.5,len(st)+0.5)
 
-def fit_ref_exposures(dataMap,st,imNum,which='median',doplot=False):
+def fit_ref_exposures(dataMap,st,imNum,
+                      which='median',method='spline',doplot=False):
 	from scipy.interpolate import UnivariateSpline
 	seqno = 1 + np.arange(len(st))
 	t = st['expTime']
 	ref = np.isclose(t,dataMap['refExpTime'])
 	j = imNum - 1
 	refCounts = st[which][ref,j][0]
-	fit = UnivariateSpline(seqno[ref],refCounts/st[which][ref,j],s=1e-5,k=3)
+	if method=='linear':
+		_fit = np.polyfit(seqno[ref],refCounts/st[which][ref,j],1)
+		fit = lambda x: np.polyval(_fit,x)
+	elif method=='spline':
+		fit = UnivariateSpline(seqno[ref],refCounts/st[which][ref,j],
+		                       s=1e-5,k=3)
+	else:
+		raise ValueError
 	if doplot:
 		plt.figure()
 		plt.subplot(211)
 		plt.plot(seqno[ref],st[which][ref,j],'bs-')
 		plt.plot(seqno,refCounts/fit(seqno),c='r')
 		plt.subplot(212)
-		plt.plot(seqno[ref],st[which][ref,j]-refCounts/fit(seqno[ref]),'bs-')
+		plt.plot(seqno[ref],(st[which][ref,j]-refCounts/fit(seqno[ref]))
+		                      /st[which][ref,j],'bs-')
 		plt.axhline(0,c='r')
 	return fit
 
 def plot_linearity_curves(dataMap,st,which='median',correct=True,
-                          refCor=None,outfn='linearity'):
+                          refCor=None,fitmethod='spline',outfn='linearity'):
 	seqno = 1 + np.arange(len(st))
 	t = st['expTime']
+	print seqno,t
 	refExpTime = dataMap['refExpTime']
 	ref = np.isclose(t,refExpTime)
 	refCorFit = None
 	ii = np.arange(len(st))
 	# only use the increasing sequence, not the reference exposures
 	ii = ii[~ref]
-	# skip every other image since they are done in pairs
-	ii = ii[::2]
+	if np.all(np.isclose(t[ii[::2]],t[ii[1::2]])):
+		# for PTCs skip every other image since they are done in pairs
+		ii = ii[::2]
 	#
 	pdf = PdfPages(outfn+'.pdf')
 	for imNum in range(1,17):
@@ -177,7 +188,8 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,
 		# correct lamp variation
 		if correct:
 			if refCor is None:
-				fscl_fit = fit_ref_exposures(dataMap,st,imNum,which)
+				fscl_fit = fit_ref_exposures(dataMap,st,imNum,which,
+				                             method=fitmethod)
 			else:
 				if refCorFit is None:
 					refCorFit = fit_ref_exposures(dataMap,st,imNum,which)
@@ -201,7 +213,7 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,
 			plt.subplots_adjust(0.11,0.08,0.96,0.95,0.25,0.2)
 		ax = plt.subplot(4,2,2*(j%4)+1)
 		plt.plot(t[ii],fscl[ii]*st[which][ii,j],'bs-')
-		plt.xlim(0.5,seqno[-1]+0.5)
+		plt.xlim(0.0,t.max()+0.5)
 		plt.ylim(0,69000)
 		plt.ylabel('counts [%s]' % which)
 		tt = np.arange(0,t.max()+1)
@@ -217,12 +229,12 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,
 		ax = plt.subplot(4,2,2*(j%4)+2)
 		plt.plot(t[ii],100*(fscl[ii]*st[which][ii,j]-fitv[ii])/fitv[ii],'bs-')
 		plt.axhline(0,c='r')
-		ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
-		ax.xaxis.set_minor_locator(ticker.MultipleLocator(2))
+		#ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
+		#ax.xaxis.set_minor_locator(ticker.MultipleLocator(2))
 		ax.yaxis.set_major_locator(ticker.MultipleLocator(2))
 		ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.5))
 		plt.ylim(-5,5)
-		plt.xlim(0.5,seqno[-1]+0.5)
+		plt.xlim(0.0,t.max()+0.5)
 		if pltindex==0:
 			plt.xlabel('exptime (s)')
 		plt.ylabel('residual \%')
