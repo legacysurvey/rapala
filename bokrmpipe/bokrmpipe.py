@@ -148,13 +148,19 @@ def get_flat_map(utds=None,filt=None):
 				flatMap[f] = flatFile
 	return flatMap
 
+def makeccd4image(inputFile,**kwargs):
+	ccd4map = bokutil.FileNameMap(caldir,'_4ccd')
+	bokproc.combine_ccds([inputFile,],output_map=ccd4map,
+	                     apply_gain_correction=False,**kwargs)
+
 def overscan_subtract(utds=None,filt=None,**kwargs):
 	oscanSubtract = BokOverscanSubtract(input_map=RMFileNameMap(fromRaw=True),
                                         output_map=RMFileNameMap(),
                                         **kwargs)
 	oscanSubtract.process_files(get_files(logs,utds,filt=filt))
 
-def make_2d_biases(utds=None,nSkip=2,reject=None,filt=None,**kwargs):
+def make_2d_biases(utds=None,nSkip=2,reject='sigma_clip',filt=None,
+                   writeccdim=False,**kwargs):
 	biasStack = bokproc.BokBiasStack(input_map=RMFileNameMap(),
 	                                 reject=reject,
                                      **kwargs)
@@ -164,10 +170,13 @@ def make_2d_biases(utds=None,nSkip=2,reject=None,filt=None,**kwargs):
 			continue
 		files = files[nSkip:]
 		biasNum = 1
-		biasStack.stack(files,caldir+'bias_%s_%d.fits' % (utd,biasNum))
+		biasFile = os.path.join(caldir,'bias_%s_%d.fits' % (utd,biasNum))
+		biasStack.stack(files,biasFile)
+		if writeccdim:
+			makeccd4image(biasFile,**kwargs)
 
 def make_dome_flats(file_map,bias_map,utds=None,filt=None,
-                    nSkip=1,reject=None,**kwargs):
+                    nSkip=1,reject='sigma_clip',writeccdim=False,**kwargs):
 	bias2Dsub = bokproc.BokCCDProcess(bias_map,
 	                                  input_map=RMFileNameMap(),
 	                                  output_map=file_map('bias'),
@@ -188,8 +197,11 @@ def make_dome_flats(file_map,bias_map,utds=None,filt=None,
 			files = files[nSkip:]
 			bias2Dsub.process_files(files)
 			flatNum = 1
-			flatStack.stack(files,
-			                caldir+'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
+			flatFile = os.path.join(caldir,'flat_%s_%s_%d.fits' % 
+			                                (utd,filt,flatNum))
+			flatStack.stack(files,flatFile)
+			if writeccdim:
+				makeccd4image(flatFile,**kwargs)
 
 def make_bad_pixel_masks(**kwargs):
 	utd,filt,flatNum = '20140425','g',1
@@ -200,10 +212,7 @@ def make_bad_pixel_masks(**kwargs):
 	             normed_flat_fit_file=flatFn.replace('.fits','_fit.fits'),
 	             binned_flat_file=flatFn.replace('.fits','_binned.fits'),
 	             )#,**kwargs)
-	bokproc.combine_ccds([bpMaskFile,],
-	                     output_map=bokutil.FileNameMap(caldir,'_4ccd'),
-	                     apply_gain_correction=False,
-	                     **kwargs)
+	makeccd4image(bpMaskFile,**kwargs)
 
 def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
                 fixpix=False,**kwargs):
@@ -283,9 +292,9 @@ def rmpipe():
 		utdir = os.path.join(rdxdir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	overscan_subtract(utds,filt=filt,**kwargs)
-	make_2d_biases(utds,filt=filt,**kwargs)
+	make_2d_biases(utds,filt=filt,writeccdim=True,**kwargs)
 	biasMap = get_bias_map(utds,filt=filt)
-	make_dome_flats(fileMap,biasMap,utds,filt=filt,**kwargs)
+	make_dome_flats(fileMap,biasMap,utds,filt=filt,writeccdim=True,**kwargs)
 	make_bad_pixel_masks()
 	flatMap = get_flat_map(utds,filt=filt)
 	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
@@ -296,7 +305,7 @@ def rmpipe():
 
 if __name__=='__main__':
 	import sys
-	if len(sys.argv)==0:
+	if len(sys.argv)==1:
 		rmpipe()
 	elif sys.argv[1]=='images':
 		make_images()

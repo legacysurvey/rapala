@@ -9,6 +9,10 @@ import fitsio
 
 from bokutil import rebin,BokMefImage,BokProcess
 
+bok_badcols = {
+  'IM11':range(987,994)+range(1837,1839),
+}
+
 class BadPixelMaskFromFlats(BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','BPMSK')
@@ -19,6 +23,7 @@ class BadPixelMaskFromFlats(BokProcess):
 		self.flatName = kwargs.get('normed_flat_file')
 		self.flatFitName = kwargs.get('normed_flat_fit_file')
 		self.binnedFlatName = kwargs.get('binned_flat_file')
+		self.addBadCols = kwargs.get('add_bad_cols',True)
 		self.noConvert = True  # casting to unsigned int below
 		self.normedFlat = None
 		self.normedFlatFit = None
@@ -83,6 +88,14 @@ class BadPixelMaskFromFlats(BokProcess):
 		                          mask=((im<self.loCut2)|(im>self.hiCut2)),
 		                          iterations=0)
 		badpix |= binary_closing(badpix,iterations=0)
+		# add fixed set of bad columns
+		if self.addBadCols:
+			try:
+				jj = bok_badcols[extName]
+				print 'masking ',jj,' on ',extName
+				badpix[:,jj] |= True
+			except KeyError:
+				pass
 		return badpix.astype(np.uint8),hdr
 
 def build_mask_from_flat(flatFn,outFn,**kwargs):
