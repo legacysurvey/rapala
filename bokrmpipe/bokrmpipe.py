@@ -22,11 +22,11 @@ logs = boklog.load_Bok_logs()
 datadir = os.environ['HOME']+'/data/observing/Bok/90Prime/RM/'
 rdxdir = 'tmprm/'
 caldir = rdxdir+'cals/'
+diagdir = rdxdir+'diagnostics/'
 
-if not os.path.exists(rdxdir):
-	os.mkdir(rdxdir)
-if not os.path.exists(caldir):
-	os.mkdir(caldir)
+for _dir in [rdxdir,caldir,diagdir]:
+	if not os.path.exists(_dir):
+		os.mkdir(_dir)
 
 class RMFileNameMap(bokutil.FileNameMap):
 	def __init__(self,newSuffix=None,fromRaw=False):
@@ -150,8 +150,7 @@ def get_flat_map(utds=None,filt=None):
 
 def makeccd4image(inputFile,**kwargs):
 	ccd4map = bokutil.FileNameMap(caldir,'_4ccd')
-	bokproc.combine_ccds([inputFile,],output_map=ccd4map,
-	                     apply_gain_correction=False,**kwargs)
+	bokproc.combine_ccds([inputFile,],output_map=ccd4map,**kwargs)
 
 def overscan_subtract(utds=None,filt=None,**kwargs):
 	oscanSubtract = BokOverscanSubtract(input_map=RMFileNameMap(fromRaw=True),
@@ -214,8 +213,33 @@ def make_bad_pixel_masks(**kwargs):
 	             )#,**kwargs)
 	makeccd4image(bpMaskFile,**kwargs)
 
+def balance_gains(inputFileMap,utds=None,filt=None,**kwargs):
+	# need bright star mask here?
+	gainBalance = bokproc.BokCalcGainBalanceFactors(input_map=inputFileMap,
+                                                    mask_map=MasterBadPixMask(),
+	                                                **kwargs)
+	utds = get_utds(utds)
+	filts = 'gi' if filt is None else filt
+	gainMap = {'corrections':{},'skyvals':{}}
+	for utd in utds:
+		for filt in filts:
+			files = get_files(logs,utd,imType='object',filt=filt)
+			if files is None:
+				continue
+			gainBalance.process_files(files)
+			gainCor = gainBalance.calc_mean_corrections()
+			gainCorV,skyV = gainBalance.get_values()
+			for f,skyv in zip(files,skyV):
+				gainMap['corrections'][f] = gainCor
+				gainMap['skyvals'][f] = skyv
+			gainBalance.reset()
+			np.savez(diagdir+'gainbal_%s_%s'%(utd,filt),gain=gainCorV,sky=skyV)
+	return gainMap
+
 def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
                 fixpix=False,**kwargs):
+	# 1. basic processing (bias and flat-field correction, fixpix, 
+	#    nominal gain correction
 	proc = bokproc.BokCCDProcess(bias_map,
 	                             flat_map,
 	                             input_map=RMFileNameMap(),
@@ -225,9 +249,16 @@ def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
 	                             **kwargs)
 	files = get_files(logs,utds,imType='object',filt=filt)
 	proc.process_files(files)
+	# 2. balance gains using background counts
+	gainMap = balance_gains(file_map('proc',False),
+	                        utds=utds,filt=filt,**kwargs)
+	# 3. combine per-amp images (16) into CCD images (4)
+	###file_map2 = processToNewFiles() # XXX
 	bokproc.combine_ccds(files,
 	                     input_map=file_map('proc',False),
 	                     output_map=file_map('comb'),
+	                     ###output_map=file_map2('comb'), # XXX
+	                     gain_map=gainMap,
 	                     **kwargs)
 
 def make_supersky_flats(file_map,utds=None,filt=None,
