@@ -39,6 +39,8 @@ nominal_gain = np.array(
     1.42733335,  1.38764536,  1.40, 1.45403028
   ] )
 
+saturation_dn = 65000
+
 # XXX
 configdir = os.environ['BOKPIPE']+'/config/'
 
@@ -284,6 +286,9 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.fixPix = kwargs.get('fixpix',False)
 		self.fixPixAlong = kwargs.get('fixpix_along','rows')
 		self.fixPixMethod = kwargs.get('fixpix_method','linear')
+		self.gainMultiply = kwargs.get('gain_multiply',True)
+		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
+		                               for ampNum,g in zip(ampOrder,nominal_gain)})
 		#
 		self.biasFile = '<none>'
 		self.biasFits = None
@@ -340,6 +345,14 @@ class BokCCDProcess(bokutil.BokProcess):
 		hdr['FLATFILE'] = str(self.flatFile)
 		if self.fixPix:
 			hdr['FIXPIX'] = self.fixPixAlong
+		if self.gainMultiply:
+			data *= self.inputGain[extName]
+			chNum = int(extName.replace('IM',''))
+			hdr['GAIN%02dA'%chNum] = self.inputGain[extName]
+			hdr['GAIN'] = 1.0 # now in e-
+			hdr['SATUR'] = saturation_dn * self.inputGain[extName]
+		else:
+			hdr['SATUR'] = saturation_dn
 		return data,hdr
 
 class BokSkySubtract(bokutil.BokProcess):
@@ -365,59 +378,61 @@ class BokSkySubtract(bokutil.BokProcess):
 
 ###############################################################################
 #                                                                             #
+#                               GAIN BALANCE                                  #
+#            balances the amplifiers/CCDs with a gain correction              #
+#                                                                             #
+###############################################################################
+
+class BokCalcGainBalanceFactors(bokutil.BokProcess):
+	def __init__(self,**kwargs):
+		kwargs.setdefault('read_only',True)
+		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
+		self.skyEst = kwargs.get('sky_estimator',np.ma.mean)
+		self.ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
+		                                                  'amp_corner_ccdcenter'))
+		self.clipArgs = {'iters':kwargs.get('clip_iters',3),
+		                 'sig':kwargs.get('clip_sig',2.5),
+		                 'cenfunc':np.ma.mean}
+		self.reset()
+	def reset(self):
+		self.files = []
+		self.gainCors = []
+		self.allSkyVals = []
+	def _preprocess(self,fits,f):
+		print 'calculating gain balance factors for ',f
+		self.files.append(f)
+		self.skyVals = []
+	def _postprocessONE(self,fits,f): # XXX need to rename these
+		skyVals = np.array(self.skyVals)
+		# the mean sky level within each CCD
+		meanSkyCcd = skyVals.reshape(4,4).mean(axis=-1)
+		# the correction needed to balance each amp to the per-CCD sky level
+		ampGainCor = np.repeat(meanSkyCcd,4) / skyVals
+		# the mean sky level across all CCDs
+		meanSky = np.mean(skyVals)
+		# the correction needed to balance the CCDs
+		ccdGainCor = meanSky / meanSkyCcd
+		ccdGainCor = np.repeat(ccdGainCor,4)
+		self.gainCors.append((ampGainCor,ccdGainCor))
+		self.allSkyVals.append(skyVals)
+	def process_hdu(self,extName,data,hdr):
+		# XXX would be more efficient to read a subregion
+		skyVal = self.skyEst(sigma_clip(data[self.ampCorStatReg],
+		                                **self.clipArgs))
+		self.skyVals.append(skyVal)
+		return data,hdr
+	def calc_mean_corrections(self):
+		gc = np.array(self.gainCors)
+		return sigma_clip(gc,iters=2,sig=2.0,axis=0).mean(axis=0).filled()
+	def get_values(self):
+		return np.array(self.gainCors),np.array(self.allSkyVals)
+
+###############################################################################
+#                                                                             #
 #                               COMBINE CCDs                                  #
 #                balances the amplifiers with a gain correction               #
 #                                                                             #
 ###############################################################################
-
-def multiply_gain(inFits,extGroup,hdr,skyGainCor,inputGain,
-                  ampCorStatReg,ccdCorStatReg,clipArgs,skyIn,refAmp):
-	# the mode doesn't seem to be well-behaved here (why?), 
-	#sky_est = lambda x: mode(x,axis=None)[0][0]
-	# mean seems robust
-	#sky_est = np.ma.median
-	sky_est = np.ma.mean
-	# the stats region used to balance amps within a CCD using sky values
-	#xa1,xa2,ya1,ya2 = ampCorStatReg
-	# the stats region used to balance CCDs across the field using sky values
-	#xc1,xc2,yc1,yc2 = ccdCorStatReg
-	# load the per-amp images
-	ampIms = [ inFits[ext].read() for ext in extGroup ]
-	# start with the input gain values (from header keywords or input by user)
-	gain = np.array([ inputGain[ext] for ext in extGroup ])
-	# use the sky counts to balance the gains
-	if skyGainCor:
-		# first balance across amplifers
-		rawSky = np.array([ sky_est(sigma_clip(im[ampCorStatReg],**clipArgs))
-		                           for im in ampIms ])
-		skyCounts = rawSky * gain
-		refAmpIndex = np.where(extGroup == refAmp)[0][0]
-		gain2 = skyCounts[refAmpIndex] / skyCounts
-		# then balance across CCDs
-		centerAmp = (set(extGroup) & set(bokCenterAmps)).pop()
-		ci = np.where(extGroup == centerAmp)[0][0]
-		skyCounts = sky_est(sigma_clip(ampIms[ci][ccdCorStatReg],**clipArgs))
-		__rawSky2 = skyCounts
-		skyCounts *= gain[ci] * gain2[ci]
-		if skyIn is None:
-			gain3 = 1.0
-		else:
-			gain3 = skyIn / skyCounts
-		for i,ext in enumerate(extGroup):
-			chNum = int(ext.replace('IM',''))
-			hdr['SKYC%02d%s1'%(chNum,'ABCD'[i])] = rawSky[i]
-			hdr['GAIN%02d%s1'%(chNum,'ABCD'[i])] = gain[i]
-			hdr['GAIN%02d%s2'%(chNum,'ABCD'[i])] = gain2[i]
-		hdr['CCDGAIN3'] = gain3
-		gain *= gain2 * gain3
-	else:
-		skyCounts = None
-		# store the (default) gain values used
-		for i,ext in enumerate(extGroup):
-			chNum = int(ext.replace('IM',''))
-			hdr['GAIN%02d%s1'%(chNum,'ABCD'[i])] = gain[i]
-	ampIms = [ im*g for im,g in zip(ampIms,gain) ]
-	return ampIms,skyCounts
 
 def _orient_mosaic(hdr,ims,ccdNum,origin):
 	im1,im2,im3,im4 = ims
@@ -484,33 +499,13 @@ def combine_ccds(fileList,**kwargs):
 	if inputFileMap is None:
 		inputFileMap = bokutil.IdentityNameMap
 	outputFileMap = kwargs.get('output_map')
-	gainCor = kwargs.get('apply_gain_correction',True)
+	gainMap = kwargs.get('gain_map')
+	origin = kwargs.get('origin','center')
 	clobber = kwargs.get('clobber')
 	ignoreExisting = kwargs.get('ignore_existing',True)
 	tmpFileName = 'tmp.fits'
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
-	#
-	inputGain = kwargs.get('input_gain')
-	skyGainCor = kwargs.get('sky_gain_correct',True)
-	ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
-	                                     'amp_corner_ccdcenter'))
-	# not a keyword (?)
-	ccdCorStatReg = bokutil.stats_region('centeramp_corner_fovcenter')
-	clipArgs = {'iters':kwargs.get('clip_iters',3),
-	            'sig':kwargs.get('clip_sig',2.5),
-	            'cenfunc':np.ma.mean}
-	#origin = kwargs.get('origin','lower left')
-	origin = kwargs.get('origin','center')
-	# 2,8 are fairly stable and not in corner (4 is worst on CCD1, 7 on CCD2)
-	# 11 is on CCD3 but not affected by bias ramp
-	# 16 is by far the least affected by A/D errors on CCD4
-	refAmps = ['IM2','IM8','IM11','IM16']
-	#refAmps = ['IM4','IM8','IM9','IM13']
-	if inputGain is None:
-		inputGain = { 'IM%d'%ampNum:g 
-		                  for ampNum,g in zip(ampOrder,nominal_gain)}
-	#
 	for f in fileList:
 		inputFile = inputFileMap(f)
 		print 'combine: ',inputFile
@@ -543,20 +538,26 @@ def combine_ccds(fileList,**kwargs):
 		refSkyCounts = None
 		for ccdNum,extGroup in enumerate(np.hsplit(extns,4),start=1):
 			hdr = inFits[bokCenterAmps[ccdNum-1]].read_header()
-			if gainCor:
-				# load the individual channels and balance them with a gain
-				# correction (either default values or using sky counts)
-				(im1,im2,im3,im4),skyCounts = \
-				        multiply_gain(inFits,extGroup,hdr,skyGainCor,
-				                      inputGain,ampCorStatReg,ccdCorStatReg,
-				                      clipArgs,refSkyCounts,refAmps[ccdNum-1])
-				if ccdNum == 1:
-					refSkyCounts = skyCounts
-			else:
-				im1,im2,im3,im4 = [ inFits[ext].read() for ext in extGroup ]
+			ccdIms = []
+			for j,ext in enumerate(extGroup):
+				im = inFits[ext].read() 
+				# copy in the nominal gain values from per-amp headers
+				hext = inFits[ext].read_header()
+				gainKey = 'GAIN%02dA' % int(ext[2:])
+				hdr[gainKey] = hext[gainKey]
+				if gainMap is not None:
+					ampIdx = ampOrder[4*(ccdNum-1)+j] - 1
+					gc1,gc2 = gainMap['corrections'][f][:,ampIdx]
+					sky = gainMap['skyvals'][f][ampIdx]
+					hdr['SKY%02dB'%int(ext[2:])] = sky
+					hdr['GAIN%02dB'%int(ext[2:])] = gc1
+					if j==0:
+						hdr['CCDGAIN'] = gc2
+					im *= gc1 * gc2
+				ccdIms.append(im)
 			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords
-			outIm,hdr = _orient_mosaic(hdr,(im1,im2,im3,im4),ccdNum,origin)
+			outIm,hdr = _orient_mosaic(hdr,ccdIms,ccdNum,origin)
 			outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
 		outFits.close()
 		if outputFileMap is None:

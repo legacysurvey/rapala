@@ -268,6 +268,8 @@ class BokProcess(object):
 		pass
 	def process_hdu(self,extName,data,hdr):
 		raise NotImplementedError
+	def _postprocessONE(self,fits,f): # XXX need to rename these
+		pass
 	def _postprocess(self):
 		pass
 	def process_files(self,fileList):
@@ -296,6 +298,7 @@ class BokProcess(object):
 			for extName,data,hdr in fits:
 				data,hdr = self.process_hdu(extName,data,hdr)
 				fits.update(data,hdr,noconvert=self.noConvert)
+			self._postprocessONE(fits,f)
 			fits.close()
 		self._postprocess()
 
