@@ -268,9 +268,9 @@ class BokProcess(object):
 		pass
 	def process_hdu(self,extName,data,hdr):
 		raise NotImplementedError
-	def _postprocessONE(self,fits,f): # XXX need to rename these
+	def _postprocess(self,fits,f):
 		pass
-	def _postprocess(self):
+	def _finish(self):
 		pass
 	def process_files(self,fileList):
 		for f in fileList:
@@ -298,9 +298,9 @@ class BokProcess(object):
 			for extName,data,hdr in fits:
 				data,hdr = self.process_hdu(extName,data,hdr)
 				fits.update(data,hdr,noconvert=self.noConvert)
-			self._postprocessONE(fits,f)
+			self._postprocess(fits,f)
 			fits.close()
-		self._postprocess()
+		self._finish()
 
 class BokImArith(BokProcess):
 	def __init__(self,op,operand,**kwargs):

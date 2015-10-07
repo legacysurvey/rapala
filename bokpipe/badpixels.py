@@ -44,7 +44,7 @@ class BadPixelMaskFromFlats(BokProcess):
 				os.unlink(self.binnedFlatName)
 			self.binnedFlat = fitsio.FITS(self.binnedFlatName,'rw')
 			self.binnedFlat.write(None,header=fits.get_header(0))
-	def _postprocess(self):
+	def _finish(self):
 		if self.normedFlat is not None:
 			self.normedFlat.close()
 			self.normedFlat = None

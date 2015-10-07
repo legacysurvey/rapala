@@ -203,6 +203,6 @@ class BokOverscanSubtract(BokProcess):
 		self._save_oscan_data(oscan_cols,colbias,oscan_rows,rowbias,
 		                      self.curFileName,extName)
 		return data,hdr
-	def _postprocess(self):
+	def _finish(self):
 		self._finish_oscan_images()
 

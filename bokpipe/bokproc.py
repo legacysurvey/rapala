@@ -402,7 +402,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		print 'calculating gain balance factors for ',f
 		self.files.append(f)
 		self.skyVals = []
-	def _postprocessONE(self,fits,f): # XXX need to rename these
+	def _postprocess(self,fits,f):
 		skyVals = np.array(self.skyVals)
 		# the mean sky level within each CCD
 		meanSkyCcd = skyVals.reshape(4,4).mean(axis=-1)
