@@ -226,14 +226,20 @@ def balance_gains(inputFileMap,utds=None,filt=None,**kwargs):
 			files = get_files(logs,utd,imType='object',filt=filt)
 			if files is None:
 				continue
-			gainBalance.process_files(files)
-			gainCor = gainBalance.calc_mean_corrections()
-			gainCorV,skyV = gainBalance.get_values()
+			diagfile = diagdir+'gainbal_%s_%s.npz'%(utd,filt)
+			if os.path.exists(diagfile):
+				gainDat = np.load(diagfile)
+				gainCor = gainDat['gainCor']
+				skyV = gainDat['skys']
+			else:
+				gainBalance.process_files(files)
+				gainCor = gainBalance.calc_mean_corrections()
+				gainCorV,skyV = gainBalance.get_values()
 			for f,skyv in zip(files,skyV):
 				gainMap['corrections'][f] = gainCor
 				gainMap['skyvals'][f] = skyv
 			gainBalance.reset()
-			np.savez(diagdir+'gainbal_%s_%s'%(utd,filt),gain=gainCorV,sky=skyV)
+			np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
 	return gainMap
 
 def process_all(file_map,bias_map,flat_map,utds=None,filt=None,

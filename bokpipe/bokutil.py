@@ -369,7 +369,7 @@ class BokMefImageCube(object):
 		return imCube
 	def _stack_cube(self,imCube,**kwargs):
 		raise NotImplementedError
-	def _preprocess(self,fileList):
+	def _preprocess(self,fileList,outFits):
 		pass
 	def _postprocess(self,extName,stack,hdr):
 		return stack,hdr
@@ -422,7 +422,7 @@ class BokMefImageCube(object):
 			rowSplit[-1] = -1 # grow last split to end of array
 			rowChunks = [ (row1,row2) 
 			         for row1,row2 in zip(rowSplit[:-1],rowSplit[1:]) ]
-		self._preprocess(fileList)
+		self._preprocess(fileList,outFits)
 		if self.maskNameMap == NullNameMap:
 			# argh, this is a hacky way to check for masks
 			masks = None

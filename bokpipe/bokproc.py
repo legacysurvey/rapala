@@ -231,7 +231,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.rawStackFits = None
 		self.normCCD = 'CCD1'
 		self.headerKey = 'SKYFLT'
-	def _preprocess(self,fileList):
+	def _preprocess(self,fileList,outFits):
 		self.norms = np.zeros(len(fileList),dtype=np.float32)
 		for i,f in enumerate(fileList):
 			fits = bokutil.BokMefImage(self.inputNameMap(f),
@@ -243,11 +243,12 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			print 'norm for image %s is %f' % \
 			           (self.inputNameMap(f),normpix.mean())
 		if self.rawStackFile is not None:
-			#self.rawStackFits = fitsio.FITS(self.rawStackFile(self.outFits.filename),'rw')
-			self.rawStackFits = fitsio.FITS('rawstack.fits','rw')
+			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
+			self.rawStackFits = fitsio.FITS(
+			                        self.rawStackFile(outFits._filename),'rw')
 			# if we've gotten to here, we already know any existing file 
 			# needs to be clobbered
-			self.rawStackFits.write(None,#header=self.outFits[0].header,
+			self.rawStackFits.write(None,header=outFits[0].read_header(),
 			                        clobber=True)
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
