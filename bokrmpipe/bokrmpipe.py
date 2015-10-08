@@ -56,7 +56,7 @@ class MasterBadPixMask4(bokutil.FileNameMap):
 class processInPlace(object):
 	def __init__(self):
 		self.fmap = RMFileNameMap()
-		self.fremap = {'pass1cat':'.cat1','objmask':'.obj',
+		self.fremap = {'pass1cat':'.cat1','skymask':'.skymsk',
 		               '_sky':'_tmpsky'}
 	def __call__(self,t,output=True):
 		if t in self.fremap:
@@ -70,7 +70,7 @@ class processInPlace(object):
 class processToNewFiles(object):
 	def __init__(self):
 		self.fmap = {'bias':'_b','proc':'_p','comb':'_c',
-		             'pass1cat':'.cat1','objmask':'.obj',
+		             'pass1cat':'.cat1','skymask':'.skymsk',
 		             '_sky':'_tmpsky','sky':'_s','proc2':'_q'}
 	def __call__(self,t,output=True):
 		return RMFileNameMap(self.fmap[t])
@@ -273,13 +273,13 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 	if skysub:
 		skySub = bokproc.BokSkySubtract(input_map=file_map('comb',False),
 		                                output_map=file_map('_sky'),
-		                                mask_map=file_map('objmask'))
+		                                mask_map=file_map('skymask'))
 		skySub.add_mask(MasterBadPixMask4()())
 		stackin = file_map('_sky',False)
 	else:
 		stackin = file_map('comb',False)
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
-	                                            mask_map=file_map('objmask'),
+	                                            mask_map=file_map('skymask'),
 	                    exposure_time_map=bokutil.FileNameMap(caldir,'.exp'),
 	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'))
 	skyFlatStack.set_badpixelmask(MasterBadPixMask4()())
@@ -296,7 +296,7 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 			bokproc.sextract_pass1(files,
 			                       input_map=file_map('comb',False),
 			                       catalog_map=file_map('pass1cat'),
-			                       object_mask_map=file_map('objmask'),
+			                       object_mask_map=file_map('skymask'),
 			                       **kwargs)
 			if skysub:
 				skySub.process_files(files)
