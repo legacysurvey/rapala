@@ -400,7 +400,8 @@ class BokMefImageCube(object):
 			expTimeFits.write(None,header=hdr)
 			expTimes = [ fitsio.read_header(_f,ext=0)['EXPTIME']
 			                 for _f in inputFiles]
-			expTimes = np.array(expTimes)[np.newaxis,np.newaxis,:]
+			expTimes = np.array(expTimes).astype(np.float32)
+			expTimes = expTimes[np.newaxis,np.newaxis,:]
 		if self.withVariance:
 			varFn = outputFile.replace('.fits','_var.fits')
 			try:
@@ -474,9 +475,10 @@ class BokMefImageCube(object):
 
 class ClippedMeanStack(BokMefImageCube):
 	def _stack_cube(self,imCube,weights=None):
-		return np.ma.average(imCube,weights=weights,axis=-1)
+		# why does it get promoted?
+		return np.ma.average(imCube,weights=weights,axis=-1).astype(np.float32)
 
 class MedianStack(BokMefImageCube):
 	def _stack_cube(self,imCube,weights=None):
-		return np.ma.median(imCube,axis=-1)
+		return np.ma.median(imCube,axis=-1).astype(np.float32)
 
