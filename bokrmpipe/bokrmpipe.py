@@ -319,9 +319,13 @@ def make_images():
 	plt.ioff()
 	for ff in files:
 		f = _fmap(ff)
+		if not os.path.exists(f.replace('.fits','_tmpsky.fits')):
+			continue
+		if os.path.exists(f.replace('.fits','.png')):
+			continue
 		bokproc.make_fov_image_fromfile(f.replace('.fits','_tmpsky.fits'),
 		                                f.replace('.fits','.png'),
-		                                mask=f.replace('.fits','.obj.fits'))
+		                                mask=f.replace('.fits','.skymsk.fits'))
 	plt.ion()
 
 def rmpipe():
@@ -336,6 +340,7 @@ def rmpipe():
 		utdir = os.path.join(rdxdir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	timerLog = bokutil.TimerLog()
+	timerLog('Start')
 	timerLog('overscans')
 	overscan_subtract(utds,filt=filt,**kwargs)
 	timerLog('2d biases')
@@ -353,6 +358,7 @@ def rmpipe():
 	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
 	# XXX for testing
 	#fileMap = processToNewFiles()
+	timerLog('Finish')
 	timerLog.dump()
 
 if __name__=='__main__':

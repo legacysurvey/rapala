@@ -219,67 +219,6 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 				hdr['FLTSCL%02d'%_i] = _scl
 		return stack,hdr
 
-class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
-	def __init__(self,**kwargs):
-		kwargs.setdefault('stats_region','ccd_central_quadrant')
-		kwargs.setdefault('scale','normalize_mode')
-		kwargs.setdefault('nsplit',10)
-		kwargs.setdefault('fill_value',1.0)
-		super(BokNightSkyFlatStack,self).__init__(**kwargs)
-		self.smoothingLength = kwargs.get('smoothing_length',0.05)
-		self.rawStackFile = kwargs.get('raw_stack_file')
-		self.rawStackFits = None
-		self.normCCD = 'CCD1'
-		self.headerKey = 'SKYFLT'
-	def _preprocess(self,fileList,outFits):
-		self.norms = np.zeros(len(fileList),dtype=np.float32)
-		for i,f in enumerate(fileList):
-			fits = bokutil.BokMefImage(self.inputNameMap(f),
-			                           mask_file=self.maskNameMap(f),
-			                           read_only=True)
-			normpix = fits.get(self.normCCD,self.statsPix)
-			normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
-			self.norms[i] = 1/normpix.mean()
-			print 'norm for image %s is %f' % \
-			           (self.inputNameMap(f),normpix.mean())
-		if self.rawStackFile is not None:
-			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
-			self.rawStackFits = fitsio.FITS(
-			                        self.rawStackFile(outFits._filename),'rw')
-			# if we've gotten to here, we already know any existing file 
-			# needs to be clobbered
-			self.rawStackFits.write(None,header=outFits[0].read_header(),
-			                        clobber=True)
-	def _rescale(self,imCube,scales=None):
-		if scales is not None:
-			_scales = scales[np.newaxis,:]
-		else:
-			_scales = self.norms[np.newaxis,:]
-		self.scales = _scales.squeeze()
-		return imCube * _scales
-	def _postprocess(self,extName,stack,hdr):
-		# XXX hardcoded params
-		stack = interpolate_masked_pixels(stack,along='rows',method='linear')
-		# ignore the input mask and adopt the interpolation mask;
-		#   nan values mean no interpolation was possible
-		interpMask = np.isnan(stack.data)
-		cleanStack = np.ma.masked_array(stack.data,mask=interpMask)
-		cleanStack = cleanStack.filled(1.0)
-		if self.rawStackFile is not None:
-			self.rawStackFits.write(cleanStack,extname=extName,header=hdr)
-		cleanStack = spline_filter(cleanStack,self.smoothingLength)
-		# renormalize to unity, using the combined interp and input mask
-		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
-		normpix = sigma_clip(_stack[self.statsPix],iters=2,sig=2.5,
-		                     cenfunc=np.ma.mean)
-		_stack /= normpix.mean()
-		return _stack,hdr
-	def _cleanup(self):
-		super(BokNightSkyFlatStack,self)._cleanup()
-		if self.rawStackFits is not None:
-			self.rawStackFits.close()
-			self.rawStackFits = None
-
 class BokCCDProcess(bokutil.BokProcess):
 	def __init__(self,bias=None,flat=None,**kwargs):
 		kwargs.setdefault('header_key','CCDPROC')
@@ -542,10 +481,13 @@ def combine_ccds(fileList,**kwargs):
 			ccdIms = []
 			for j,ext in enumerate(extGroup):
 				im = inFits[ext].read() 
-				# copy in the nominal gain values from per-amp headers
 				hext = inFits[ext].read_header()
-				gainKey = 'GAIN%02dA' % int(ext[2:])
-				hdr[gainKey] = hext[gainKey]
+				try:
+					# copy in the nominal gain values from per-amp headers
+					gainKey = 'GAIN%02dA' % int(ext[2:])
+					hdr[gainKey] = hext[gainKey]
+				except ValueError:
+					pass
 				if gainMap is not None:
 					ampIdx = ampOrder[4*(ccdNum-1)+j] - 1
 					gc1,gc2 = gainMap['corrections'][f][:,ampIdx]
@@ -577,7 +519,7 @@ from astropy.convolution.convolve import convolve
 from astropy.convolution.kernels import Gaussian2DKernel
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 
-def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
+def grow_obj_mask(im,objsIm,thresh=1.0,**kwargs):
 	statsPix = bokutil.stats_region(kwargs.get('stats_region',
 	                                           'ccd_central_quadrant'))
 	# determine the sky background level and rms
@@ -644,6 +586,67 @@ def sextract_pass1(fileList,**kwargs):
 		maskFits.close()
 		tmpMaskFits.close()
 		os.unlink('tmpobj.fits')
+
+class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
+	def __init__(self,**kwargs):
+		kwargs.setdefault('stats_region','ccd_central_quadrant')
+		kwargs.setdefault('scale','normalize_mode')
+		kwargs.setdefault('nsplit',10)
+		kwargs.setdefault('fill_value',1.0)
+		super(BokNightSkyFlatStack,self).__init__(**kwargs)
+		self.smoothingLength = kwargs.get('smoothing_length',0.05)
+		self.rawStackFile = kwargs.get('raw_stack_file')
+		self.rawStackFits = None
+		self.normCCD = 'CCD1'
+		self.headerKey = 'SKYFLT'
+	def _preprocess(self,fileList,outFits):
+		self.norms = np.zeros(len(fileList),dtype=np.float32)
+		for i,f in enumerate(fileList):
+			fits = bokutil.BokMefImage(self.inputNameMap(f),
+			                           mask_file=self.maskNameMap(f),
+			                           read_only=True)
+			normpix = fits.get(self.normCCD,self.statsPix)
+			normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
+			self.norms[i] = 1/normpix.mean()
+			print 'norm for image %s is %f' % \
+			           (self.inputNameMap(f),normpix.mean())
+		if self.rawStackFile is not None:
+			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
+			self.rawStackFits = fitsio.FITS(
+			                        self.rawStackFile(outFits._filename),'rw')
+			# if we've gotten to here, we already know any existing file 
+			# needs to be clobbered
+			self.rawStackFits.write(None,header=outFits[0].read_header(),
+			                        clobber=True)
+	def _rescale(self,imCube,scales=None):
+		if scales is not None:
+			_scales = scales[np.newaxis,:]
+		else:
+			_scales = self.norms[np.newaxis,:]
+		self.scales = _scales.squeeze()
+		return imCube * _scales
+	def _postprocess(self,extName,stack,hdr):
+		# XXX hardcoded params
+		stack = interpolate_masked_pixels(stack,along='rows',method='linear')
+		# ignore the input mask and adopt the interpolation mask;
+		#   nan values mean no interpolation was possible
+		interpMask = np.isnan(stack.data)
+		cleanStack = np.ma.masked_array(stack.data,mask=interpMask)
+		cleanStack = cleanStack.filled(1.0)
+		if self.rawStackFile is not None:
+			self.rawStackFits.write(cleanStack,extname=extName,header=hdr)
+		cleanStack = spline_filter(cleanStack,self.smoothingLength)
+		# renormalize to unity, using the combined interp and input mask
+		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
+		normpix = sigma_clip(_stack[self.statsPix],iters=2,sig=2.5,
+		                     cenfunc=np.ma.mean)
+		_stack /= normpix.mean()
+		return _stack,hdr
+	def _cleanup(self):
+		super(BokNightSkyFlatStack,self)._cleanup()
+		if self.rawStackFits is not None:
+			self.rawStackFits.close()
+			self.rawStackFits = None
 
 def process_round2(fileList,superSkyFlatFile,**kwargs):
 	outputFileMap = kwargs.get('output_file_map')
