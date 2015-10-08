@@ -84,14 +84,15 @@ def get_utds(utds=None):
 		_utds = utds
 	return _utds
 
-def get_files(logs,utds=None,imType=None,filt=None,imRange=None):
+def get_files(logs,utds=None,imType=None,filt=None,im_range=None,
+              exclude_objs=None):
 	utds = get_utds(utds)
 	files = []
 	for utd in utds:
-		if imRange is None:
-			imRange = (0,len(logs[utd]))
+		if im_range is None:
+			im_range = (0,len(logs[utd]))
 		frameNum = np.arange(len(logs[utd]))
-		is_range = (imRange[0] <= frameNum) & (frameNum <= imRange[1])
+		is_range = (im_range[0] <= frameNum) & (frameNum <= im_range[1])
 		if imType is None:
 			is_type = True
 		else:
@@ -100,7 +101,11 @@ def get_files(logs,utds=None,imType=None,filt=None,imRange=None):
 			is_filt = True
 		else:
 			is_filt = logs[utd]['filter'] == filt
-		ii = np.where(is_range & is_type & is_filt)[0]
+		exclude = np.zeros_like(is_range)
+		if exclude_objs is not None:
+			for objnm in exclude_objs:
+				exclude[logs[utd]['objectName']==objnm] = True
+		ii = np.where(is_range & is_type & is_filt & ~exclude)[0]
 		if len(ii) > 0:
 			files.append(char_add('ut'+utd+'/',logs[utd]['fileName'][ii]))
 	if len(files)==0:
@@ -289,7 +294,9 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 		filts = filt
 	for utd in utds:
 		for filt in filts:
-			files = get_files(logs,utd,imType='object',filt=filt)
+			# exclude RM10 and RM11 because they are swamped by a bright star
+			files = get_files(logs,utd,imType='object',filt=filt,
+			                  exclude_objs=['rm10','rm11'])
 			if files is None:
 				continue
 			# XXX need to use the bad pix mask for weighting
@@ -328,17 +335,25 @@ def rmpipe():
 	for utd in utds:
 		utdir = os.path.join(rdxdir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
+	timerLog = bokutil.TimerLog()
+	timerLog('overscans')
 	overscan_subtract(utds,filt=filt,**kwargs)
+	timerLog('2d biases')
 	make_2d_biases(utds,filt=filt,writeccdim=True,**kwargs)
 	biasMap = get_bias_map(utds,filt=filt)
+	timerLog('dome flats')
 	make_dome_flats(fileMap,biasMap,utds,filt=filt,writeccdim=True,**kwargs)
+	timerLog('bad pixel masks')
 	make_bad_pixel_masks()
 	flatMap = get_flat_map(utds,filt=filt)
+	timerLog('ccdproc')
 	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
 	            fixpix=fixpix,**kwargs)
+	timerLog('supersky flats')
 	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
 	# XXX for testing
 	#fileMap = processToNewFiles()
+	timerLog.dump()
 
 if __name__=='__main__':
 	import sys

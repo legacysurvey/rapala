@@ -580,14 +580,18 @@ from scipy.ndimage.morphology import binary_dilation,binary_closing
 def grow_obj_mask(im,objsIm,thresh=1.25,**kwargs):
 	statsPix = bokutil.stats_region(kwargs.get('stats_region',
 	                                           'ccd_central_quadrant'))
+	# determine the sky background level and rms
 	skypix = sigma_clip(im[statsPix],iters=5,sig=2.5,cenfunc=np.ma.mean)
 	skym,skys = skypix.mean(),skypix.std()
+	# make a pixel-level SNR image
 	snrIm = (im - skym) / skys
+	# convolve the SNR image to smooth it and slighly grow object footprints
 	snrIm = convolve(snrIm,Gaussian2DKernel(0.75))
 	snrIm[np.isnan(snrIm)] = np.inf
+	# grow object mask until pixels reach a threshold in SNR
 	mask = binary_dilation(objsIm>0,mask=(snrIm>thresh),iterations=0)
-	# fill holes on the object footprints
-	#mask = binary_closing(mask)
+	# fill holes in the mask
+	mask = binary_closing(mask)
 	# fix the corners: pre-illumination-correction images have a gradient
 	# at the corners, if it is positive (which it is for the upper two CCDs)
 	# then objects in those corners are grown until the whole corner is 
@@ -634,9 +638,7 @@ def sextract_pass1(fileList,**kwargs):
 		maskFits = fitsio.FITS(objMaskFileMap(f),'rw')
 		maskFits.write(None,header=tmpMaskFits[0].read_header())
 		for ccd in ['CCD%d'%i for i in range(1,5)]:
-			#mask = grow_mask(maskFits[ccd][:,:]>0,3)
 			mask = grow_obj_mask(fits[ccd][:,:],tmpMaskFits[ccd][:,:])
-			#maskFits[ccd].write(mask.astype(np.uint8),clobber=True)
 			maskFits.write(mask.astype(np.uint8),extname=ccd,
 			               header=tmpMaskFits[ccd].read_header())
 		maskFits.close()

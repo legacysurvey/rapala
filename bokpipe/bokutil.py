@@ -94,6 +94,24 @@ class OutputExistsError(Exception):
 def get_timestamp():
 	return datetime.fromtimestamp(time()).strftime('%Y-%m-%d %H:%M:%S')
 
+class TimerLog():
+	def __init__(self):
+		self.stages = ['Start']
+		self.times = [time()]
+	def __call__(self,stage):
+		self.stages.append(stage)
+		self.times.append(time())
+	def dump(self):
+		self.__call__('Finish')
+		stages = self.stages[1:]
+		times = np.array(self.times[1:]) - self.times[0]
+		itimes = np.diff(self.times)
+		ftimes = itimes / times[-1]
+		print '%20s %8s %8s %8s' % ('stage','time','elapsed','frac')
+		for t in zip(stages,itimes,times,ftimes):
+			print '%20s %8.3f %8.3f %8.3f' % t
+		print
+
 class BokMefImage(object):
 	'''A wrapper around fitsio that allows the MEF files to be iterated
 	   over while updating the data arrays and headers either in-place or
