@@ -206,7 +206,7 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		super(BokDomeFlatStack,self).__init__(**kwargs)
 		self.headerKey = 'FLAT'
 	def _postprocess(self,extName,stack,hdr):
-		flatNorm = bokutil.array_stats(stack[self.statsPix]).filled()
+		flatNorm = bokutil.array_stats(stack[self.statsPix])
 		stack /= flatNorm
 		try:
 			stack = stack.filled(1.0)
@@ -215,7 +215,7 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		hdr['FLATNORM'] = flatNorm
 		if self.scales is not None:
 			for _i,_scl in enumerate(self.scales,start=1):
-				hdr['FLTSCL%02d'%_i] = _scl
+				hdr['FLTSCL%02d'%_i] = float(_scl)
 		return stack,hdr
 
 class BokCCDProcess(bokutil.BokProcess):
