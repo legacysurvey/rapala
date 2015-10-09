@@ -244,7 +244,8 @@ def balance_gains(inputFileMap,utds=None,filt=None,**kwargs):
 				gainMap['corrections'][f] = gainCor
 				gainMap['skyvals'][f] = skyv
 			gainBalance.reset()
-			np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
+			if not os.path.exists(diagfile):
+				np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
 	return gainMap
 
 def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
@@ -340,25 +341,23 @@ def rmpipe():
 		utdir = os.path.join(rdxdir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	timerLog = bokutil.TimerLog()
-	timerLog('Start')
-	timerLog('overscans')
 	overscan_subtract(utds,filt=filt,**kwargs)
-	timerLog('2d biases')
+	timerLog('overscans')
 	make_2d_biases(utds,filt=filt,writeccdim=True,**kwargs)
+	timerLog('2d biases')
 	biasMap = get_bias_map(utds,filt=filt)
-	timerLog('dome flats')
 	make_dome_flats(fileMap,biasMap,utds,filt=filt,writeccdim=True,**kwargs)
-	timerLog('bad pixel masks')
+	timerLog('dome flats')
 	make_bad_pixel_masks()
+	timerLog('bad pixel masks')
 	flatMap = get_flat_map(utds,filt=filt)
-	timerLog('ccdproc')
 	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
 	            fixpix=fixpix,**kwargs)
+	timerLog('ccdproc')
 	timerLog('supersky flats')
 	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
 	# XXX for testing
 	#fileMap = processToNewFiles()
-	timerLog('Finish')
 	timerLog.dump()
 
 if __name__=='__main__':
