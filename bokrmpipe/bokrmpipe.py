@@ -265,11 +265,9 @@ def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
 	gainMap = balance_gains(file_map('proc',False),
 	                        utds=utds,filt=filt,**kwargs)
 	# 3. combine per-amp images (16) into CCD images (4)
-	###file_map2 = processToNewFiles() # XXX
 	bokproc.combine_ccds(files,
 	                     input_map=file_map('proc',False),
 	                     output_map=file_map('comb'),
-	                     ###output_map=file_map2('comb'), # XXX
 	                     gain_map=gainMap,
 	                     **kwargs)
 
