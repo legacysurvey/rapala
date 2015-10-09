@@ -5,9 +5,12 @@ from time import time
 from datetime import datetime
 import fitsio
 import numpy as np
-from scipy.stats.mstats import mode
 
 from astropy.stats import sigma_clip
+
+def mode(arr,axis=None):
+	#return 3*np.ma.median(arr,axis=axis) - 2*np.ma.mean(arr,axis=axis)
+	return np.ma.median(arr,axis=axis)
 
 def rebin(im,nbin):
 	s = np.array(im.shape) / nbin
@@ -370,7 +373,7 @@ class BokMefImageCube(object):
 				scales = scales.mean(axis=0)
 			else:
 				# default is the mode
-				scales,_ = mode(scales,axis=0)
+				scales,_ = mode(scales)
 			scales /= scales.max()
 			scales **= -1
 		else:

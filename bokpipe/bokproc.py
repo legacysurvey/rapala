@@ -4,7 +4,6 @@ import os
 import re
 import subprocess
 import numpy as np
-from scipy.stats.mstats import mode
 from scipy.interpolate import LSQUnivariateSpline,griddata
 from scipy.signal import spline_filter
 from astropy.stats import sigma_clip
@@ -207,7 +206,7 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		super(BokDomeFlatStack,self).__init__(**kwargs)
 		self.headerKey = 'FLAT'
 	def _postprocess(self,extName,stack,hdr):
-		flatNorm = mode(stack[self.statsPix],axis=None)[0][0]
+		flatNorm = bokutil.mode(stack[self.statsPix])
 		stack /= flatNorm
 		try:
 			stack = stack.filled(1.0)
@@ -519,19 +518,24 @@ from astropy.convolution.convolve import convolve
 from astropy.convolution.kernels import Gaussian2DKernel
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 
-def grow_obj_mask(im,objsIm,thresh=1.0,**kwargs):
+def grow_obj_mask(im,objsIm,**kwargs):
 	statsPix = bokutil.stats_region(kwargs.get('stats_region',
 	                                           'ccd_central_quadrant'))
+	growThresh = kwargs.get('grow_thresh',1.0)
+	kernelSize = kwargs.get('kernel_size',1.25)
+	# XXX missing badpix mask here
+	maskedIm = np.ma.masked_array(im,objsIm>0)
 	# determine the sky background level and rms
-	skypix = sigma_clip(im[statsPix],iters=5,sig=2.5,cenfunc=np.ma.mean)
-	skym,skys = skypix.mean(),skypix.std()
+	skypix = sigma_clip(maskedIm[statsPix],cenfunc=np.ma.mean)
+	skym = bokutil.mode(skypix)
+	skys = skypix.std()
 	# make a pixel-level SNR image
 	snrIm = (im - skym) / skys
 	# convolve the SNR image to smooth it and slighly grow object footprints
-	snrIm = convolve(snrIm,Gaussian2DKernel(0.75))
+	snrIm = convolve(snrIm,Gaussian2DKernel(kernelSize))
 	snrIm[np.isnan(snrIm)] = np.inf
 	# grow object mask until pixels reach a threshold in SNR
-	mask = binary_dilation(objsIm>0,mask=(snrIm>thresh),iterations=0)
+	mask = binary_dilation(objsIm>0,mask=(snrIm>growThresh),iterations=0)
 	# fill holes in the mask
 	mask = binary_closing(mask)
 	# fix the corners: pre-illumination-correction images have a gradient
