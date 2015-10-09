@@ -328,7 +328,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
 		self.ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
 		                                              'amp_corner_ccdcenter'))
-		self.statsMethod = kwargs.get('stats_method','median')
+		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
 		self.clipArgs.setdefault('clip_iters',4)
@@ -608,6 +608,12 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		kwargs.setdefault('nsplit',10)
 		kwargs.setdefault('fill_value',1.0)
 		super(BokNightSkyFlatStack,self).__init__(**kwargs)
+		self.clipArgs = { k:v for k,v in kwargs.items() 
+		                     if k.startswith('clip_') }
+		self.statsMethod = kwargs.get('stats_method','mode')
+		self.clipArgs.setdefault('clip_iters',3)
+		self.clipArgs.setdefault('clip_sig',4.0)
+		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.rawStackFile = kwargs.get('raw_stack_file')
 		self.rawStackFits = None
@@ -620,10 +626,11 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			                           mask_file=self.maskNameMap(f),
 			                           read_only=True)
 			normpix = fits.get(self.normCCD,self.statsPix)
-			normpix = sigma_clip(normpix,iters=4,sig=2.5,cenfunc=np.ma.mean)
-			self.norms[i] = 1/normpix.mean()
+			meanVal = bokutil.array_stats(normpix,method=self.statsMethod,
+			                              **self.clipArgs)
+			self.norms[i] = 1/meanVal
 			print 'norm for image %s is %f' % \
-			           (self.inputNameMap(f),normpix.mean())
+			           (self.inputNameMap(f),meanVal)
 		if self.rawStackFile is not None:
 			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
 			self.rawStackFits = fitsio.FITS(
