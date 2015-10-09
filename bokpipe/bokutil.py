@@ -27,7 +27,11 @@ def array_stats(arr,axis=None,method='median',clip=True,rms=False,
 		rv.append(_rms)
 	if retArray:
 		rv.append(arr)
-	return tuple(rv)
+	if len(rv)>1:
+		rv = tuple(rv)
+	else:
+		rv = rv[0]
+	return rv
 
 def rebin(im,nbin):
 	s = np.array(im.shape) / nbin
