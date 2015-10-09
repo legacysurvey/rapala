@@ -4,6 +4,7 @@ import os
 import re
 from collections import OrderedDict
 import numpy as np
+from scipy.ndimage.filters import median_filter
 from astropy.stats import sigma_clip
 import fitsio
 
@@ -42,7 +43,8 @@ def extract_overscan(data,hdr):
 def fit_overscan(overscan,**kwargs):
 	reject = kwargs.get('reject','sigma_clip')
 	method = kwargs.get('method','mean')
-	applyFilter = kwargs.get('apply_filter')
+	applyFilter = kwargs.get('apply_filter','median')
+	windowSize = kwargs.get('filter_window',17)
 	maskAlong = kwargs.get('mask_along',[0,1,2,-1])
 	along = kwargs.get('along','columns')
 	clipArgs = {'iters':kwargs.get('clip_iters',2),
