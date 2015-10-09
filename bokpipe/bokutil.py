@@ -8,9 +8,26 @@ import numpy as np
 
 from astropy.stats import sigma_clip
 
-def mode(arr,axis=None):
-	#return 3*np.ma.median(arr,axis=axis) - 2*np.ma.mean(arr,axis=axis)
-	return np.ma.median(arr,axis=axis)
+def array_stats(arr,axis=None,method='median',clip=True,rms=False,
+                retArray=False,**kwargs):
+	if clip:
+		arr = sigma_clip(arr,axis=axis,
+		                 iters=kwargs.get('clip_iters',2),
+		                 sig=kwargs.get('clip_sig',2.5),
+		                 cenfunc=kwargs.get('clip_cenfunc',np.ma.mean))
+	if method=='median':
+		val = np.ma.median(arr,axis=axis)
+	elif method=='mean':
+		val = np.ma.mean(arr,axis=axis)
+	elif method=='mode':
+		val = 3*np.ma.median(arr,axis=axis) - 2*np.ma.mean(arr,axis=axis)
+	rv = [val]
+	if rms:
+		_rms = np.ma.std(arr,axis=axis)
+		rv.append(_rms)
+	if retArray:
+		rv.append(arr)
+	return tuple(rv)
 
 def rebin(im,nbin):
 	s = np.array(im.shape) / nbin
@@ -366,14 +383,10 @@ class BokMefImageCube(object):
 		elif self.scale is None:
 			return imCube
 		elif self.scale.startswith('normalize'):
+			method = self.scale[self.scale.find('_')+1:]
 			imScales = imCube[self.statsPix] / imCube[self.statsPix+([0],)]
 			imScales = imScales.reshape(-1,imCube.shape[-1])
-			scales = sigma_clip(imScales,cenfunc=np.ma.mean,axis=0)
-			if self.scale.endswith('_mean'):
-				scales = scales.mean(axis=0)
-			else:
-				# default is the mode
-				scales,_ = mode(scales)
+			scales = array_stats(imScales,axis=0,method=method)
 			scales /= scales.max()
 			scales **= -1
 		else:

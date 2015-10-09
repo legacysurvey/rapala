@@ -206,7 +206,7 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		super(BokDomeFlatStack,self).__init__(**kwargs)
 		self.headerKey = 'FLAT'
 	def _postprocess(self,extName,stack,hdr):
-		flatNorm = bokutil.mode(stack[self.statsPix])
+		flatNorm = bokutil.array_stats(stack[self.statsPix]).filled()
 		stack /= flatNorm
 		try:
 			stack = stack.filled(1.0)
@@ -287,9 +287,9 @@ class BokCCDProcess(bokutil.BokProcess):
 		if self.gainMultiply:
 			data *= self.inputGain[extName]
 			chNum = int(extName.replace('IM',''))
-			hdr['GAIN%02dA'%chNum] = self.inputGain[extName]
 			hdr['GAIN'] = 1.0 # now in e-
 			hdr['SATUR'] = saturation_dn * self.inputGain[extName]
+			hdr['GAIN%02dA'%chNum] = self.inputGain[extName]
 		else:
 			hdr['SATUR'] = saturation_dn
 		return data,hdr
@@ -326,17 +326,22 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('read_only',True)
 		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
-		self.skyEst = kwargs.get('sky_estimator',np.ma.mean)
 		self.ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
-		                                                  'amp_corner_ccdcenter'))
-		self.clipArgs = {'iters':kwargs.get('clip_iters',3),
-		                 'sig':kwargs.get('clip_sig',2.5),
-		                 'cenfunc':np.ma.mean}
+		                                              'amp_corner_ccdcenter'))
+		self.statsMethod = kwargs.get('stats_method','median')
+		self.clipArgs = { k:v for k,v in kwargs.items() 
+		                     if k.startswith('clip_') }
+		self.clipArgs.setdefault('clip_iters',4)
+		self.clipArgs.setdefault('clip_sig',2.5)
+		self.clipArgs.setdefault('clip_cenfunc',np.ma.median)
+		self.saveArrays = kwargs.get('save_arrays',False)
 		self.reset()
 	def reset(self):
 		self.files = []
 		self.gainCors = []
 		self.allSkyVals = []
+		if self.saveArrays:
+			self.arrays = []
 	def _preprocess(self,fits,f):
 		print 'calculating gain balance factors for ',f
 		self.files.append(f)
@@ -356,8 +361,15 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.allSkyVals.append(skyVals)
 	def process_hdu(self,extName,data,hdr):
 		# XXX would be more efficient to read a subregion
-		skyVal = self.skyEst(sigma_clip(data[self.ampCorStatReg],
-		                                **self.clipArgs))
+		stats = bokutil.array_stats(data[self.ampCorStatReg],
+		                            method=self.statsMethod,
+		                            retArray=self.saveArrays,
+		                            **self.clipArgs)
+		if self.saveArrays:
+			skyVal,skyArr = stats
+			self.arrays.append(skyArr)
+		else:
+			skyVal = stats
 		self.skyVals.append(skyVal)
 		return data,hdr
 	def calc_mean_corrections(self):
@@ -526,9 +538,7 @@ def grow_obj_mask(im,objsIm,**kwargs):
 	# XXX missing badpix mask here
 	maskedIm = np.ma.masked_array(im,objsIm>0)
 	# determine the sky background level and rms
-	skypix = sigma_clip(maskedIm[statsPix],cenfunc=np.ma.mean)
-	skym = bokutil.mode(skypix)
-	skys = skypix.std()
+	skym,skys = bokutil.array_stats(maskedIm[statsPix],rms=True)
 	# make a pixel-level SNR image
 	snrIm = (im - skym) / skys
 	# convolve the SNR image to smooth it and slighly grow object footprints
