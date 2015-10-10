@@ -49,6 +49,11 @@ def rebin(im,nbin):
 	s = np.array(im.shape) / nbin
 	return im.reshape(s[0],nbin,s[1],nbin).swapaxes(1,2).reshape(s[0],s[1],-1)
 
+def magnify(im,nmag):
+	n1,n2 = im.shape
+	return np.tile(im.reshape(n1,1,n2,1),
+	               (1,nmag,1,nmag)).reshape(n1*nmag,n2*nmag)
+
 def bok_getxy(hdr,coordsys='image'):
 	y,x = np.indices((hdr['NAXIS2'],hdr['NAXIS1']))
 	# FITS coordinates are 1-indexed (correct?)
