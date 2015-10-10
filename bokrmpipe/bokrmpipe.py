@@ -352,10 +352,11 @@ def rmpipe():
 	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
 	            fixpix=fixpix,**kwargs)
 	timerLog('ccdproc')
-	timerLog('supersky flats')
 	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
+	timerLog('supersky flats')
 	# XXX for testing
 	#fileMap = processToNewFiles()
+	timerLog('process2')
 	timerLog.dump()
 
 if __name__=='__main__':
