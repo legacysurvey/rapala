@@ -8,13 +8,18 @@ import numpy as np
 
 from astropy.stats import sigma_clip
 
+# just translates the kwargs
+def array_clip(arr,axis=None,**kwargs):
+	arr = sigma_clip(arr,axis=axis,
+	                 iters=kwargs.get('clip_iters',2),
+	                 sig=kwargs.get('clip_sig',2.5),
+	                 cenfunc=kwargs.get('clip_cenfunc',np.ma.mean))
+	return arr
+
 def array_stats(arr,axis=None,method='median',clip=True,rms=False,
                 retArray=False,**kwargs):
 	if clip:
-		arr = sigma_clip(arr,axis=axis,
-		                 iters=kwargs.get('clip_iters',2),
-		                 sig=kwargs.get('clip_sig',2.5),
-		                 cenfunc=kwargs.get('clip_cenfunc',np.ma.mean))
+		arr = array_clip(arr,axis=axis,**kwargs)
 	if method=='median':
 		val = np.ma.median(arr,axis=axis)
 	elif method=='mean':
@@ -399,7 +404,7 @@ class BokMefImageCube(object):
 		return imCube * scales
 	def _reject_pixels(self,imCube):
 		if self.reject == 'sigma_clip':
-			imCube = sigma_clip(imCube,axis=-1,**self.clipArgs)
+			imCube = array_clip(imCube,axis=-1,**self.clipArgs)
 		elif self.reject == 'minmax':
 			imCube = np.ma.masked_array(imCube)
 			imCube[:,:,imCube.argmax(axis=-1)] = np.ma.masked
