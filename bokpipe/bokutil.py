@@ -26,6 +26,13 @@ def array_stats(arr,axis=None,method='median',clip=True,rms=False,
 		val = np.ma.mean(arr,axis=axis)
 	elif method=='mode':
 		val = 3*np.ma.median(arr,axis=axis) - 2*np.ma.mean(arr,axis=axis)
+	if axis==None:
+		# median returns an array but mean doesn't???
+		try:
+			val = val.compressed()
+		except:
+			pass
+		val = val.squeeze()
 	rv = [val]
 	if rms:
 		_rms = np.ma.std(arr,axis=axis)
