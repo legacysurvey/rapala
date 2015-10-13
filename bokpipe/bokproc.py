@@ -590,8 +590,9 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		self.clipArgs.setdefault('clip_sig',2.2)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
 		self.growKern = None #np.ones((self.binGrowSize,self.binGrowSize),dtype=bool)
+	def _preprocess(self,fits,f):
+		print 'generating sky mask for ',f
 	def process_hdu(self,extName,data,hdr):
-		print 'generating sky mask for ',extName
 		if (data>hdr['SATUR']).sum() > 10000:
 			# if too many pixels are saturated mask the whole damn thing
 			return np.ones(data.shape,dtype=np.uint8),hdr
