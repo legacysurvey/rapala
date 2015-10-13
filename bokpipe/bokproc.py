@@ -595,7 +595,7 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 	def process_hdu(self,extName,data,hdr):
 		if (data>hdr['SATUR']).sum() > 10000:
 			# if too many pixels are saturated mask the whole damn thing
-			return np.ones(data.shape,dtype=np.uint8),hdr
+			hdr['BADSKY'] = 1
 		n = self.nSample
 		sky,rms = bokutil.array_stats(data[self.statsPix][::n,::n],
 		                              method='mode',rms=True,

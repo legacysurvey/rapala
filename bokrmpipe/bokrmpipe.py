@@ -289,7 +289,8 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=file_map('skymask'),
 	                    exposure_time_map=bokutil.FileNameMap(caldir,'.exp'),
-	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'))
+	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'),
+	                                        header_bad_key='BADSKY')
 	skyFlatStack.set_badpixelmask(MasterBadPixMask4()())
 	if filt is None:
 		filts = 'gi'

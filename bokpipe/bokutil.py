@@ -104,18 +104,28 @@ def _write_stack_header_cards(fileList,cardPrefix):
 	hdr['NCOMBINE'] = len(fileList)
 	return hdr
 
-def build_cube(fileList,extn,masks=None,rows=None,masterMask=None):
+def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
 	if rows is None:
 		s = np.s_[:,:]
 	else:
 		s = np.s_[rows[0]:rows[1],:]
 	cube = np.dstack( [ fitsio.FITS(f)[extn][s] for f in fileList ] )
+	_masks = []
 	if masks is not None:
 		if isinstance(masks,FileNameMap):
-			mask = np.dstack([ fitsio.FITS(masks(f))[extn][s]
-			           for f in fileList ])
+			for f in fileList:
+				hdu = fitsio.FITS(masks(f))[extn])
+				_masks.append(hdu[s])
+				# hacky to put this special case here...
+				if badKey is not None:
+					hdr = hdu.read_header()
+					if badKey in hdr:
+						print 'blanking ',f,extn,badKey
+						_masks[-1][:] = True
 		else:
-			mask = np.dstack([ fitsio.FITS(f)[extn][s] for f in masks ])
+			for f in masks:
+				_masks.append(fitsio.FITS(f)[extn][s])
+		mask = np.dstack(_masks)
 	else:
 		mask = None
 	if masterMask is not None:
@@ -381,6 +391,7 @@ class BokMefImageCube(object):
 		self.reject = kwargs.get('reject','sigma_clip')
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
 		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
+		self.badKey = kwargs.get('header_bad_key')
 		self.expTimeNameMap = kwargs.get('exposure_time_map',NullNameMap)
 		self.withExpTimeMap = self.expTimeNameMap != NullNameMap
 		self.statsRegion = kwargs.get('stats_region')
@@ -493,7 +504,8 @@ class BokMefImageCube(object):
 			for rows in rowChunks:
 				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
 				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows,
-				                    masterMask=self.badPixelMask)
+				                    masterMask=self.badPixelMask,
+				                    badKey=self.badKey)
 				imCube = self._rescale(imCube,scales=scales)
 				imCube = self._reject_pixels(imCube)
 				_stack = self._stack_cube(imCube,**kwargs)
