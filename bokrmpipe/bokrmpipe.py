@@ -282,6 +282,10 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 		stackin = file_map('_sky',False)
 	else:
 		stackin = file_map('comb',False)
+	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
+	                                        input_map=file_map('comb',False),
+	                                        output_map=file_map('skymask'),
+	                                        mask_map=MasterBadPixMask())
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=file_map('skymask'),
 	                    exposure_time_map=bokutil.FileNameMap(caldir,'.exp'),
@@ -295,15 +299,16 @@ def make_supersky_flats(file_map,utds=None,filt=None,
 		for filt in filts:
 			# exclude RM10 and RM11 because they are swamped by a bright star
 			files = get_files(logs,utd,imType='object',filt=filt,
-			                  exclude_objs=['rm10','rm11'])
+			                  )#exclude_objs=['rm10','rm11'])
 			if files is None:
 				continue
 			# XXX need to use the bad pix mask for weighting
-			bokproc.sextract_pass1(files,
-			                       input_map=file_map('comb',False),
-			                       catalog_map=file_map('pass1cat'),
-			                       object_mask_map=file_map('skymask'),
-			                       **kwargs)
+			#bokproc.sextract_pass1(files,
+			#                       input_map=file_map('comb',False),
+			#                       catalog_map=file_map('pass1cat'),
+			#                       object_mask_map=file_map('skymask'),
+			#                       **kwargs)
+			skyFlatMask.process_files(files)
 			if skysub:
 				skySub.process_files(files)
 			skyFlatStack.stack(files,

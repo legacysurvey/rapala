@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import numpy as np
-from scipy.interpolate import LSQUnivariateSpline,griddata
+from scipy.interpolate import LSQBivariateSpline,griddata
 from scipy.signal import spline_filter
 from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
@@ -529,6 +529,106 @@ def combine_ccds(fileList,**kwargs):
 from astropy.convolution.convolve import convolve
 from astropy.convolution.kernels import Gaussian2DKernel
 from scipy.ndimage.morphology import binary_dilation,binary_closing
+import scipy.ndimage.measurements as meas
+
+def find_bright_stars(im,saturation,minNSat=100):
+	y,x = np.indices(im.shape)
+	saturated = im >= saturation
+	satObjs,nObjs = meas.label(saturated)#,np.ones((3,3)))
+	nsat = meas.labeled_comprehension(saturated,satObjs,
+	                                  np.arange(1,nObjs+1),np.sum,int,-1)
+	ii = np.where(nsat > minNSat)[0]
+	# no way to only measure by index?
+	blobs = meas.find_objects(satObjs)
+	cntrx = [ np.average(x[blobs[i]][~saturated[blobs[i]]],
+	                     weights=im[blobs[i]][~saturated[blobs[i]]])
+	            for i in ii ]
+	cntry = [ np.average(y[blobs[i]][~saturated[blobs[i]]],
+	                     weights=im[blobs[i]][~saturated[blobs[i]]])
+	            for i in ii ]
+	return np.array([cntrx,cntry]).astype(int)
+
+def mask_bright_stars(im,saturation,minNSat=50):
+	y,x = np.indices(im.shape)
+	mask = np.zeros(im.shape,dtype=bool)
+	saturated = im >= saturation
+	satObjs,nObjs = meas.label(saturated)#,np.ones((3,3)))
+	nsat = meas.labeled_comprehension(saturated,satObjs,
+	                                  np.arange(1,nObjs+1),np.sum,int,-1)
+	ii = np.where(nsat > minNSat)[0]
+	# no way to only measure by index?
+	blobs = meas.find_objects(satObjs)
+	for i in ii:
+		cntrx = np.average(x[blobs[i]][~saturated[blobs[i]]],
+		                   weights=im[blobs[i]][~saturated[blobs[i]]])
+		cntry = np.average(y[blobs[i]][~saturated[blobs[i]]],
+		                   weights=im[blobs[i]][~saturated[blobs[i]]])
+		cntrx = int(cntrx)
+		cntry = int(cntry)
+		xextent = np.max(np.abs(x[blobs[i]]-cntrx))
+		mask[(cntry-xextent):(cntry+xextent),
+		     (cntrx-xextent):(cntrx+xextent)] = True
+	return mask
+
+import matplotlib.pyplot as plt #XXX
+
+class BokGenerateSkyFlatMasks(bokutil.BokProcess):
+	def __init__(self,**kwargs):
+		self.nBin = kwargs.get('binSize',4)
+		super(BokGenerateSkyFlatMasks,self).__init__(**kwargs)
+		self.hiThresh = kwargs.get('high_thresh',5.0)
+		self.loThresh = kwargs.get('low_thresh',5.0)
+		self.growThresh = kwargs.get('grow_thresh',1.5)
+		self.binGrowSize = kwargs.get('mask_grow_size',3)
+		self.nSample = kwargs.get('num_sample',4)
+		self.nKnots = kwargs.get('num_spline_knots',2)
+		self.splineOrder = kwargs.get('spline_order',2)
+		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'))
+		self.clipArgs = { k:v for k,v in kwargs.items() 
+		                     if k.startswith('clip_') }
+		self.clipArgs.setdefault('clip_iters',3)
+		self.clipArgs.setdefault('clip_sig',2.2)
+		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
+		self.growKern = None #np.ones((self.binGrowSize,self.binGrowSize),dtype=bool)
+	def process_hdu(self,extName,data,hdr):
+		print 'generating sky mask for ',extName
+		if (data>hdr['SATUR']).sum() > 10000:
+			# if too many pixels are saturated mask the whole damn thing
+			return np.ones(data.shape,dtype=np.uint8),hdr
+		n = self.nSample
+		sky,rms = bokutil.array_stats(data[self.statsPix][::n,::n],
+		                              method='mode',rms=True,
+		                              **self.clipArgs)
+		binnedIm = bokutil.rebin(data,self.nBin)
+		# propagate the mask if too many sub-pixels are masked
+		#mask = binnedIm.sum(axis=-1) > self.nBin**2/2
+		binnedIm = binnedIm.mean(axis=-1)
+		mask = binnedIm.mask.copy()
+		# divide by RMS to make a SNR image
+		snr = (binnedIm.data-sky) / (rms/self.nBin)
+		# fit and subtract a smooth sky model, after a first round of
+		# masking sources 
+		mask |= (snr < -15.0) | (snr > 15.0) 
+		# construct a spline model for the sky background
+		y,x = np.indices(binnedIm.shape)
+		tx = np.linspace(0,binnedIm.shape[1],self.nKnots)
+		ty = np.linspace(0,binnedIm.shape[0],self.nKnots)
+		spfit = LSQBivariateSpline(x[~mask],y[~mask],binnedIm[~mask],
+		                       tx,ty,kx=self.splineOrder,ky=self.splineOrder)
+		# remake the SNR image after subtracting fitted sky
+		snr = (binnedIm.data - spfit(x[0],y[:,0]).T) / (rms/self.nBin)
+		# mask everything above the threshold
+		mask |= (snr < -self.loThresh) | (snr > self.hiThresh)
+		# grow the mask from positive deviations
+		mask = binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
+		                       structure=self.growKern)
+		# fill in holes in the mask
+		mask = binary_closing(mask,iterations=5,structure=self.growKern)
+		# bright star mask
+		bsmask = False # XXX
+		# construct the output array
+		maskIm = bokutil.magnify(mask,self.nBin) | bsmask
+		return maskIm.astype(np.uint8),hdr
 
 def grow_obj_mask(im,objsIm,**kwargs):
 	statsPix = bokutil.stats_region(kwargs.get('stats_region',
