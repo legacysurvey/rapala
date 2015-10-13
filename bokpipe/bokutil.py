@@ -114,7 +114,7 @@ def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
 	if masks is not None:
 		if isinstance(masks,FileNameMap):
 			for f in fileList:
-				hdu = fitsio.FITS(masks(f))[extn])
+				hdu = fitsio.FITS(masks(f))[extn]
 				_masks.append(hdu[s])
 				# hacky to put this special case here...
 				if badKey is not None:
