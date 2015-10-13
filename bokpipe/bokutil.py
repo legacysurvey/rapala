@@ -125,7 +125,7 @@ def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
 		else:
 			for f in masks:
 				_masks.append(fitsio.FITS(f)[extn][s])
-		mask = np.dstack(_masks)
+		mask = np.dstack(_masks).astype(np.bool)
 	else:
 		mask = None
 	if masterMask is not None:

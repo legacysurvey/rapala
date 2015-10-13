@@ -575,6 +575,7 @@ import matplotlib.pyplot as plt #XXX
 class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		self.nBin = kwargs.get('binSize',4)
+		kwargs.setdefault('header_key','SKYMSK')
 		super(BokGenerateSkyFlatMasks,self).__init__(**kwargs)
 		self.hiThresh = kwargs.get('high_thresh',5.0)
 		self.loThresh = kwargs.get('low_thresh',5.0)
