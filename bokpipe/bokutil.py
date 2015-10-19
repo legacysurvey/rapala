@@ -113,18 +113,17 @@ def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
 	_masks = []
 	if masks is not None:
 		if isinstance(masks,FileNameMap):
-			for f in fileList:
-				hdu = fitsio.FITS(masks(f))[extn]
-				_masks.append(hdu[s])
-				# hacky to put this special case here...
-				if badKey is not None:
-					hdr = hdu.read_header()
-					if badKey in hdr:
-						print 'blanking ',f,extn,badKey
-						_masks[-1][:] = True
+			maskFiles = [ masks(f) for f in fileList ]
 		else:
-			for f in masks:
-				_masks.append(fitsio.FITS(f)[extn][s])
+			maskFiles = masks
+		for f in maskFiles:
+			hdu = fitsio.FITS(f)[extn]
+			_masks.append(hdu[s])
+			# hacky to put this special case here...
+			if badKey is not None:
+				hdr = hdu.read_header()
+				if badKey in hdr:
+					_masks[-1][:] = True
 		mask = np.dstack(_masks).astype(np.bool)
 	else:
 		mask = None
