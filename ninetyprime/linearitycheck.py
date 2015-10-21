@@ -47,15 +47,15 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 		                                verbose=10)#method='median_value')
 	oscanSubtract.process_files(dataMap['files'])
 	if bias2d:
-		raise NotImplementedError
-		biasStack = bokproc.BokBiasStack(reject=None,
+		biasname = 'bias'
+		biasStack = bokproc.BokBiasStack(#reject=None,
 		                                 overwrite=redo,
 		                                 with_variance=withvar)
 		bias2dFile = dataMap['outdir']+biasname+'.fits'
-		biasStack.stack(biasFrames,bias2dFile)
-		imProcess = bokproc.BokCCDProcess(bias2dFile,
-		                                  output_map=dataMap['proc'])
-		imProcess.process_files(flatFrames)
+		biasStack.stack(dataMap['biasFiles'],bias2dFile)
+		#imProcess = bokproc.BokCCDProcess(bias2dFile,
+		#                                  output_map=dataMap['proc'])
+		#imProcess.process_files(flatFrames)
 
 def imstat(dataMap,outfn='stats'):
 	from astropy.stats import sigma_clip
@@ -301,14 +301,33 @@ def init_oct02ptc_data_map():
 	dataMap['refExpTime'] = 10.0
 	return dataMap
 
+def init_oct20_data_map():
+	datadir = os.environ.get('BASSDATA')+'/20151020/'
+	outdir = 'tmp/proc/'
+	exptimes = np.loadtxt(datadir+'images.log',usecols=(6,))
+	nuse = 53
+	exptimes = exptimes[:nuse]
+	print exptimes
+	dataMap = init_data_map(datadir,outdir,expTimes=exptimes)
+	dataMap['files'] = dataMap['files'][:nuse]
+	dataMap['biasFiles'] = dataMap['files'][:20]
+	dataMap['flatSequence'] = range(20,nuse)
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	dataMap['refExpTime'] = 3.0
+	return dataMap
+
 if __name__=='__main__':
 	import sys
 	dataset = sys.argv[1] 
 	if dataset == 'sep09bss':
 		dataMap = init_sep09bss_data_map()
-	if dataset == 'oct02':
+	elif dataset == 'oct02':
 		dataMap = init_oct02ptc_data_map()
+	elif dataset == 'oct20':
+		dataMap = init_oct20_data_map()
+	else:
+		raise ValueError
 	print 'processing ',dataset
-	process_data(dataMap)
-	imstat(dataMap,outfn='stats_'+dataset)
+	process_data(dataMap,bias2d=True)
+	#imstat(dataMap,outfn='stats_'+dataset)
 
