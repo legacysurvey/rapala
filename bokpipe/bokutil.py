@@ -244,20 +244,26 @@ class BokMefImage(object):
 		else:
 			self.outFits.write(data,extname=self.curExtName,header=header,
 			                   clobber=False)
+	def _load_masks(self,extName):
+		mask = self.masks[0][extName].read().astype(np.bool)
+		for m in self.masks[1:]:
+			mask |= m[self.extName].read().astype(np.bool)
+		return mask
 	def __iter__(self):
 		for self.curExtName in self.extensions:
 			data = self.fits[self.curExtName].read()
 			hdr = self.fits[self.curExtName].read_header()
 			if len(self.masks) > 0:
-				mask = self.masks[0][self.curExtName].read().astype(np.bool)
-				for m in self.masks[1:]:
-					mask |= m[self.curExtName].read().astype(np.bool)
+				mask = self._load_masks(self.curExtName)
 				data = np.ma.masked_array(data,mask=mask)
 			yield self.curExtName,data,hdr
 	def get(self,extName,subset=None,header=False):
 		if subset is None:
 			subset = np.s_[:,:]
 		data = self.fits[extName][subset]
+		if len(self.masks) > 0:
+			mask = self._load_masks(extName)
+			data = np.ma.masked_array(data,mask=mask)
 		if header:
 			return data,self.fits[extName].read_header()
 		else:
@@ -528,6 +534,7 @@ class BokMefImageCube(object):
 				expTime = np.ma.vstack(expTime)
 				expTimeFits.write(expTime,extname=extn,header=hdr)
 			if self.withVariance:
+				var = np.ma.vstack(var)
 				var = var.filled(0).astype(np.float32)
 				varFits.write(var,extname=extn,header=hdr)
 		outFits.close()
