@@ -157,6 +157,13 @@ class TimerLog():
 		times = np.array(self.times[1:]) - self.times[0]
 		itimes = np.diff(self.times)
 		ftimes = itimes / times[-1]
+		tscale = 1.
+		if times[-1] > 5*3600:
+			tscale = 3600.  # -> hours
+		elif times[-1] > 5*60:
+			tscale = 60.  # -> minutes
+		itimes /= tscale
+		times /= tscale
 		print '%20s %8s %8s %8s' % ('stage','time','elapsed','frac')
 		for t in zip(stages,itimes,times,ftimes):
 			print '%20s %8.3f %8.3f %8.3f' % t
