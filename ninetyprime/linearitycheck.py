@@ -45,7 +45,7 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 		                    oscan_cols_file=dataMap['outdir']+'oscan_cols',
 		                    oscan_rows_file=dataMap['outdir']+'oscan_rows',
 		                                verbose=10)#method='median_value')
-	oscanSubtract.process_files(dataMap['files'])
+	oscanSubtract.process_files(dataMap['rawFiles'])
 	if bias2d:
 		biasname = 'bias'
 		biasStack = bokproc.BokBiasStack(#reject=None,
@@ -167,7 +167,7 @@ def fit_ref_exposures(dataMap,st,imNum,
 		plt.axhline(0,c='r')
 	return fit
 
-def plot_linearity_curves(dataMap,st,which='median',correct=True,
+def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
                           refCor=None,fitmethod='spline',outfn='linearity'):
 	seqno = 1 + np.arange(len(st))
 	t = st['expTime']
@@ -178,7 +178,7 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,
 	ii = np.arange(len(st))
 	# only use the increasing sequence, not the reference exposures
 	ii = ii[~ref]
-	if np.all(np.isclose(t[ii[::2]],t[ii[1::2]])):
+	if isPTC:
 		# for PTCs skip every other image since they are done in pairs
 		ii = ii[::2]
 	#
@@ -251,8 +251,7 @@ def get_first_saturated_frame(seq):
 	return firstsat
 
 def compare_oscan_levels(dataMap,st):
-	files = [ dataMap['oscan'](dataMap['files'][i]) 
-	                for i in dataMap['flatSequence'] ]
+	files = [ dataMap['files'][i] for i in dataMap['flatSequence'] ]
 	oscans = np.zeros((len(files),16))
 	for j in range(16):
 		oscans[:,j] = [ fitsio.read_header(f,'IM%d'%(j+1))['OSCANMED']
@@ -302,14 +301,17 @@ def init_oct02ptc_data_map():
 	return dataMap
 
 def init_oct20_data_map():
-	datadir = os.environ.get('BASSDATA')+'/20151020/'
+	#datadir = os.environ.get('BASSDATA')+'/20151020/'
+	datadir = 'tmp/20151020/'
 	outdir = 'tmp/proc/'
 	exptimes = np.loadtxt(datadir+'images.log',usecols=(6,))
 	nuse = 53
 	exptimes = exptimes[:nuse]
 	print exptimes
 	dataMap = init_data_map(datadir,outdir,expTimes=exptimes)
-	dataMap['files'] = dataMap['files'][:nuse]
+	dataMap['rawFiles'] = dataMap['files'][:nuse]
+	dataMap['files'] = [ dataMap['oscan'](f) 
+	                       for f in dataMap['files'][:nuse] ]
 	dataMap['biasFiles'] = dataMap['files'][:20]
 	dataMap['flatSequence'] = range(20,nuse)
 	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
@@ -329,5 +331,5 @@ if __name__=='__main__':
 		raise ValueError
 	print 'processing ',dataset
 	process_data(dataMap,bias2d=True)
-	#imstat(dataMap,outfn='stats_'+dataset)
+	imstat(dataMap,outfn='stats_'+dataset)
 
