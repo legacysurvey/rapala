@@ -93,7 +93,7 @@ def get_utds(utds=None):
 	return _utds
 
 def get_files(logs,utds=None,imType=None,filt=None,im_range=None,
-              exclude_objs=None):
+              exclude_objs=None,addBiases=True):
 	utds = get_utds(utds)
 	files = []
 	for utd in utds:
@@ -109,6 +109,10 @@ def get_files(logs,utds=None,imType=None,filt=None,im_range=None,
 			is_filt = True
 		else:
 			is_filt = logs[utd]['filter'] == filt
+			if addBiases:
+				# special case to include bias frames regardless of what
+				# filter was in place when they were taken
+				is_filt |= logs[utd]['imType'] == 'zero'
 		exclude = np.zeros_like(is_range)
 		if exclude_objs is not None:
 			for objnm in exclude_objs:
@@ -165,19 +169,20 @@ def makeccd4image(inputFile,**kwargs):
 	ccd4map = bokutil.FileNameMap(caldir,'_4ccd')
 	bokproc.combine_ccds([inputFile,],output_map=ccd4map,**kwargs)
 
-def overscan_subtract(utds=None,filt=None,**kwargs):
+def overscan_subtract(utds=None,filt=None,addBiases=True,**kwargs):
 	oscanSubtract = BokOverscanSubtract(input_map=RMFileNameMap(fromRaw=True),
                                         output_map=RMFileNameMap(),
                                         **kwargs)
-	oscanSubtract.process_files(get_files(logs,utds,filt=filt))
+	files = get_files(logs,utds,filt=filt,addBiases=addBiases)
+	oscanSubtract.process_files(files)
 
-def make_2d_biases(utds=None,nSkip=2,reject='sigma_clip',filt=None,
+def make_2d_biases(utds=None,nSkip=2,reject='sigma_clip',
                    writeccdim=False,**kwargs):
 	biasStack = bokproc.BokBiasStack(input_map=RMFileNameMap(),
 	                                 reject=reject,
                                      **kwargs)
 	for utd in utds:
-		files = get_files(logs,utd,imType='zero',filt=filt)
+		files = get_files(logs,utd,imType='zero')
 		if files is None:
 			continue
 		files = files[nSkip:]
@@ -351,10 +356,10 @@ def rmpipe(utds,filt,newfiles,redo,steps,verbose,**kwargs):
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	timerLog = bokutil.TimerLog()
 	if steps is None or 'oscan' in steps:
-		overscan_subtract(utds,filt=filt,**pipekwargs)
+		overscan_subtract(utds,filt=filt,addBiases=True,**pipekwargs)
 		timerLog('overscans')
 	if steps is None or 'bias2d' in steps:
-		make_2d_biases(utds,filt=filt,writeccdim=True,**pipekwargs)
+		make_2d_biases(utds,writeccdim=True,**pipekwargs)
 		timerLog('2d biases')
 	biasMap = get_bias_map(utds,filt=filt)
 	if steps is None or 'flat2d' in steps:
