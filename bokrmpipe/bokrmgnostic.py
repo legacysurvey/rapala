@@ -37,12 +37,12 @@ def make_circular_filter(radius):
 	circfilt = r < radius
 	return circfilt
 
-def check_CCD3_gradient(files,nbin=16,nims=10):
+def check_CCD3_gradient(files,nbin=16,nims=None,sfx=''):
 	extensions = ['IM9','IM10']
 	binnedIms = { extn:[] for extn in extensions }
-	bsfilt1 = make_circular_filter(50)
-	bsfilt2 = make_circular_filter(15)
 	snum = 1
+	if nims is None:
+		nims = len(files)
 	for f in files:
 		print 'processing ',f
 		mef = bokutil.BokMefImage(f,read_only=True,
@@ -77,8 +77,28 @@ def check_CCD3_gradient(files,nbin=16,nims=10):
 				cube = np.dstack(binnedIms[extn])
 				cube = sigma_clip(cube,iters=3,sig=2.0,axis=-1)
 				stack = cube.mean(axis=-1).filled(0)
-				fits.writeto('stack_%s_%d.fits'%(extn,snum),stack,clobber=True)
+				stackrms = cube.std(axis=-1).filled(0)
+				print 'writing stack ',snum
+				fits.writeto('stack%s_%s_%d.fits'%(sfx,extn,snum),
+				             stack,clobber=True)
+				fits.writeto('stackrms%s_%s_%d.fits'%(sfx,extn,snum),
+				             stackrms,clobber=True)
 				if extn==extensions[-1]:
 					snum += 1
 				binnedIms[extn] = []
+
+def make_gradient_ims(pdir='tmprm_bias/'):
+	from glob import glob
+	f0123 = sorted(glob(pdir+'ut20140123/bokrm.20140123.????.fits'))
+	f0123 = f0123[27:57]
+	check_CCD3_gradient(f0123,sfx='_p0123')
+	# this is a bright night. too much scattered light.
+	#f0413 = sorted(glob(pdir+'ut20140413/bokrm.20140413.????.fits'))
+	#f0413 = f0413[30:60]
+	#check_CCD3_gradient(f0413,sfx='_p0413')
+	f0415 = sorted(glob(pdir+'ut20140415/bokrm.20140415.????.fits'))
+	f0415 = f0415[12:43]
+	check_CCD3_gradient(f0415,sfx='_p0415')
+	f0427 = sorted(glob(pdir+'ut20140427/bokrm.20140427.????.fits'))
+	check_CCD3_gradient(f0427,sfx='_p0427')
 
