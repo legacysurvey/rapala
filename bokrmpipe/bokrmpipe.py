@@ -19,8 +19,13 @@ import badpixels
 import boklog
 logs = boklog.load_Bok_logs()
 
-datadir = os.environ['HOME']+'/data/observing/Bok/90Prime/RM/'
-rdxdir = 'tmprm/'
+reduxVersion = 'bokrm_v0.1'
+
+datadir = os.environ['BOK90PRIMERAWDIR']
+#is_gzipped = True
+is_gzipped = False
+#rdxdir = os.path.join(os.environ['BOK90PRIMEOUTDIR'],reduxVersion)
+rdxdir = 'tmprm_bias/'
 caldir = rdxdir+'cals/'
 diagdir = rdxdir+'diagnostics/'
 
@@ -35,7 +40,10 @@ class RMFileNameMap(bokutil.FileNameMap):
 	def __call__(self,fileName):
 		fn = fileName+self.newSuffix+'.fits'
 		if self.fromRaw:
-			return os.path.join(datadir,fn+'.gz')
+			if is_gzipped:
+				return os.path.join(datadir,fn+'.gz')
+			else:
+				return os.path.join(datadir,fn)
 		else:
 			return os.path.join(rdxdir,fn)
 
@@ -333,42 +341,79 @@ def make_images():
 		                                mask=f.replace('.fits','.skymsk.fits'))
 	plt.ion()
 
-def rmpipe():
-	utds = ['20140425','20140427']
-	kwargs = {'clobber':False,'verbose':10}
-	inplace = True
-	filt = 'g'
+def rmpipe(utds,filt,newfiles,redo,steps,verbose,**kwargs):
+	pipekwargs = {'clobber':redo,'verbose':verbose}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
 	fixpix = False #True
-	fileMap = processInPlace() if inplace else processToNewFiles()
+	fileMap = processToNewFiles() if newfiles else processInPlace() 
 	for utd in utds:
 		utdir = os.path.join(rdxdir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	timerLog = bokutil.TimerLog()
-	overscan_subtract(utds,filt=filt,**kwargs)
-	timerLog('overscans')
-	make_2d_biases(utds,filt=filt,writeccdim=True,**kwargs)
-	timerLog('2d biases')
+	if steps is None or 'oscan' in steps:
+		overscan_subtract(utds,filt=filt,**pipekwargs)
+		timerLog('overscans')
+	if steps is None or 'bias2d' in steps:
+		make_2d_biases(utds,filt=filt,writeccdim=True,**pipekwargs)
+		timerLog('2d biases')
 	biasMap = get_bias_map(utds,filt=filt)
-	make_dome_flats(fileMap,biasMap,utds,filt=filt,writeccdim=True,**kwargs)
-	timerLog('dome flats')
-	make_bad_pixel_masks()
-	timerLog('bad pixel masks')
-	flatMap = get_flat_map(utds,filt=filt)
-	process_all(fileMap,biasMap,flatMap,utds,filt=filt,
-	            fixpix=fixpix,**kwargs)
-	timerLog('ccdproc')
-	make_supersky_flats(fileMap,utds,filt=filt,**kwargs)
-	timerLog('supersky flats')
-	# XXX for testing
-	#fileMap = processToNewFiles()
-	timerLog('process2')
+	if steps is None or 'flat2d' in steps:
+		make_dome_flats(fileMap,biasMap,utds,filt=filt,
+		                writeccdim=True,**pipekwargs)
+		timerLog('dome flats')
+	if steps is None or 'bpmask' in steps:
+		make_bad_pixel_masks()
+		timerLog('bad pixel masks')
+	if kwargs.get('noflatcorr',False):
+		flatMap = None
+	else:
+		flatMap = get_flat_map(utds,filt=filt)
+	if steps is None or 'proc1' in steps:
+		process_all(fileMap,biasMap,flatMap,utds,filt=filt,
+		            fixpix=fixpix,**pipekwargs)
+		timerLog('ccdproc')
+	if steps is None or 'skyflat' in steps:
+		make_supersky_flats(fileMap,utds,filt=filt,**pipekwargs)
+		timerLog('supersky flats')
+	if steps is None or 'proc2' in steps:
+		# XXX for testing
+		#fileMap = processToNewFiles()
+		timerLog('process2')
 	timerLog.dump()
 
 if __name__=='__main__':
 	import sys
-	if len(sys.argv)==1:
-		rmpipe()
-	elif sys.argv[1]=='images':
-		make_images()
+	import argparse
+	parser = argparse.ArgumentParser()
+	parser.add_argument('-b','--band',type=str,default=None,
+	                help='band to process (g or i) [default=all]')
+	parser.add_argument('-i','--images',action='store_true',
+	                help='make png images [default=False]')
+	parser.add_argument('-n','--newfiles',action='store_true',
+	                help='process to new files (not in-place) [default=False]')
+	parser.add_argument('-r','--redo',action='store_true',
+	                help='redo and overwite existing files [default=False]')
+	parser.add_argument('-s','--steps',type=str,default=None,
+	                help='process steps to execute [default=all]')
+	parser.add_argument('-u','--utdate',type=str,default=None,
+	                help='UT date(s) to process [default=all]')
+	parser.add_argument('-v','--verbose',action='count',
+	                help='increase output verbosity')
+	parser.add_argument('--noflatcorr',action='store_true',
+	                help='do not apply flat correction [default=False]')
+	args = parser.parse_args()
+	if args.utdate is None:
+		utds = None
+	else:
+		utds = args.utdate.split(',')
+	if args.steps is None:
+		steps = None
+	else:
+		steps = args.steps.split(',')
+	verbose = 0 if args.verbose is None else args.verbose
+	if args.images:
+		makeimages()
+	else:
+		rmpipe(utds,args.band,args.newfiles,args.redo,steps,verbose,
+		       noflatcorr=args.noflatcorr)
 
