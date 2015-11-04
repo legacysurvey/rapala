@@ -262,7 +262,7 @@ def balance_gains(inputFileMap,utds=None,filt=None,**kwargs):
 	return gainMap
 
 def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
-                fixpix=False,**kwargs):
+                fixpix=False,nocombine=False,**kwargs):
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
 	proc = bokproc.BokCCDProcess(bias_map,
@@ -274,6 +274,8 @@ def process_all(file_map,bias_map,flat_map,utds=None,filt=None,
 	                             **kwargs)
 	files = get_files(logs,utds,imType='object',filt=filt)
 	proc.process_files(files)
+	if nocombine:
+		return
 	# 2. balance gains using background counts
 	gainMap = balance_gains(file_map('proc',False),
 	                        utds=utds,filt=filt,**kwargs)
@@ -375,7 +377,8 @@ def rmpipe(utds,filt,newfiles,redo,steps,verbose,**kwargs):
 		flatMap = get_flat_map(utds,filt=filt)
 	if steps is None or 'proc1' in steps:
 		process_all(fileMap,biasMap,flatMap,utds,filt=filt,
-		            fixpix=fixpix,**pipekwargs)
+		            fixpix=fixpix,nocombine=kwargs.get('nocombine'),
+		            **pipekwargs)
 		timerLog('ccdproc')
 	if steps is None or 'skyflat' in steps:
 		make_supersky_flats(fileMap,utds,filt=filt,**pipekwargs)
@@ -406,6 +409,8 @@ if __name__=='__main__':
 	                help='increase output verbosity')
 	parser.add_argument('--noflatcorr',action='store_true',
 	                help='do not apply flat correction [default=False]')
+	parser.add_argument('--nocombine',action='store_true',
+	                help='do not combine into CCD images [default=False]')
 	args = parser.parse_args()
 	if args.utdate is None:
 		utds = None
@@ -420,5 +425,6 @@ if __name__=='__main__':
 		makeimages()
 	else:
 		rmpipe(utds,args.band,args.newfiles,args.redo,steps,verbose,
-		       noflatcorr=args.noflatcorr)
+		       noflatcorr=args.noflatcorr,
+		       nocombine=args.nocombine)
 
