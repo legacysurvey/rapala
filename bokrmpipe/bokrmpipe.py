@@ -3,6 +3,8 @@
 import os
 import re
 import glob
+from copy import copy
+import multiprocessing
 import numpy as np
 from numpy.core.defchararray import add as char_add
 import fitsio
@@ -18,7 +20,8 @@ loadpath()
 import boklog
 logs = boklog.load_Bok_logs()
 
-reduxVersion = 'bokrm_v0.1'
+reduxVersion = 'bokrm001'
+#reduxVersion = 'bokrm_v0.1'
 
 class RMFileNameMap(bokutil.FileNameMap):
 	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
@@ -394,7 +397,7 @@ def create_file_map(rawDir,procDir,utds,bands,newfiles):
 	for d in [procDir,fileMap.getCalDir(),fileMap.getDiagDir()]:
 		if not os.path.exists(d):
 			os.mkdir(d)
-	for utd in utds:
+	for utd in fileMap.getUtDates():
 		utdir = os.path.join(procDir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	return fileMap
@@ -435,6 +438,21 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 		timerLog('process2')
 	timerLog.dump()
 
+def rmpipe_poormp(nProc,fileMap,*args,**kwargs):
+	def chunks(l, n):
+		nstep = int(round(len(l)/float(n)))
+		for i in xrange(0, len(l), nstep):
+			yield l[i:i+nstep]
+	utdSets = chunks(fileMap.getUtDates(),nProc)
+	jobs = []
+	for i,utds in enumerate(utdSets):
+		fmap = copy(fileMap)
+		fmap.setUtDates(utds)
+		_args = (fmap,) + args
+		p = multiprocessing.Process(target=rmpipe,args=_args,kwargs=kwargs)
+		jobs.append(p)
+		p.start()
+
 if __name__=='__main__':
 	import sys
 	import argparse
@@ -447,6 +465,8 @@ if __name__=='__main__':
 	                help='process to new files (not in-place)')
 	parser.add_argument('-o','--output',type=str,default=None,
 	                help='output directory [default=$BOK90PRIMEOUTDIR]')
+	parser.add_argument('-p','--processes',type=int,default=1,
+	                help='number of processes to use [default=single]')
 	parser.add_argument('-r','--rawdir',type=str,default=None,
 	                help='raw data directory [default=$BOK90PRIMERAWDIR]')
 	parser.add_argument('-R','--redo',action='store_true',
@@ -480,6 +500,11 @@ if __name__=='__main__':
 	                          utds,args.band,args.newfiles)
 	if args.images:
 		makeimages()
+	elif args.processes > 1:
+		rmpipe_poormp(args.processes,
+		              fileMap,args.redo,steps,verbose,
+		              noflatcorr=args.noflatcorr,
+		              nocombine=args.nocombine)
 	else:
 		rmpipe(fileMap,args.redo,steps,verbose,
 		       noflatcorr=args.noflatcorr,
