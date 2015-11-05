@@ -263,7 +263,7 @@ class BokMefImage(object):
 			data = self.fits[self.curExtName].read()
 			hdr = self.fits[self.curExtName].read_header()
 			if len(self.masks) > 0:
-				mask = self._load_masks(self.curExtName)
+				mask = self._load_masks(self.curExtName,None)
 				data = np.ma.masked_array(data,mask=mask)
 			yield self.curExtName,data,hdr
 	def get(self,extName,subset=None,header=False):
