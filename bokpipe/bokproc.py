@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 import subprocess
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline,griddata
@@ -454,7 +455,7 @@ def combine_ccds(fileList,**kwargs):
 	origin = kwargs.get('origin','center')
 	clobber = kwargs.get('clobber')
 	ignoreExisting = kwargs.get('ignore_existing',True)
-	tmpFileName = 'tmp.fits'
+	tmpFileName = '/tmp/tmp.fits'
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
 	for f in fileList:
@@ -515,7 +516,7 @@ def combine_ccds(fileList,**kwargs):
 			outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
 		outFits.close()
 		if outputFileMap is None:
-			os.rename(tmpFileName,inputFile)
+			shutil.move(tmpFileName,inputFile)
 
 
 
