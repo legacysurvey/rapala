@@ -254,7 +254,7 @@ class BokMefImage(object):
 	def _load_masks(self,extName):
 		mask = self.masks[0][extName].read().astype(np.bool)
 		for m in self.masks[1:]:
-			mask |= m[self.extName].read().astype(np.bool)
+			mask |= m[extName].read().astype(np.bool)
 		return mask
 	def __iter__(self):
 		for self.curExtName in self.extensions:
