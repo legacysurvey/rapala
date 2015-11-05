@@ -251,10 +251,12 @@ class BokMefImage(object):
 		else:
 			self.outFits.write(data,extname=self.curExtName,header=header,
 			                   clobber=False)
-	def _load_masks(self,extName):
-		mask = self.masks[0][extName].read().astype(np.bool)
+	def _load_masks(self,extName,subset):
+		if subset is None:
+			subset = np.s_[:,:]
+		mask = self.masks[0][extName][subset].astype(np.bool)
 		for m in self.masks[1:]:
-			mask |= m[extName].read().astype(np.bool)
+			mask |= m[extName][subset].astype(np.bool)
 		return mask
 	def __iter__(self):
 		for self.curExtName in self.extensions:
@@ -269,7 +271,7 @@ class BokMefImage(object):
 			subset = np.s_[:,:]
 		data = self.fits[extName][subset]
 		if len(self.masks) > 0:
-			mask = self._load_masks(extName)
+			mask = self._load_masks(extName,subset)
 			data = np.ma.masked_array(data,mask=mask)
 		if header:
 			return data,self.fits[extName].read_header()
