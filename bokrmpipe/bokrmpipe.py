@@ -398,19 +398,19 @@ if __name__=='__main__':
 	parser.add_argument('-i','--images',action='store_true',
 	                help='make png images [default=False]')
 	parser.add_argument('-n','--newfiles',action='store_true',
-	                help='process to new files (not in-place) [default=False]')
+	                help='process to new files (not in-place)')
 	parser.add_argument('-r','--redo',action='store_true',
-	                help='redo and overwite existing files [default=False]')
+	                help='redo (overwrite existing files)')
 	parser.add_argument('-s','--steps',type=str,default=None,
-	                help='process steps to execute [default=all]')
+	                help='processing steps to execute [default=all]')
 	parser.add_argument('-u','--utdate',type=str,default=None,
 	                help='UT date(s) to process [default=all]')
 	parser.add_argument('-v','--verbose',action='count',
 	                help='increase output verbosity')
 	parser.add_argument('--noflatcorr',action='store_true',
-	                help='do not apply flat correction [default=False]')
+	                help='do not apply flat correction')
 	parser.add_argument('--nocombine',action='store_true',
-	                help='do not combine into CCD images [default=False]')
+	                help='do not combine into CCD images')
 	args = parser.parse_args()
 	if args.utdate is None:
 		utds = None
