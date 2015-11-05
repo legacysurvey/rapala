@@ -68,7 +68,7 @@ class processInPlace(object):
 		               '_sky':'_tmpsky'}
 	def __call__(self,t,output=True):
 		if t in self.fremap:
-			# some files nned to be remapped even when processing in-place
+			# some files need to be remapped even when processing in-place
 			return RMFileNameMap(self.fremap[t])
 		if output:
 			return None
@@ -348,6 +348,9 @@ def make_images():
 		                                mask=f.replace('.fits','.skymsk.fits'))
 	plt.ion()
 
+all_process_steps = ['oscan','bias2d','flat2d','bpmask',
+                     'proc1','skyflat','proc2']
+
 def rmpipe(utds,filt,newfiles,redo,steps,verbose,**kwargs):
 	pipekwargs = {'clobber':redo,'verbose':verbose}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
@@ -357,33 +360,33 @@ def rmpipe(utds,filt,newfiles,redo,steps,verbose,**kwargs):
 		utdir = os.path.join(rdxdir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	timerLog = bokutil.TimerLog()
-	if steps is None or 'oscan' in steps:
+	if 'oscan' in steps:
 		overscan_subtract(utds,filt=filt,addBiases=True,**pipekwargs)
 		timerLog('overscans')
-	if steps is None or 'bias2d' in steps:
+	if 'bias2d' in steps:
 		make_2d_biases(utds,writeccdim=True,**pipekwargs)
 		timerLog('2d biases')
 	biasMap = get_bias_map(utds,filt=filt)
-	if steps is None or 'flat2d' in steps:
+	if 'flat2d' in steps:
 		make_dome_flats(fileMap,biasMap,utds,filt=filt,
 		                writeccdim=True,**pipekwargs)
 		timerLog('dome flats')
-	if steps is None or 'bpmask' in steps:
+	if 'bpmask' in steps:
 		make_bad_pixel_masks()
 		timerLog('bad pixel masks')
 	if kwargs.get('noflatcorr',False):
 		flatMap = None
 	else:
 		flatMap = get_flat_map(utds,filt=filt)
-	if steps is None or 'proc1' in steps:
+	if 'proc1' in steps:
 		process_all(fileMap,biasMap,flatMap,utds,filt=filt,
 		            fixpix=fixpix,nocombine=kwargs.get('nocombine'),
 		            **pipekwargs)
 		timerLog('ccdproc')
-	if steps is None or 'skyflat' in steps:
+	if 'skyflat' in steps:
 		make_supersky_flats(fileMap,utds,filt=filt,**pipekwargs)
 		timerLog('supersky flats')
-	if steps is None or 'proc2' in steps:
+	if 'proc2' in steps:
 		# XXX for testing
 		#fileMap = processToNewFiles()
 		timerLog('process2')
@@ -403,6 +406,8 @@ if __name__=='__main__':
 	                help='redo (overwrite existing files)')
 	parser.add_argument('-s','--steps',type=str,default=None,
 	                help='processing steps to execute [default=all]')
+	parser.add_argument('-S','--stepto',type=str,default=None,
+	                help='process until this step [default=all]')
 	parser.add_argument('-u','--utdate',type=str,default=None,
 	                help='UT date(s) to process [default=all]')
 	parser.add_argument('-v','--verbose',action='count',
@@ -417,7 +422,10 @@ if __name__=='__main__':
 	else:
 		utds = args.utdate.split(',')
 	if args.steps is None:
-		steps = None
+		if args.stepto is None:
+			steps = all_process_steps
+		else:
+			steps = all_process_steps[:all_process_steps.index(args.stepto)+1]
 	else:
 		steps = args.steps.split(',')
 	verbose = 0 if args.verbose is None else args.verbose
