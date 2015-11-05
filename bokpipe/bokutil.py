@@ -327,8 +327,13 @@ class BokProcess(object):
 		self.outputNameMap = kwargs.get('output_map')
 		if self.outputNameMap is None:
 			self.outputNameMap = NullNameMap
+		self.masks = []
 		self.maskNameMap = kwargs.get('mask_map')
 		if self.maskNameMap is None:
+			self.maskNameMap = NullNameMap
+		elif type(self.maskNameMap) is fitsio.fitslib.FITS:
+			# a master mask instead of a map
+			self.add_mask(self.maskNameMap)
 			self.maskNameMap = NullNameMap
 		self.clobber = kwargs.get('clobber',False)
 		self.readOnly = kwargs.get('read_only',False)
@@ -336,7 +341,6 @@ class BokProcess(object):
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.verbose = kwargs.get('verbose',0)
-		self.masks = []
 		self.noConvert = False
 	def add_mask(self,maskFits):
 		if type(maskFits) is str:
