@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
-from astropy.io import fits
+import fitsio
 
-import bokutil
-import bokproc
-import bokrmpipe
+from bokpipe import *
 
 def plot_gain_vals(diagfile):
 	g = np.load(diagfile)#,gains=gainCorV,skys=skyV,gainCor=gainCor)
@@ -37,16 +36,28 @@ def make_circular_filter(radius):
 	circfilt = r < radius
 	return circfilt
 
-def check_CCD3_gradient(files,nbin=16,nims=None,sfx=''):
-	extensions = ['IM9','IM10']
+def make_gradient_ims(files,bpmask,nbin=16,nims=None,
+                      sfx='',extensions=None,dorms=False):
+	if extensions is None:
+		extensions = ['IM9','IM10']
 	binnedIms = { extn:[] for extn in extensions }
 	snum = 1
 	if nims is None:
 		nims = len(files)
 	for f in files:
 		print 'processing ',f
-		mef = bokutil.BokMefImage(f,read_only=True,
-		                          mask_file=bokrmpipe.MasterBadPixMask()())
+		mef = bokutil.BokMefImage(f,read_only=True,mask_file=bpmask)
+		outf = 'stack%s_%d.fits' % (sfx,snum)
+		if os.path.exists(outf):
+			os.unlink(outf)
+		outFits = fitsio.FITS(outf,'rw')
+		outFits.write(None)
+		if dorms:
+			outrmsf = 'stackrms%s_%d.fits' % (sfx,snum)
+			if os.path.exists(outrmsf):
+				os.unlink(outrmsf)
+			outrmsFits = fitsio.FITS(outrmsf,'rw')
+			outrmsFits.write(None)
 		for extn in extensions:
 			im = mef.get(extn)
 			# do a global image clipping 
@@ -72,33 +83,82 @@ def check_CCD3_gradient(files,nbin=16,nims=None,sfx=''):
 			mbim = bim.mean(axis=-1)
 			# mask if a majority of binned pixels are masked
 			mbim.mask |= nmasked > nbin**2/2
-			binnedIms[extn].append(mbim-np.ma.median(mbim))
+			# subtract the median sky level
+			mbim -= np.ma.median(mbim)
+			binnedIms[extn].append(mbim)
 			if len(binnedIms[extn])==nims:
-				cube = np.dstack(binnedIms[extn])
+				cube = np.ma.dstack(binnedIms[extn])
 				cube = sigma_clip(cube,iters=3,sig=2.0,axis=-1)
 				stack = cube.mean(axis=-1).filled(0)
 				stackrms = cube.std(axis=-1).filled(0)
 				print 'writing stack ',snum
-				fits.writeto('stack%s_%s_%d.fits'%(sfx,extn,snum),
-				             stack,clobber=True)
-				fits.writeto('stackrms%s_%s_%d.fits'%(sfx,extn,snum),
-				             stackrms,clobber=True)
+				outFits.write(stack,extname=extn,header={'NBIN':nbin})
+				if dorms:
+					outrmsFits.write(stackrms,extname=extn)
 				if extn==extensions[-1]:
 					snum += 1
 				binnedIms[extn] = []
+		outFits.close()
+		if dorms:
+			outrmsFits.close()
 
-def make_gradient_ims(pdir='tmprm_bias/'):
+def make_correction_im(gradientFile,outputFile,fitFile=None):
+	from scipy.interpolate import LSQBivariateSpline
+	gradientFits = fitsio.FITS(gradientFile)
+	if os.path.exists(outputFile):
+		os.unlink(outputFile)
+	corrFits = fitsio.FITS(outputFile,'rw')
+	corrFits.write(None)
+	if fitFile is not None:
+		fitFits = fitsio.FITS(fitFile,'rw')
+		fitFits.write(None)
+	for hdu in gradientFits[1:]:
+		extn = hdu.get_extname().upper()
+		gim = hdu.read()
+		nbin = hdu.read_header()['NBIN']
+		ny,nx = gim.shape
+		nY,nX = ny*nbin,nx*nbin
+		yi,xi = np.indices(gim.shape)
+		ii = gim != 0
+		spfit = LSQBivariateSpline(xi[ii]*nbin,yi[ii]*nbin,gim[ii],
+		                           [0,nX],[0,nY],kx=3,ky=3)
+		im = spfit(np.arange(nX),np.arange(nY)).T
+		corrFits.write(im,extname=extn)
+		if fitFile is not None:
+			fitFits.write(spfit(np.arange(nx)*nbin,np.arange(ny)*nbin).T,
+			              extname=extn)
+	gradientFits.close()
+	corrFits.close()
+	if fitFile is not None:
+		fitFits.close()
+
+def make_darksky_correction():
+	# XXX need to actually pull correct files from log
+	from glob import glob
+	pdir='tmprm_bias/'
+	f0427 = sorted(glob(pdir+'ut20140427/bokrm.20140427.????.fits'))
+	f0427 = f0427[10:]
+	bpmaskf = '/d1/OldDataDisk1/dev/rapala/bokrmpipe/tmprm/cals/badpix_master.fits'
+	make_gradient_ims(f0427,bpmaskf,sfx='_p0427')
+	gradientFile = pdir+'diagnostics/stack_p0427_1.fits'
+	outputFile = pdir+'cals/biasramp.fits'
+	make_correction_im(gradientFile,outputFile)#,fitFile=None)
+
+def test_gradient_ims(pdir='tmprm_bias/'):
 	from glob import glob
 	f0123 = sorted(glob(pdir+'ut20140123/bokrm.20140123.????.fits'))
 	f0123 = f0123[27:57]
-	check_CCD3_gradient(f0123,sfx='_p0123')
-	# this is a bright night. too much scattered light.
-	#f0413 = sorted(glob(pdir+'ut20140413/bokrm.20140413.????.fits'))
-	#f0413 = f0413[30:60]
-	#check_CCD3_gradient(f0413,sfx='_p0413')
+	make_gradient_ims(f0123,sfx='_p0123')
+	f0413 = sorted(glob(pdir+'ut20140413/bokrm.20140413.????.fits'))
+	f0413 = f0413[30:60]
+	make_gradient_ims(f0413,sfx='_p0413')
 	f0415 = sorted(glob(pdir+'ut20140415/bokrm.20140415.????.fits'))
 	f0415 = f0415[12:43]
-	check_CCD3_gradient(f0415,sfx='_p0415')
+	make_gradient_ims(f0415,sfx='_p0415')
 	f0427 = sorted(glob(pdir+'ut20140427/bokrm.20140427.????.fits'))
-	check_CCD3_gradient(f0427,sfx='_p0427')
+	f0427 = f0427[10:]
+	make_gradient_ims(f0427,sfx='_p0427')
+
+if __name__=='__main__':
+	make_darksky_correction()
 
