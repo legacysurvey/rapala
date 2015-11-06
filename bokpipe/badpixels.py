@@ -7,7 +7,7 @@ from scipy.ndimage.morphology import binary_dilation,binary_closing
 from astropy.stats import sigma_clip
 import fitsio
 
-from bokutil import rebin,BokMefImage,BokProcess
+from .bokutil import rebin,BokMefImage,BokProcess
 
 bok_badcols = {
   'IM11':range(987,994)+range(1837,1839),

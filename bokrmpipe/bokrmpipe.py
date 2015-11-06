@@ -9,19 +9,14 @@ import numpy as np
 from numpy.core.defchararray import add as char_add
 import fitsio
 
-import bokutil
-from bokoscan import BokOverscanSubtract
-import bokproc
-import badpixels
+from bokpipe import *
+from bokpipe import __version__ as pipeVersion
 
 # XXX
 from astrotools.idmstuff import loadpath
 loadpath()
 import boklog
 logs = boklog.load_Bok_logs()
-
-reduxVersion = 'bokrm001'
-#reduxVersion = 'bokrm_v0.1'
 
 class RMFileNameMap(bokutil.FileNameMap):
 	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
@@ -382,7 +377,7 @@ def create_file_map(rawDir,procDir,utds,bands,newfiles):
 	if rawDir is None:
 		rawDir = os.environ['BOK90PRIMERAWDIR']
 	if procDir is None:
-		procDir = os.path.join(os.environ['BOK90PRIMEOUTDIR'],reduxVersion)
+		procDir = os.path.join(os.environ['BOK90PRIMEOUTDIR'],pipeVersion)
 	# create the file manager object
 	if newfiles:
 		fileMap = ProcessToNewFiles(rawDir,procDir) 
@@ -408,24 +403,27 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 	fixpix = False #True
 	writeccdims = kwargs.get('calccdims',False)
 	timerLog = bokutil.TimerLog()
+	biasMap = None
 	if 'oscan' in steps:
 		overscan_subtract(fileMap,addBiases=True,**pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
 		make_2d_biases(fileMap,writeccdim=writeccdims,**pipekwargs)
 		timerLog('2d biases')
-	biasMap = get_bias_map(fileMap)
 	if 'flat2d' in steps:
+		biasMap = get_bias_map(fileMap)
 		make_dome_flats(fileMap,biasMap,writeccdim=writeccdims,**pipekwargs)
 		timerLog('dome flats')
 	if 'bpmask' in steps:
 		make_bad_pixel_masks(fileMap)
 		timerLog('bad pixel masks')
-	if kwargs.get('noflatcorr',False):
-		flatMap = None
-	else:
-		flatMap = get_flat_map(fileMap)
 	if 'proc1' in steps:
+		if biasMap is None:
+			biasMap = get_bias_map(fileMap)
+		if kwargs.get('noflatcorr',False):
+			flatMap = None
+		else:
+			flatMap = get_flat_map(fileMap)
 		process_all(fileMap,biasMap,flatMap,
 		            fixpix=fixpix,nocombine=kwargs.get('nocombine'),
 		            **pipekwargs)
