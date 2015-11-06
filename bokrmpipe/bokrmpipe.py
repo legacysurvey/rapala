@@ -10,7 +10,7 @@ from numpy.core.defchararray import add as char_add
 import fitsio
 
 from bokpipe import *
-import bokpipe.__version__ as pipeVersion
+from bokpipe import __version__ as pipeVersion
 
 # XXX
 from astrotools.idmstuff import loadpath
