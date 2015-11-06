@@ -100,10 +100,14 @@ class FileMgr(object):
 			utds = [self._curUtDate]
 		files,frames = [],[]
 		for utd in utds:
+			nFrames = len(logs[utd])
 			if im_range is None:
-				im_range = (0,len(logs[utd]))
-			frameNum = np.arange(len(logs[utd]))
-			is_range = (im_range[0] <= frameNum) & (frameNum <= im_range[1])
+				# need one boolean array to be full length
+				is_range = np.ones(nFrames,dtype=bool)
+			else:
+				frameNum = np.arange(nFrames)
+				is_range = ( (im_range[0] <= frameNum) & 
+				             (frameNum <= im_range[1]) )
 			if imType is None:
 				is_type = True
 			else:
@@ -124,8 +128,10 @@ class FileMgr(object):
 					# special case to include bias frames regardless of 
 					# what filter was in place when they were taken
 					is_filt |= logs[utd]['imType'] == 'zero'
-			exclude = np.zeros_like(is_range)
-			if exclude_objs is not None:
+			if exclude_objs is None:
+				exclude = False
+			else:
+				exclude = np.zeros(nFrames,dtype=bool)
 				for objnm in exclude_objs:
 					exclude[logs[utd]['objectName']==objnm] = True
 			ii = np.where(is_range & is_type & is_filt & ~exclude)[0]
