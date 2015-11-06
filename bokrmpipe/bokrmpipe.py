@@ -10,15 +10,13 @@ from numpy.core.defchararray import add as char_add
 import fitsio
 
 from bokpipe import *
+import bokpipe.__version__ as pipeVersion
 
 # XXX
 from astrotools.idmstuff import loadpath
 loadpath()
 import boklog
 logs = boklog.load_Bok_logs()
-
-reduxVersion = 'bokrm001'
-#reduxVersion = 'bokrm_v0.1'
 
 class RMFileNameMap(bokutil.FileNameMap):
 	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
@@ -379,7 +377,7 @@ def create_file_map(rawDir,procDir,utds,bands,newfiles):
 	if rawDir is None:
 		rawDir = os.environ['BOK90PRIMERAWDIR']
 	if procDir is None:
-		procDir = os.path.join(os.environ['BOK90PRIMEOUTDIR'],reduxVersion)
+		procDir = os.path.join(os.environ['BOK90PRIMEOUTDIR'],pipeVersion)
 	# create the file manager object
 	if newfiles:
 		fileMap = ProcessToNewFiles(rawDir,procDir) 
