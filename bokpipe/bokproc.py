@@ -234,7 +234,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.biasFits = None
 		self.biasIsMaster = True
 		if type(bias) is fitsio.fitslib.FITS:
-			self.biasFile = fits._filename
+			self.biasFile = bias._filename
 			self.biasFits = bias
 		elif type(bias) is str:
 			self.biasFile = bias
@@ -247,7 +247,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.flatFits = None
 		self.flatIsMaster = True
 		if type(flat) is fitsio.fitslib.FITS:
-			self.flatFile = fits._filename
+			self.flatFile = flat._filename
 			self.flatFits = flat
 		elif type(flat) is str:
 			self.flatFile = flat
@@ -255,6 +255,20 @@ class BokCCDProcess(bokutil.BokProcess):
 		elif type(flat) is dict:
 			self.flatMap = flat
 			self.flatIsMaster = False
+		#
+		ramp = kwargs.get('ramp_map')
+		self.rampFile = '<none>'
+		self.rampFits = None
+		self.rampIsMaster = True
+		if type(ramp) is fitsio.fitslib.FITS:
+			self.rampFile = ramp._filename
+			self.rampFits = ramp
+		elif type(ramp) is str:
+			self.rampFile = ramp
+			self.rampFits = fitsio.FITS(self.rampFile)
+		elif type(ramp) is dict:
+			self.rampMap = ramp
+			self.rampIsMaster = False
 	def _preprocess(self,fits,f):
 		print 'ccdproc ',fits.fileName,fits.outFileName
 		if not self.biasIsMaster:
@@ -271,9 +285,22 @@ class BokCCDProcess(bokutil.BokProcess):
 					self.flatFits.close()
 				self.flatFile = flatFile
 				self.flatFits = fitsio.FITS(self.flatFile)
+		if not self.rampIsMaster:
+			rampFile = self.rampMap[f]
+			if self.rampFile != rampFile:
+				if self.rampFits is not None:
+					self.rampFits.close()
+				self.rampFile = rampFile
+				self.rampFits = fitsio.FITS(self.rampFile)
 	def process_hdu(self,extName,data,hdr):
 		if self.biasFits is not None:
 			data -= self.biasFits[extName][:,:]
+		if self.rampFits is not None:
+			# this correction may not exist on all extensions
+			try:
+				data -= self.rampFits[extName][:,:]
+			except:
+				pass
 		if self.flatFits is not None:
 			data /= self.flatFits[extName][:,:]
 		if self.fixPix:
@@ -283,6 +310,7 @@ class BokCCDProcess(bokutil.BokProcess):
 			data = data.filled(0)
 		hdr['BIASFILE'] = str(self.biasFile)
 		hdr['FLATFILE'] = str(self.flatFile)
+		hdr['RAMPFILE'] = str(self.rampFile)
 		if self.fixPix:
 			hdr['FIXPIX'] = self.fixPixAlong
 		if self.gainMultiply:
