@@ -213,7 +213,7 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 			stack = stack.filled(1.0)
 		except:
 			pass
-		hdr['FLATNORM'] = flatNorm
+		hdr['FLATNORM'] = float(flatNorm)
 		if self.scales is not None:
 			for _i,_scl in enumerate(self.scales,start=1):
 				hdr['FLTSCL%02d'%_i] = float(_scl)
