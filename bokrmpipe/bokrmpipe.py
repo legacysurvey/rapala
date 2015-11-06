@@ -47,6 +47,7 @@ class FileMgr(object):
 		self.masterBpMask4Fits = None
 		self.masterBpMask4Fn = os.path.join(self.calDir,
 		                                    'badpix_master_4ccd.fits')
+		self.masterRampCorrFits = None
 		self.utDates = sorted(logs.keys())
 		self.filt = 'gi'
 		self._curUtDate = None
@@ -77,6 +78,8 @@ class FileMgr(object):
 			self._curFilt = f
 			yield f
 		self._curFilt = None
+	def setRampCorrFile(self,rampCorrFn):
+		self.masterRampCorrFn = rampCorrFn
 	def __call__(self,t,output=True):
 		if t == 'raw':
 			return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
@@ -88,6 +91,11 @@ class FileMgr(object):
 			if self.masterBpMask4Fits is None:
 				self.masterBpMask4Fits = fitsio.FITS(self.masterBpMask4Fn)
 			return self.masterBpMask4Fits
+		elif t == 'BiasRampCorrection':
+			if self.masterRampCorrFits is None \
+			      and self.masterRampCorrFn is not None:
+				self.masterRampCorrFits = fitsio.FITS(self.masterRampCorrFn)
+			return self.masterRampCorrFits
 		else:
 			raise ValueError
 	def getFiles(self,imType=None,utd=None,filt=None,
@@ -335,6 +343,7 @@ def process_all(file_map,bias_map,flat_map,
 	                             input_map=file_map('oscan',False),
 	                             output_map=file_map('proc'),
 	                             mask_map=file_map('MasterBadPixMask'),
+	                             ramp_map=file_map('BiasRampCorrection'),
 	                             fixpix=fixpix,
 	                             **kwargs)
 	files = file_map.getFiles(imType='object')
@@ -463,8 +472,12 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 			flatMap = None
 		else:
 			flatMap = get_flat_map(fileMap)
+		if not kwargs.get('norampcorr',False):
+			fileMap.setRampCorrFile(os.path.join(fileMap.getCalDir(),
+			                                     'biasramp.fits'))
 		process_all(fileMap,biasMap,flatMap,
-		            fixpix=fixpix,nocombine=kwargs.get('nocombine'),
+		            fixpix=fixpix,
+		            nocombine=kwargs.get('nocombine'),
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'skyflat' in steps:
@@ -523,6 +536,8 @@ if __name__=='__main__':
 	                help='do not apply flat correction')
 	parser.add_argument('--nocombine',action='store_true',
 	                help='do not combine into CCD images')
+	parser.add_argument('--norampcorr',action='store_true',
+	                help='do not attempt to correct bias ramp')
 	args = parser.parse_args()
 	if args.utdate is None:
 		utds = None
@@ -544,10 +559,13 @@ if __name__=='__main__':
 		rmpipe_poormp(args.processes,
 		              fileMap,args.redo,steps,verbose,
 		              noflatcorr=args.noflatcorr,
-		              nocombine=args.nocombine)
+		              nocombine=args.nocombine,
+		              calccdims=args.calccdims,
+		              norampcorr=args.norampcorr)
 	else:
 		rmpipe(fileMap,args.redo,steps,verbose,
 		       noflatcorr=args.noflatcorr,
 		       nocombine=args.nocombine,
-		       calccdims=args.calccdims)
+		       calccdims=args.calccdims,
+		       norampcorr=args.norampcorr)
 
