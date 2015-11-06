@@ -406,16 +406,17 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 	pipekwargs = {'clobber':redo,'verbose':verbose}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
 	fixpix = False #True
+	writeccdims = kwargs.get('calccdims',False)
 	timerLog = bokutil.TimerLog()
 	if 'oscan' in steps:
 		overscan_subtract(fileMap,addBiases=True,**pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
-		make_2d_biases(fileMap,writeccdim=True,**pipekwargs)
+		make_2d_biases(fileMap,writeccdim=writeccdims,**pipekwargs)
 		timerLog('2d biases')
 	biasMap = get_bias_map(fileMap)
 	if 'flat2d' in steps:
-		make_dome_flats(fileMap,biasMap,writeccdim=True,**pipekwargs)
+		make_dome_flats(fileMap,biasMap,writeccdim=writeccdims,**pipekwargs)
 		timerLog('dome flats')
 	if 'bpmask' in steps:
 		make_bad_pixel_masks(fileMap)
@@ -479,6 +480,8 @@ if __name__=='__main__':
 	                help='UT date(s) to process [default=all]')
 	parser.add_argument('-v','--verbose',action='count',
 	                help='increase output verbosity')
+	parser.add_argument('--calccdims',action='store_true',
+	                help='generate CCD-combined images for calibration data')
 	parser.add_argument('--noflatcorr',action='store_true',
 	                help='do not apply flat correction')
 	parser.add_argument('--nocombine',action='store_true',
@@ -508,5 +511,6 @@ if __name__=='__main__':
 	else:
 		rmpipe(fileMap,args.redo,steps,verbose,
 		       noflatcorr=args.noflatcorr,
-		       nocombine=args.nocombine)
+		       nocombine=args.nocombine,
+		       calccdims=args.calccdims)
 
