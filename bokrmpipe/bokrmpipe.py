@@ -90,12 +90,15 @@ class FileMgr(object):
 			return self.masterBpMask4Fits
 		else:
 			raise ValueError
-	def getFiles(self,imType=None,im_range=None,exclude_objs=None):
-		if self._curUtDate is None:
+	def getFiles(self,imType=None,utd=None,filt=None,
+	             im_range=None,exclude_objs=None,with_frames=False):
+		if utd is not None:
+			utds = [utd] if type(utd) is str else utd
+		elif self._curUtDate is None:
 			utds = self.getUtDates() 
 		else:
 			utds = [self._curUtDate]
-		files = []
+		files,frames = [],[]
 		for utd in utds:
 			if im_range is None:
 				im_range = (0,len(logs[utd]))
@@ -105,12 +108,17 @@ class FileMgr(object):
 				is_type = True
 			else:
 				is_type = logs[utd]['imType'] == imType
-			if self._curFilt is None and self.filt=='gi':
+			if filt is None and self._curFilt is None and self.filt=='gi':
 				# using all filters (good thing there aren't >2!)
 				is_filt = True
 			else:
 				# restricted to one filter
-				f = self._curFilt if self._curFilt is not None else self.filt
+				if filt is not None:
+					f = filt
+				elif self._curFilt is not None:
+					f = self._curFilt
+				else:
+					f = self.filt
 				is_filt = logs[utd]['filter'] == f
 				if imType is None:
 					# special case to include bias frames regardless of 
@@ -123,10 +131,21 @@ class FileMgr(object):
 			ii = np.where(is_range & is_type & is_filt & ~exclude)[0]
 			if len(ii) > 0:
 				files.append(char_add('ut'+utd+'/',logs[utd]['fileName'][ii]))
+				if with_frames:
+					frames.append(ii)
+				# XXX could use utds here for getting nearest cal
 		if len(files)==0:
-			return None
+			files = None
+			if with_frames:
+				frames = None
 		else:
-			return np.concatenate(files)
+			files = np.concatenate(files)
+			if with_frames:
+				frames = np.concatenate(frames)
+		if with_frames:
+			return files,frames
+		else:
+			return files
 
 class ProcessInPlace(FileMgr):
 	def __init__(self,rawDir,procDir):
@@ -214,16 +233,22 @@ def make_2d_biases(file_map,nSkip=2,reject='sigma_clip',
 	                                 reject=reject,
                                      **kwargs)
 	for utd in file_map.iterUtDates():
-		files = file_map.getFiles(imType='zero')
+		files,frames = file_map.getFiles(imType='zero',with_frames=True)
 		if files is None:
 			continue
-		files = files[nSkip:]
-		biasNum = 1
-		biasFile = os.path.join(file_map.getCalDir(),
-		                        'bias_%s_%d.fits' % (utd,biasNum))
-		biasStack.stack(files,biasFile)
-		if writeccdim:
-			makeccd4image(file_map,biasFile,**kwargs)
+		splits = np.where(np.diff(frames)>1)[0]
+		if len(splits)==0:
+			bias_seqs = [ files ]
+		else:
+			bias_seqs = np.split(files,splits+1)
+		for biasNum,biasFiles in enumerate(bias_seqs,start=1):
+			if len(biasFiles) < 5: # XXX hardcoded
+				continue
+			biasFile = os.path.join(file_map.getCalDir(),
+			                        'bias_%s_%d.fits' % (utd,biasNum))
+			biasStack.stack(biasFiles[nSkip:],biasFile)
+			if writeccdim:
+				makeccd4image(file_map,biasFile,**kwargs)
 
 def make_dome_flats(file_map,bias_map,
                     nSkip=1,reject='sigma_clip',writeccdim=False,**kwargs):
@@ -237,17 +262,21 @@ def make_dome_flats(file_map,bias_map,
 	                                     **kwargs)
 	for utd in file_map.iterUtDates():
 		for filt in file_map.iterFilters():
-			files = file_map.getFiles(imType='flat')
+			files,frames = file_map.getFiles(imType='flat',with_frames=True)
 			if files is None:
 				continue
-			files = files[nSkip:]
-			bias2Dsub.process_files(files)
-			flatNum = 1
-			flatFile = os.path.join(file_map.getCalDir(),
+			splits = np.where(np.diff(frames)>1)[0]
+			if len(splits)==0:
+				flat_seqs = [ files ]
+			else:
+				flat_seqs = np.split(files,splits+1)
+			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
+				flatFile = os.path.join(file_map.getCalDir(),
 			                        'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
-			flatStack.stack(files,flatFile)
-			if writeccdim:
-				makeccd4image(file_map,flatFile,**kwargs)
+				bias2Dsub.process_files(flatFiles)
+				flatStack.stack(flatFiles[nskip:],flatFile)
+				if writeccdim:
+					makeccd4image(file_map,flatFile,**kwargs)
 
 def make_bad_pixel_masks(file_map,**kwargs):
 	utd,filt,flatNum = '20140425','g',1
