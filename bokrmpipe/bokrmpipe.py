@@ -142,7 +142,7 @@ def get_files(logs,utds=None,imType=None,filt=None,im_range=None,
 			is_type = True
 		else:
 			is_type = logs[utd]['imType'] == imType
-		if filt is None:
+		if filt is None or filt=='gi':
 			is_filt = True
 		else:
 			is_filt = logs[utd]['filter'] == filt
