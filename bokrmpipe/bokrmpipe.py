@@ -49,6 +49,8 @@ class FileMgr(object):
 		                                    'badpix_master_4ccd.fits')
 		self.utDates = sorted(logs.keys())
 		self.filt = 'gi'
+		self._curUtDate = None
+		self._curFilt = None
 	def getRawDir(self):
 		return self.rawDir
 	def getProcDir(self):
@@ -61,10 +63,20 @@ class FileMgr(object):
 		self.utDates = utDates
 	def getUtDates(self):
 		return self.utDates
+	def iterUtDates(self):
+		for u in self.utDates:
+			self._curUtDate = u
+			yield u
+		self._curUtDate = None
 	def setFilters(self,filt):
 		self.filt = filt
 	def getFilters(self):
 		return self.filt
+	def iterFilters(self):
+		for f in self.filt:
+			self._curFilt = f
+			yield f
+		self._curFilt = None
 	def __call__(self,t,output=True):
 		if t == 'raw':
 			return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
@@ -78,6 +90,43 @@ class FileMgr(object):
 			return self.masterBpMask4Fits
 		else:
 			raise ValueError
+	def getFiles(self,imType=None,im_range=None,exclude_objs=None):
+		if self._curUtDate is None:
+			utds = self.getUtDates() 
+		else:
+			utds = [self._curUtDate]
+		files = []
+		for utd in utds:
+			if im_range is None:
+				im_range = (0,len(logs[utd]))
+			frameNum = np.arange(len(logs[utd]))
+			is_range = (im_range[0] <= frameNum) & (frameNum <= im_range[1])
+			if imType is None:
+				is_type = True
+			else:
+				is_type = logs[utd]['imType'] == imType
+			if self._curFilt is None and self.filt=='gi':
+				# using all filters (good thing there aren't >2!)
+				is_filt = True
+			else:
+				# restricted to one filter
+				f = self._curFilt if self._curFilt is not None else self.filt
+				is_filt = logs[utd]['filter'] == f
+				if imType is None:
+					# special case to include bias frames regardless of 
+					# what filter was in place when they were taken
+					is_filt |= logs[utd]['imType'] == 'zero'
+			exclude = np.zeros_like(is_range)
+			if exclude_objs is not None:
+				for objnm in exclude_objs:
+					exclude[logs[utd]['objectName']==objnm] = True
+			ii = np.where(is_range & is_type & is_filt & ~exclude)[0]
+			if len(ii) > 0:
+				files.append(char_add('ut'+utd+'/',logs[utd]['fileName'][ii]))
+		if len(files)==0:
+			return None
+		else:
+			return np.concatenate(files)
 
 class ProcessInPlace(FileMgr):
 	def __init__(self,rawDir,procDir):
@@ -115,48 +164,6 @@ class ProcessToNewFiles(FileMgr):
 			else:
 				return RMFileNameMap(self.rawDir,self.procDir,self.fmap[t])
 
-def get_utds(utds=None):
-	if utds is None:
-		_utds = sorted(logs.keys())
-	elif type(utds) is str:
-		_utds = [utds,]
-	else:
-		_utds = utds
-	return _utds
-
-def get_files(logs,utds=None,imType=None,filt=None,im_range=None,
-              exclude_objs=None,addBiases=True):
-	utds = get_utds(utds)
-	files = []
-	for utd in utds:
-		if im_range is None:
-			im_range = (0,len(logs[utd]))
-		frameNum = np.arange(len(logs[utd]))
-		is_range = (im_range[0] <= frameNum) & (frameNum <= im_range[1])
-		if imType is None:
-			is_type = True
-		else:
-			is_type = logs[utd]['imType'] == imType
-		if filt is None or filt=='gi':
-			is_filt = True
-		else:
-			is_filt = logs[utd]['filter'] == filt
-			if addBiases:
-				# special case to include bias frames regardless of what
-				# filter was in place when they were taken
-				is_filt |= logs[utd]['imType'] == 'zero'
-		exclude = np.zeros_like(is_range)
-		if exclude_objs is not None:
-			for objnm in exclude_objs:
-				exclude[logs[utd]['objectName']==objnm] = True
-		ii = np.where(is_range & is_type & is_filt & ~exclude)[0]
-		if len(ii) > 0:
-			files.append(char_add('ut'+utd+'/',logs[utd]['fileName'][ii]))
-	if len(files)==0:
-		return None
-	else:
-		return np.concatenate(files)
-
 def get_bias_map(file_map):
 	biasMap = {}
 	biasPattern = os.path.join(file_map.getCalDir(),'bias_*.fits')
@@ -164,10 +171,10 @@ def get_bias_map(file_map):
 	bias2utd = ".*bias_(\d+).*"
 	biasUtds = np.array([int(re.match(bias2utd,fn).groups()[0])
 	                       for fn in biasFiles])
-	for i,utd in enumerate(file_map.getUtDates()):
+	for utd in file_map.iterUtDates():
 		j = np.argmin(np.abs(int(utd)-biasUtds))
 		biasFile = biasFiles[j]
-		for f in get_files(logs,utd,filt=file_map.getFilters()):
+		for f in file_map.getFiles():
 			biasMap[f] = biasFile
 	return biasMap
 
@@ -179,9 +186,9 @@ def get_flat_map(file_map):
 	utdfilt = [ re.match(flat2utdfilt,fn).groups() for fn in flatFiles]
 	flatUtds = np.array([int(utd) for utd,filt in utdfilt])
 	flatFilt = np.array([filt for utd,filt in utdfilt])
-	for filt in file_map.getFilters():
-		for i,utd in enumerate(file_map.getUtDates()):
-			files = get_files(logs,utd,filt=filt)
+	for filt in file_map.iterFilters():
+		for utd in file_map.iterUtDates():
+			files = file_map.getFiles()
 			if files is None:
 				continue
 			jj = np.where(flatFilt==filt)[0]
@@ -195,21 +202,19 @@ def makeccd4image(file_map,inputFile,**kwargs):
 	ccd4map = bokutil.FileNameMap(file_map.getCalDir(),'_4ccd')
 	bokproc.combine_ccds([inputFile,],output_map=ccd4map,**kwargs)
 
-def overscan_subtract(file_map,addBiases=True,**kwargs):
+def overscan_subtract(file_map,**kwargs):
 	oscanSubtract = BokOverscanSubtract(input_map=file_map('raw',False),
                                         output_map=file_map('oscan'),
                                         **kwargs)
-	files = get_files(logs,file_map.getUtDates(),filt=file_map.getFilters(),
-	                  addBiases=addBiases)
-	oscanSubtract.process_files(files)
+	oscanSubtract.process_files(file_map.getFiles())
 
 def make_2d_biases(file_map,nSkip=2,reject='sigma_clip',
                    writeccdim=False,**kwargs):
 	biasStack = bokproc.BokBiasStack(input_map=file_map('oscan',False),
 	                                 reject=reject,
                                      **kwargs)
-	for utd in file_map.getUtDates():
-		files = get_files(logs,utd,imType='zero')
+	for utd in file_map.iterUtDates():
+		files = file_map.getFiles(imType='zero')
 		if files is None:
 			continue
 		files = files[nSkip:]
@@ -230,9 +235,9 @@ def make_dome_flats(file_map,bias_map,
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
 	                                     input_map=file_map('bias',False),
 	                                     **kwargs)
-	for utd in file_map.getUtDates():
-		for filt in file_map.getFilters():
-			files = get_files(logs,utd,imType='flat',filt=filt)
+	for utd in file_map.iterUtDates():
+		for filt in file_map.iterFilters():
+			files = file_map.getFiles(imType='flat')
 			if files is None:
 				continue
 			files = files[nSkip:]
@@ -263,12 +268,12 @@ def balance_gains(file_map,**kwargs):
 	                                     mask_map=file_map('MasterBadPixMask'),
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
-	for utd in file_map.getUtDates():
-		for filt in file_map.getFilters():
-			files = get_files(logs,utd,imType='object',filt=filt)
+	for utd in file_map.iterUtDates():
+		for filt in file_map.iterFilters():
+			files = file_map.getFiles(imType='object')
 			if files is None:
 				continue
-			diagfile = os.path.join(fileMap.getDiagDir(),
+			diagfile = os.path.join(file_map.getDiagDir(),
 			                        'gainbal_%s_%s.npz'%(utd,filt))
 			if os.path.exists(diagfile):
 				gainDat = np.load(diagfile)
@@ -297,8 +302,7 @@ def process_all(file_map,bias_map,flat_map,
 	                             mask_map=file_map('MasterBadPixMask'),
 	                             fixpix=fixpix,
 	                             **kwargs)
-	files = get_files(logs,file_map.getUtDates(),filt=file_map.getFilters(),
-	                  imType='object')
+	files = file_map.getFiles(imType='object')
 	proc.process_files(files)
 	if nocombine:
 		return
@@ -331,10 +335,10 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'),
 	                                        header_bad_key='BADSKY')
 	skyFlatStack.set_badpixelmask(file_map('MasterBadPixMask4'))
-	for utd in file_map.getUtDates():
-		for filt in file_map.getFilters():
+	for utd in file_map.iterUtDates():
+		for filt in file_map.iterFilters():
 			# exclude RM10 and RM11 because they are swamped by a bright star
-			files = get_files(logs,utd,imType='object',filt=filt,
+			files = file_map.getFiles(imType='object',
 			                  )#exclude_objs=['rm10','rm11'])
 			if files is None:
 				continue
@@ -355,7 +359,7 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 
 def make_images():
 	import matplotlib.pyplot as plt
-	files = get_files(logs,'20140427',imType='object',filt='g')
+	files = file_map.getFiles('20140427',imType='object',filt='g')
 	_fmap = RMFileNameMap()
 	plt.ioff()
 	for ff in files:
@@ -405,7 +409,7 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 	timerLog = bokutil.TimerLog()
 	biasMap = None
 	if 'oscan' in steps:
-		overscan_subtract(fileMap,addBiases=True,**pipekwargs)
+		overscan_subtract(fileMap,**pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
 		make_2d_biases(fileMap,writeccdim=writeccdims,**pipekwargs)
