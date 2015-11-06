@@ -9,10 +9,7 @@ import numpy as np
 from numpy.core.defchararray import add as char_add
 import fitsio
 
-import bokutil
-from bokoscan import BokOverscanSubtract
-import bokproc
-import badpixels
+from bokpipe import *
 
 # XXX
 from astrotools.idmstuff import loadpath
@@ -407,24 +404,27 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
 	fixpix = False #True
 	timerLog = bokutil.TimerLog()
+	biasMap = None
 	if 'oscan' in steps:
 		overscan_subtract(fileMap,addBiases=True,**pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
 		make_2d_biases(fileMap,writeccdim=True,**pipekwargs)
 		timerLog('2d biases')
-	biasMap = get_bias_map(fileMap)
 	if 'flat2d' in steps:
+		biasMap = get_bias_map(fileMap)
 		make_dome_flats(fileMap,biasMap,writeccdim=True,**pipekwargs)
 		timerLog('dome flats')
 	if 'bpmask' in steps:
 		make_bad_pixel_masks(fileMap)
 		timerLog('bad pixel masks')
-	if kwargs.get('noflatcorr',False):
-		flatMap = None
-	else:
-		flatMap = get_flat_map(fileMap)
 	if 'proc1' in steps:
+		if biasMap is None:
+			biasMap = get_bias_map(fileMap)
+		if kwargs.get('noflatcorr',False):
+			flatMap = None
+		else:
+			flatMap = get_flat_map(fileMap)
 		process_all(fileMap,biasMap,flatMap,
 		            fixpix=fixpix,nocombine=kwargs.get('nocombine'),
 		            **pipekwargs)
