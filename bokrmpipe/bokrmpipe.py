@@ -274,7 +274,7 @@ def make_dome_flats(file_map,bias_map,
 				flatFile = os.path.join(file_map.getCalDir(),
 			                        'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 				bias2Dsub.process_files(flatFiles)
-				flatStack.stack(flatFiles[nskip:],flatFile)
+				flatStack.stack(flatFiles[nSkip:],flatFile)
 				if writeccdim:
 					makeccd4image(file_map,flatFile,**kwargs)
 
