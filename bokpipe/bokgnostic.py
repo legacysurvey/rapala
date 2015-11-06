@@ -5,8 +5,8 @@ import fitsio
 
 import matplotlib.pyplot as plt
 
-import bokutil
-import bokproc
+from . import bokutil
+from . import bokproc
 
 def check_gain_bal(fileName,badPixMaskFile=None,
                    showMean=True,showMode=True,**kwargs):

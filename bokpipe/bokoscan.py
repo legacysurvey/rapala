@@ -8,7 +8,7 @@ from scipy.ndimage.filters import median_filter
 from astropy.stats import sigma_clip
 import fitsio
 
-from bokutil import BokProcess
+from .bokutil import BokProcess
 
 # argh
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
