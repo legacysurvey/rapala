@@ -18,6 +18,9 @@ loadpath()
 import boklog
 logs = boklog.load_Bok_logs()
 
+all_process_steps = ['oscan','bias2d','flat2d','bpmask',
+                     'proc1','skyflat','proc2']
+
 class RMFileNameMap(bokutil.FileNameMap):
 	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
 		self.newSuffix = '' if newSuffix is None else newSuffix
@@ -401,24 +404,25 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 
 # process round 2: illum corr and sky sub
 
-def make_images():
+def make_images(file_map,imtype='_sky'):
 	import matplotlib.pyplot as plt
-	files = file_map.getFiles('20140427',imType='object',filt='g')
-	_fmap = RMFileNameMap()
+	files = file_map.getFiles(imType='object')
+	_fmap = file_map(imtype)
+	maskmap = file_map('skymask')
+	imdir = os.path.join(file_map.getProcDir(),'images')
+	if not os.path.exists(imdir):
+		os.mkdir(imdir)
 	plt.ioff()
 	for ff in files:
 		f = _fmap(ff)
-		if not os.path.exists(f.replace('.fits','_tmpsky.fits')):
+		if not os.path.exists(f):
 			continue
-		if os.path.exists(f.replace('.fits','.png')):
+		imgfile = os.path.basename(f).replace('.fits','.png')
+		imgfile = os.path.join(imdir,imgfile)
+		if os.path.exists(imgfile):
 			continue
-		bokproc.make_fov_image_fromfile(f.replace('.fits','_tmpsky.fits'),
-		                                f.replace('.fits','.png'),
-		                                mask=f.replace('.fits','.skymsk.fits'))
+		bokproc.make_fov_image_fromfile(f,imgfile,mask=maskmap(ff))
 	plt.ion()
-
-all_process_steps = ['oscan','bias2d','flat2d','bpmask',
-                     'proc1','skyflat','proc2']
 
 def create_file_map(rawDir,procDir,utds,bands,newfiles):
 	# set default file paths
@@ -554,7 +558,7 @@ if __name__=='__main__':
 	fileMap = create_file_map(args.rawdir,args.output,
 	                          utds,args.band,args.newfiles)
 	if args.images:
-		makeimages()
+		make_images(fileMap)
 	elif args.processes > 1:
 		rmpipe_poormp(args.processes,
 		              fileMap,args.redo,steps,verbose,
