@@ -239,7 +239,11 @@ def get_flat_map(file_map,normed=False):
 			if files is None:
 				continue
 			jj = np.where(flatFilt==filt)[0]
-			j = np.argmin(np.abs(int(utd)-flatUtds[jj]))
+			try:
+				j = np.argmin(np.abs(int(utd)-flatUtds[jj]))
+			except ValueError:
+				raise ValueError('no match for %s:%s in %s:s' % 
+				                 (utd,filt,flatUtds,flatFilt))
 			flatFile = flatFiles[jj[j]]
 			if normed:
 				flatFile = flatFile.replace('.fits','_normed.fits')
