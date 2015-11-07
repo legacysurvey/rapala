@@ -4,7 +4,7 @@ import os,sys
 import numpy as np
 from astropy.stats import sigma_clip
 import fitsio
-import bokutil
+from bokpipe import bokutil
 
 class BokImStat(bokutil.BokProcess):
 	def __init__(self,**kwargs):

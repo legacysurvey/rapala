@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import sys
-import bokutil
+from bokpipe import bokutil
 
 infile,op,operand,outfile = sys.argv[1:]
 

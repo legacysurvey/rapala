@@ -3,7 +3,7 @@
 import sys
 import numpy as np
 import fitsio
-import bokutil
+from bokpipe import bokutil
 
 class BokDiff(bokutil.BokProcess):
 	def __init__(self,file1,file2,**kwargs):
