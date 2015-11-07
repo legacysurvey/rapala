@@ -44,12 +44,11 @@ class FileMgr(object):
 		self.procDir = procDir
 		self.calDir = os.path.join(self.procDir,'cals')
 		self.diagDir = os.path.join(self.procDir,'diagnostics')
+		self.masterBpMaskFn = 'badpix_master.fits'
 		self.masterBpMaskFits = None
-		self.masterBpMaskFn = os.path.join(self.calDir,
-		                                   'badpix_master.fits')
+		self.masterBpMask4Fn = 'badpix_master_4ccd.fits'
 		self.masterBpMask4Fits = None
-		self.masterBpMask4Fn = os.path.join(self.calDir,
-		                                    'badpix_master_4ccd.fits')
+		self.masterRampCorrFn = None
 		self.masterRampCorrFits = None
 		self.utDates = sorted(logs.keys())
 		self.filt = 'gi'
@@ -62,8 +61,12 @@ class FileMgr(object):
 		return self.procDir
 	def getCalDir(self):
 		return self.calDir
+	def setCalDir(self,calDir):
+		self.calDir = calDir
 	def getDiagDir(self):
 		return self.diagDir
+	def setDiagDir(self,diagDir):
+		self.diagDir = diagDir
 	def setUtDates(self,utDates):
 		self.utDates = utDates
 	def getUtDates(self):
@@ -91,11 +94,13 @@ class FileMgr(object):
 			return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
 		elif t == 'MasterBadPixMask':
 			if self.masterBpMaskFits is None:
-				self.masterBpMaskFits = fitsio.FITS(self.masterBpMaskFn)
+				fn = os.path.join(self.calDir,self.masterBpMaskFn)
+				self.masterBpMaskFits = fitsio.FITS(fn)
 			return self.masterBpMaskFits
 		elif t == 'MasterBadPixMask4':
 			if self.masterBpMask4Fits is None:
-				self.masterBpMask4Fits = fitsio.FITS(self.masterBpMask4Fn)
+				fn = os.path.join(self.calDir,self.masterBpMask4Fn)
+				self.masterBpMask4Fits = fitsio.FITS(fn)
 			return self.masterBpMask4Fits
 		elif t == 'BiasRampCorrection':
 			if self.masterRampCorrFits is None \
@@ -220,7 +225,7 @@ def get_bias_map(file_map):
 			biasMap[f] = biasFile
 	return biasMap
 
-def get_flat_map(file_map):
+def get_flat_map(file_map,normed=False):
 	flatMap = {}
 	flatPattern = os.path.join(file_map.getCalDir(),'flat_????????_?_?.fits')
 	flatFiles = sorted(glob.glob(flatPattern))
@@ -236,6 +241,8 @@ def get_flat_map(file_map):
 			jj = np.where(flatFilt==filt)[0]
 			j = np.argmin(np.abs(int(utd)-flatUtds[jj]))
 			flatFile = flatFiles[jj[j]]
+			if normed:
+				flatFile = flatFile.replace('.fits','_normed.fits')
 			for f in files:
 				flatMap[f] = flatFile
 	return flatMap
@@ -481,7 +488,7 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 		if kwargs.get('noflatcorr',False):
 			flatMap = None
 		else:
-			flatMap = get_flat_map(fileMap)
+			flatMap = get_flat_map(fileMap,normed=kwargs.get('usepixflat'))
 		if not kwargs.get('norampcorr',False):
 			fileMap.setRampCorrFile(os.path.join(fileMap.getCalDir(),
 			                                     'biasramp.fits'))
@@ -520,6 +527,8 @@ if __name__=='__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-b','--band',type=str,default=None,
 	                help='band to process (g or i) [default=both]')
+	parser.add_argument('-c','--caldir',type=str,default=None,
+	                help='set calibration directory')
 	parser.add_argument('-f','--frames',type=str,default=None,
 	                help='frames to process (i1,i2) [default=all]')
 	parser.add_argument('-i','--images',action='store_true',
@@ -550,6 +559,8 @@ if __name__=='__main__':
 	                help='do not combine into CCD images')
 	parser.add_argument('--norampcorr',action='store_true',
 	                help='do not attempt to correct bias ramp')
+	parser.add_argument('--usepixflat',action='store_true',
+	                help='use normalized pixel flat')
 	args = parser.parse_args()
 	if args.utdate is None:
 		utds = None
@@ -567,6 +578,9 @@ if __name__=='__main__':
 	                          utds,args.band,args.newfiles)
 	if args.frames is not None:
 		fileMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
+	if args.caldir is not None:
+		fileMap.setCalDir(os.path.join(args.caldir,'cals'))
+		fileMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
 	if args.images:
 		make_images(fileMap)
 	elif args.processes > 1:
@@ -575,11 +589,13 @@ if __name__=='__main__':
 		              noflatcorr=args.noflatcorr,
 		              nocombine=args.nocombine,
 		              calccdims=args.calccdims,
-		              norampcorr=args.norampcorr)
+		              norampcorr=args.norampcorr,
+		              usepixflat=args.usepixflat)
 	else:
 		rmpipe(fileMap,args.redo,steps,verbose,
 		       noflatcorr=args.noflatcorr,
 		       nocombine=args.nocombine,
 		       calccdims=args.calccdims,
-		       norampcorr=args.norampcorr)
+		       norampcorr=args.norampcorr,
+		       usepixflat=args.usepixflat)
 
