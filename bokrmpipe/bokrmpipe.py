@@ -53,6 +53,7 @@ class FileMgr(object):
 		self.masterRampCorrFits = None
 		self.utDates = sorted(logs.keys())
 		self.filt = 'gi'
+		self.frames = None
 		self._curUtDate = None
 		self._curFilt = None
 	def getRawDir(self):
@@ -81,6 +82,8 @@ class FileMgr(object):
 			self._curFilt = f
 			yield f
 		self._curFilt = None
+	def setFrames(self,frames):
+		self.frames = frames
 	def setRampCorrFile(self,rampCorrFn):
 		self.masterRampCorrFn = rampCorrFn
 	def __call__(self,t,output=True):
@@ -112,13 +115,16 @@ class FileMgr(object):
 		files,frames = [],[]
 		for utd in utds:
 			nFrames = len(logs[utd])
-			if im_range is None:
+			if im_range is None and self.frames is None:
 				# need one boolean array to be full length
 				is_range = np.ones(nFrames,dtype=bool)
 			else:
+				if im_range is not None:
+					i1,i2 = im_range
+				else:
+					i1,i2 = self.frames
 				frameNum = np.arange(nFrames)
-				is_range = ( (im_range[0] <= frameNum) & 
-				             (frameNum <= im_range[1]) )
+				is_range = ( (i1 <= frameNum) & (frameNum <= i2) )
 			if imType is None:
 				is_type = True
 			else:
@@ -514,6 +520,8 @@ if __name__=='__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-b','--band',type=str,default=None,
 	                help='band to process (g or i) [default=both]')
+	parser.add_argument('-f','--frames',type=str,default=None,
+	                help='frames to process (i1,i2) [default=all]')
 	parser.add_argument('-i','--images',action='store_true',
 	                help='make png images [default=False]')
 	parser.add_argument('-n','--newfiles',action='store_true',
@@ -557,6 +565,8 @@ if __name__=='__main__':
 	verbose = 0 if args.verbose is None else args.verbose
 	fileMap = create_file_map(args.rawdir,args.output,
 	                          utds,args.band,args.newfiles)
+	if args.frames is not None:
+		fileMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
 	if args.images:
 		make_images(fileMap)
 	elif args.processes > 1:
