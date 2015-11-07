@@ -185,7 +185,7 @@ def bok_polyfit(fits,nbin,order,writeImg=False):
 	for ccd in ['CCD%d'%i for i in range(1,5)]:
 		rv[ccd] = p(*fits.get_xy(ccd,'sky'))
 	rv['skymodel'] = p
-	if False: #writeImg:
+	if writeImg:
 		# save the original binned image
 		make_fov_image(binnedIm,'tmp1.png')
 		# and the sky model fit

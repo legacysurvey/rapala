@@ -26,6 +26,8 @@ def array_stats(arr,axis=None,method='median',clip=True,rms=False,
 		val = np.ma.mean(arr,axis=axis)
 	elif method=='mode':
 		val = 3*np.ma.median(arr,axis=axis) - 2*np.ma.mean(arr,axis=axis)
+	else:
+		raise ValueError('array stats method %s unrecognized' % method)
 	if axis==None:
 		# median returns an array but mean doesn't???
 		try:
