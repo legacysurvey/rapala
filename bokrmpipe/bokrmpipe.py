@@ -421,11 +421,16 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 
 # process round 2: illum corr and sky sub
 
-def make_images(file_map,imtype='_sky'):
+def make_images(file_map,imtype='comb',msktype=None):
 	import matplotlib.pyplot as plt
 	files = file_map.getFiles(imType='object')
 	_fmap = file_map(imtype)
-	maskmap = file_map('skymask')
+	if msktype=='badpix':
+		msktype = 'MasterBadPixMask4'
+	if msktype==None:
+		maskmap = lambda f: None
+	else:
+		maskmap = file_map(msktype)
 	imdir = os.path.join(file_map.getProcDir(),'images')
 	if not os.path.exists(imdir):
 		os.mkdir(imdir)
@@ -535,8 +540,8 @@ if __name__=='__main__':
 	                help='set calibration directory')
 	parser.add_argument('-f','--frames',type=str,default=None,
 	                help='frames to process (i1,i2) [default=all]')
-	parser.add_argument('-i','--images',action='store_true',
-	                help='make png images [default=False]')
+	parser.add_argument('-i','--images',type=str,default=None,
+	                help='make png images (imtype,[msktype]) [default=no]')
 	parser.add_argument('-n','--newfiles',action='store_true',
 	                help='process to new files (not in-place)')
 	parser.add_argument('-o','--output',type=str,default=None,
@@ -585,8 +590,8 @@ if __name__=='__main__':
 	if args.caldir is not None:
 		fileMap.setCalDir(os.path.join(args.caldir,'cals'))
 		fileMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
-	if args.images:
-		make_images(fileMap)
+	if args.images is not None:
+		make_images(fileMap,*args.images.split(','))
 	elif args.processes > 1:
 		rmpipe_poormp(args.processes,
 		              fileMap,args.redo,steps,verbose,
