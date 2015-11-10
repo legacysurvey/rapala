@@ -4,13 +4,19 @@ import sys
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 
-ra = float(sys.argv[1])
-
-filt = 'g'
-#filt = 'bokr'
-exptime = 100.
-
 dec = 0.0
+
+try:
+	ra = float(sys.argv[1])
+	filt = sys.argv[2]
+	assert filt in ['g','bokr']
+	exptime = float(sys.argv[3])
+	if len(sys.argv) > 4:
+		dec = float(sys.argv[4])
+except:
+	print 'Usage: stripe82.py ra(deg) filter(g|bokr) exptime(s) [dec(deg)]'
+	sys.exit(1)
+
 nexp = 1
 
 ra_gap = 170./3600
