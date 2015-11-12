@@ -24,7 +24,8 @@ if __name__=='__main__':
 				_inputFiles.extend(_f.read().splitlines())
 		else:
 			_inputFiles.append(f)
-	print 'input: ',_inputFiles
+	inputFiles = _inputFiles
+	print 'input: ',inputFiles
 	print 'output: ',outputFile
 	stackFun.stack(inputFiles,outputFile)
 
