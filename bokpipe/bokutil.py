@@ -3,6 +3,7 @@
 import os
 from time import time
 from datetime import datetime
+from collections import OrderedDict
 import fitsio
 import numpy as np
 
@@ -56,8 +57,11 @@ def magnify(im,nmag):
 	return np.tile(im.reshape(n1,1,n2,1),
 	               (1,nmag,1,nmag)).reshape(n1*nmag,n2*nmag)
 
-def bok_getxy(hdr,coordsys='image'):
-	y,x = np.indices((hdr['NAXIS2'],hdr['NAXIS1']))
+def bok_getxy(hdr,coordsys='image',coord=None):
+	if coord is None:
+		y,x = np.indices((hdr['NAXIS2'],hdr['NAXIS1']))
+	else:
+		x,y = coord
 	# FITS coordinates are 1-indexed (correct?)
 	#x += 1
 	#y += 1
@@ -284,20 +288,34 @@ class BokMefImage(object):
 	def get_xy(self,extName,coordsys='image'):
 		hdr = self.fits[extName].read_header()
 		return bok_getxy(hdr,coordsys)
-	def make_fov_image(self,nbin=1,coordsys='sky'):
-		rv = {'coordsys':coordsys,'nbin':nbin}
+	def make_fov_image(self,nbin=1,coordsys='sky',
+	                   binfunc=None,binclip=False,single=False):
+		rv = OrderedDict()
 		hdr0 = self.fits[0].read_header()
-		try:
-			rv['objname'] = hdr0['OBJECT'].strip()
-		except:
-			rv['objname'] = 'none'
 		for extName,im,hdr in self:
 			x,y = bok_getxy(hdr,coordsys)
 			if nbin > 1:
 				im = rebin(im,nbin)
+				if binfunc is not None:
+					if binclip:
+						im = array_clip(im,axis=-1)
+					im = binfunc(im,axis=-1)
 				x = x[nbin//2::nbin,nbin//2::nbin]
 				y = y[nbin//2::nbin,nbin//2::nbin]
 			rv[extName] = {'x':x,'y':y,'im':im}
+		if single:
+			_rv = {}
+			for f in ['x','y','im']:
+				dstack = np.ma.dstack if f=='im' else np.dstack
+				_rv[f] = dstack([rv[extName][f] for extName in rv])
+			rv = _rv
+		# add the object name and binning parameters
+		try:
+			rv['objname'] = hdr0['OBJECT'].strip()
+		except:
+			rv['objname'] = 'none'
+		rv['coordsys'] = coordsys
+		rv['nbin'] = nbin
 		return rv
 	def close(self):
 		for fits in self.closeFiles:
