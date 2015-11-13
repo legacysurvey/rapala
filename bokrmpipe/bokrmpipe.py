@@ -66,6 +66,9 @@ class FileMgr(object):
 		self._tmpInput = True
 	def setTmpOutput(self):
 		self._tmpOutput = True
+		self._tmpDir = os.path.join(self.procDir,'tmp')
+		if not os.path.exists(self._tmpDir):
+			os.mkdir(self._tmpDir)
 	def getCalDir(self):
 		return self.calDir
 	def setCalDir(self,calDir):
@@ -202,11 +205,9 @@ class ProcessInPlace(FileMgr):
 		               '_sky':'_tmpsky'}
 	def __call__(self,t,output=True):
 		if output:
-			outDir = self.procDir if not self._tmpOutput else \
-			          os.path.join(self.procDir,'tmp')
+			outDir = self.procDir if not self._tmpOutput else self._tmpDir
 		else:
-			outDir = self.procDir if not self._tmpInput else \
-			          os.path.join(self.procDir,'tmp')
+			outDir = self.procDir if not self._tmpInput else self._tmpDir
 		try:
 			return super(ProcessInPlace,self).__call__(t,output)
 		except ValueError:
@@ -232,11 +233,9 @@ class ProcessToNewFiles(FileMgr):
 		             '_sky':'_tmpsky','sky':'_s','proc2':'_q'}
 	def __call__(self,t,output=True):
 		if output:
-			outDir = self.procDir if not self._tmpOutput else \
-			          os.path.join(self.procDir,'tmp')
+			outDir = self.procDir if not self._tmpOutput else self._tmpDir
 		else:
-			outDir = self.procDir if not self._tmpInput else \
-			          os.path.join(self.procDir,'tmp')
+			outDir = self.procDir if not self._tmpInput else self._tmpDir
 		try:
 			return super(ProcessToNewFiles,self).__call__(t,output)
 		except ValueError:
@@ -255,7 +254,10 @@ def get_bias_map(file_map):
 	for utd in file_map.iterUtDates():
 		j = np.argmin(np.abs(int(utd)-biasUtds))
 		biasFile = biasFiles[j]
-		for f in file_map.getFiles():
+		files = file_map.getFiles()
+		if files is None:
+			continue
+		for f in files:
 			biasMap[f] = biasFile
 	return biasMap
 
@@ -407,6 +409,8 @@ def process_all(file_map,bias_map,flat_map,
 	                             darkskycorr=not nodarkskycorr,
 	                             **kwargs)
 	files = file_map.getFiles(imType='object')
+	if files is None:
+		return
 	proc.process_files(files)
 	if nocombine:
 		return
@@ -526,8 +530,11 @@ def create_file_map(rawDir,procDir,utds,bands,newfiles,
 		if not os.path.exists(d):
 			os.mkdir(d)
 	for utd in fileMap.getUtDates():
-		utdir = os.path.join(procDir,'ut'+utd)
+		utdir = os.path.join(fileMap.procDir,'ut'+utd)
 		if not os.path.exists(utdir): os.mkdir(utdir)
+		if tmpdirout:
+			utdir = os.path.join(fileMap._tmpDir,'ut'+utd)
+			if not os.path.exists(utdir): os.mkdir(utdir)
 	return fileMap
 
 def rmpipe(fileMap,**kwargs):
