@@ -2,7 +2,6 @@
 
 import os
 import numpy as np
-from scipy.interpolate import RectBivariateSpline
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 from astropy.stats import sigma_clip
 import fitsio
@@ -15,8 +14,8 @@ bok_badcols = {
 
 class BadPixelMaskFromFlats(BokProcess):
 	def __init__(self,**kwargs):
-		kwargs.setdefault('header_key','BPMSK')
 		super(BadPixelMaskFromFlats,self).__init__(**kwargs)
+		kwargs.setdefault('header_key','BPMSK')
 		self.loCut,self.hiCut = kwargs.get('good_range',(0.90,1.10))
 		self.loCut2,self.hiCut2 = kwargs.get('grow_range',(0.95,1.05))
 		self.nbin = kwargs.get('nbin',32)

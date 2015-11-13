@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess
 import numpy as np
-from scipy.interpolate import LSQBivariateSpline,griddata
+from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
 from scipy.signal import spline_filter
 from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
@@ -218,6 +218,61 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 			for _i,_scl in enumerate(self.scales,start=1):
 				hdr['FLTSCL%02d'%_i] = float(_scl)
 		return stack,hdr
+
+class NormalizeFlat(bokutil.BokProcess):
+	def __init__(self,**kwargs):
+		super(NormalizeFlat,self).__init__(**kwargs)
+		kwargs.setdefault('header_key','NORMFLT')
+		self.nbin = kwargs.get('nbin',32)
+		self.flatFitName = kwargs.get('normed_flat_fit_file')
+		self.binnedFlatName = kwargs.get('binned_flat_file')
+		self.normedFlatFit = None
+		self.binnedFlat = None
+	def _preprocess(self,fits,f):
+		if self.flatFitName is not None:
+			if os.path.exists(self.flatFitName):
+				os.unlink(self.flatFitName)
+			self.normedFlatFit = fitsio.FITS(self.flatFitName,'rw')
+			self.normedFlatFit.write(None,header=fits.get_header(0))
+		if self.binnedFlatName is not None:
+			if os.path.exists(self.binnedFlatName):
+				os.unlink(self.binnedFlatName)
+			self.binnedFlat = fitsio.FITS(self.binnedFlatName,'rw')
+			self.binnedFlat.write(None,header=fits.get_header(0))
+	def _finish(self):
+		if self.normedFlatFit is not None:
+			self.normedFlatFit.close()
+			self.normedFlatFit = None
+		if self.binnedFlat is not None:
+			self.binnedFlat.close()
+			self.binnedFlat = None
+	def process_hdu(self,extName,data,hdr):
+		ny,nx = data.shape
+		im = np.ma.masked_array(data,mask=((data<0.5) | (data>1.5)))
+		# mask the edges
+		margin = 15
+		im.mask[:margin] = True
+		im.mask[-margin:] = True
+		im.mask[:,:margin] = True
+		im.mask[:,-margin:] = True
+		if extName == 'IM9':
+			# this one has a long bad strip
+			im.mask[:,:50] = True
+		binnedIm = bokutil.rebin(im,self.nbin)
+		binnedIm = sigma_clip(binnedIm,axis=-1,iters=3,sig=2.2,
+		                      cenfunc=np.ma.mean).mean(axis=-1).filled(1)
+		x = np.arange(self.nbin/2,nx,self.nbin)
+		y = np.arange(self.nbin/2,ny,self.nbin)
+		spfit = RectBivariateSpline(x,y,binnedIm.T,s=1)
+		gradientIm = spfit(np.arange(nx),np.arange(ny)).T
+		normedIm = im.data / gradientIm
+		if self.normedFlatFit is not None:
+			self.normedFlatFit.write(gradientIm.astype(np.float32),
+			                         extname=extName,header=hdr)
+		if self.binnedFlat is not None:
+			self.binnedFlat.write(binnedIm.astype(np.float32),
+			                      extname=extName,header=hdr)
+		return normedIm.astype(np.float32),hdr
 
 class BokCCDProcess(bokutil.BokProcess):
 	def __init__(self,bias=None,flat=None,**kwargs):
