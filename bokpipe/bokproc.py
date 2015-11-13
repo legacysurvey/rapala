@@ -281,6 +281,9 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.fixPix = kwargs.get('fixpix',False)
 		self.fixPixAlong = kwargs.get('fixpix_along','rows')
 		self.fixPixMethod = kwargs.get('fixpix_method','linear')
+		self.doRampCorr = kwargs.get('rampcorr',True)
+		self.doIllumCorr = kwargs.get('illumcorr',True)
+		self.doDarkSkyCorr = kwargs.get('darkskycorr',True)
 		self.gainMultiply = kwargs.get('gain_multiply',True)
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                               for ampNum,g in zip(ampOrder,nominal_gain)})
@@ -350,7 +353,7 @@ class BokCCDProcess(bokutil.BokProcess):
 	def process_hdu(self,extName,data,hdr):
 		if self.biasFits is not None:
 			data -= self.biasFits[extName][:,:]
-		if self.rampFits is not None:
+		if self.doRampCorr and self.rampFits is not None:
 			# this correction may not exist on all extensions
 			try:
 				data -= self.rampFits[extName][:,:]
@@ -358,6 +361,10 @@ class BokCCDProcess(bokutil.BokProcess):
 				pass
 		if self.flatFits is not None:
 			data /= self.flatFits[extName][:,:]
+		if self.doIllumCorr:
+			raise NotImplementedError
+		if self.doDarkSkyCorr:
+			raise NotImplementedError
 		if self.fixPix:
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
