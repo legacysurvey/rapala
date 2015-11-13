@@ -53,12 +53,19 @@ class FileMgr(object):
 		self.utDates = sorted(logs.keys())
 		self.filt = 'gi'
 		self.frames = None
+		self.frameList = None
 		self._curUtDate = None
 		self._curFilt = None
+		self._tmpInput = False
+		self._tmpOutput = False
 	def getRawDir(self):
 		return self.rawDir
 	def getProcDir(self):
 		return self.procDir
+	def setTmpInput(self):
+		self._tmpInput = True
+	def setTmpOutput(self):
+		self._tmpOutput = True
 	def getCalDir(self):
 		return self.calDir
 	def setCalDir(self,calDir):
@@ -87,6 +94,8 @@ class FileMgr(object):
 		self._curFilt = None
 	def setFrames(self,frames):
 		self.frames = frames
+	def setFrameList(self,utDates,fileNames):
+		self.frameList = (utDates,fileNames)
 	def setRampCorrFile(self,rampCorrFn):
 		self.masterRampCorrFn = rampCorrFn
 	def __call__(self,t,output=True):
@@ -150,12 +159,19 @@ class FileMgr(object):
 					# special case to include bias frames regardless of 
 					# what filter was in place when they were taken
 					is_filt |= logs[utd]['imType'] == 'zero'
-			if exclude_objs is None:
-				exclude = False
-			else:
-				exclude = np.zeros(nFrames,dtype=bool)
+			exclude = np.zeros(nFrames,dtype=bool)
+			if exclude_objs is not None:
 				for objnm in exclude_objs:
 					exclude[logs[utd]['objectName']==objnm] = True
+			if self.frameList is not None:
+				l_utds,l_fns = self.frameList
+				l_ii = np.where(l_utds==utd)[0]
+				if len(l_ii)==0:
+					exclude[:] = True
+				else:
+					for _j,fn in enumerate(logs[utd]['fileName']):
+						if fn not in l_fns[l_ii]:
+							exclude[_j] = True
 			ii = np.where(is_range & is_type & is_filt & ~exclude)[0]
 			if len(ii) > 0:
 				files.append(char_add('ut'+utd+'/',logs[utd]['fileName'][ii]))
@@ -185,16 +201,28 @@ class ProcessInPlace(FileMgr):
 		self.fremap = {'oscan':'','pass1cat':'.cat1','skymask':'.skymsk',
 		               '_sky':'_tmpsky'}
 	def __call__(self,t,output=True):
+		if output:
+			outDir = self.procDir if not self._tmpOutput else \
+			          os.path.join(self.procDir,'tmp')
+		else:
+			outDir = self.procDir if not self._tmpInput else \
+			          os.path.join(self.procDir,'tmp')
 		try:
 			return super(ProcessInPlace,self).__call__(t,output)
 		except ValueError:
 			if t in self.fremap:
 				# some files need to be remapped even when processing in-place
-				return RMFileNameMap(self.rawDir,self.procDir,self.fremap[t])
-			if output:
-				return None
+				return RMFileNameMap(self.rawDir,outDir,self.fremap[t])
+			elif output:
+				if self._tmpOutput and not self._tmpInput:
+					return RMFileNameMap(self.rawDir,outDir)
+				else:
+					return None
 			else:
-				return self.fmap
+				if self._tmpInput:
+					return RMFileNameMap(self.rawDir,outDir)
+				else:
+					return self.fmap
 
 class ProcessToNewFiles(FileMgr):
 	def __init__(self,rawDir,procDir):
@@ -203,13 +231,19 @@ class ProcessToNewFiles(FileMgr):
 		             'pass1cat':'.cat1','skymask':'.skymsk',
 		             '_sky':'_tmpsky','sky':'_s','proc2':'_q'}
 	def __call__(self,t,output=True):
+		if output:
+			outDir = self.procDir if not self._tmpOutput else \
+			          os.path.join(self.procDir,'tmp')
+		else:
+			outDir = self.procDir if not self._tmpInput else \
+			          os.path.join(self.procDir,'tmp')
 		try:
 			return super(ProcessToNewFiles,self).__call__(t,output)
 		except ValueError:
 			if t == 'raw':
-				return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
+				return RMFileNameMap(self.rawDir,outDir,fromRaw=True)
 			else:
-				return RMFileNameMap(self.rawDir,self.procDir,self.fmap[t])
+				return RMFileNameMap(self.rawDir,outDir,self.fmap[t])
 
 def get_bias_map(file_map):
 	biasMap = {}
@@ -355,7 +389,8 @@ def balance_gains(file_map,**kwargs):
 	return gainMap
 
 def process_all(file_map,bias_map,flat_map,
-                fixpix=False,nocombine=False,**kwargs):
+                fixpix=False,norampcorr=False,noillumcorr=False,
+                nodarkskycorr=False,nocombine=False,**kwargs):
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
 	proc = bokproc.BokCCDProcess(bias_map,
@@ -365,6 +400,9 @@ def process_all(file_map,bias_map,flat_map,
 	                             mask_map=file_map('MasterBadPixMask'),
 	                             ramp_map=file_map('BiasRampCorrection'),
 	                             fixpix=fixpix,
+	                             rampcorr=not norampcorr,
+	                             illumcorr=not noillumcorr,
+	                             darkskycorr=not nodarkskycorr,
 	                             **kwargs)
 	files = file_map.getFiles(imType='object')
 	proc.process_files(files)
@@ -421,6 +459,14 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 
 # process round 2: illum corr and sky sub
 
+def load_darksky_frames(filt):
+	darkSkyFrames = np.loadtxt(os.path.join('config',
+	                                        'bokrm_darksky_%s.txt'%filt),
+	                           dtype=[('utDate','S8'),('fileName','S35'),
+	                                  ('skyVal','f4')])
+	# a quick pruning of the repeat images
+	return darkSkyFrames[::2]
+
 def make_images(file_map,imtype='comb',msktype=None):
 	import matplotlib.pyplot as plt
 	files = file_map.getFiles(imType='object')
@@ -446,7 +492,8 @@ def make_images(file_map,imtype='comb',msktype=None):
 		bokproc.make_fov_image_fromfile(f,imgfile,mask=maskmap(ff))
 	plt.ion()
 
-def create_file_map(rawDir,procDir,utds,bands,newfiles):
+def create_file_map(rawDir,procDir,utds,bands,newfiles,
+                    darkskyframes=False,tmpdirin=False,tmpdirout=False):
 	# set default file paths
 	if rawDir is None:
 		rawDir = os.environ['BOK90PRIMERAWDIR']
@@ -457,11 +504,21 @@ def create_file_map(rawDir,procDir,utds,bands,newfiles):
 		fileMap = ProcessToNewFiles(rawDir,procDir) 
 	else:
 		fileMap = ProcessInPlace(rawDir,procDir) 
+	if tmpdirin:
+		fileMap.setTmpInput()
+	if tmpdirout:
+		fileMap.setTmpOutput()
 	# restrict processing to specified UT dates and filters
 	if utds is not None:
 		fileMap.setUtDates(utds)
 	if bands is not None:
 		fileMap.setFilters(bands)
+	if darkskyframes:
+		# must select a band
+		if bands is None or bands not in ['g','i']:
+			raise ValueError("Must select a band for dark sky frames (-b)")
+		frames = load_darksky_frames(bands)
+		fileMap.setFrameList(frames['utDate'],frames['fileName'])
 	# create output directories for processed files
 	for d in [procDir,fileMap.getCalDir(),fileMap.getDiagDir()]:
 		if not os.path.exists(d):
@@ -471,7 +528,10 @@ def create_file_map(rawDir,procDir,utds,bands,newfiles):
 		if not os.path.exists(utdir): os.mkdir(utdir)
 	return fileMap
 
-def rmpipe(fileMap,redo,steps,verbose,**kwargs):
+def rmpipe(fileMap,**kwargs):
+	redo = kwargs.get('redo',False)
+	steps = kwargs.get('steps')
+	verbose = kwargs.get('verbose',0)
 	pipekwargs = {'clobber':redo,'verbose':verbose}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
 	fixpix = False #True
@@ -505,6 +565,9 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 			                                     'biasramp.fits'))
 		process_all(fileMap,biasMap,flatMap,
 		            fixpix=fixpix,
+		            norampcorr=kwargs.get('norampcorr'),
+		            noillumcorr=kwargs.get('noillumcorr'),
+		            nodarkskycorr=kwargs.get('nodarkskycorr'),
 		            nocombine=kwargs.get('nocombine'),
 		            **pipekwargs)
 		timerLog('ccdproc')
@@ -517,7 +580,8 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 		timerLog('process2')
 	timerLog.dump()
 
-def rmpipe_poormp(nProc,fileMap,*args,**kwargs):
+def rmpipe_poormp(fileMap,**kwargs):
+	nProc = kwargs.get('processes',1)
 	def chunks(l, n):
 		nstep = int(round(len(l)/float(n)))
 		for i in xrange(0, len(l), nstep):
@@ -527,8 +591,7 @@ def rmpipe_poormp(nProc,fileMap,*args,**kwargs):
 	for i,utds in enumerate(utdSets):
 		fmap = copy(fileMap)
 		fmap.setUtDates(utds)
-		_args = (fmap,) + args
-		p = multiprocessing.Process(target=rmpipe,args=_args,kwargs=kwargs)
+		p = multiprocessing.Process(target=rmpipe,args=(fmap),kwargs=kwargs)
 		jobs.append(p)
 		p.start()
 
@@ -566,12 +629,22 @@ if __name__=='__main__':
 	                help='generate CCD-combined images for calibration data')
 	parser.add_argument('--noflatcorr',action='store_true',
 	                help='do not apply flat correction')
+	parser.add_argument('--norampcorr',action='store_true',
+	                help='do not correct bias ramp')
+	parser.add_argument('--noillumcorr',action='store_true',
+	                help='do not apply illumination correction')
+	parser.add_argument('--nodarkskycorr',action='store_true',
+	                help='do not apply dark sky flat correction')
 	parser.add_argument('--nocombine',action='store_true',
 	                help='do not combine into CCD images')
-	parser.add_argument('--norampcorr',action='store_true',
-	                help='do not attempt to correct bias ramp')
 	parser.add_argument('--nousepixflat',action='store_true',
 	                help='do not use normalized pixel flat')
+	parser.add_argument('--darkskyframes',action='store_true',
+	                help='load only the dark sky frames')
+	parser.add_argument('--tmpdirin',action='store_true',
+	                help='read files from temporary directory')
+	parser.add_argument('--tmpdirout',action='store_true',
+	                help='write files to temporary directory')
 	args = parser.parse_args()
 	if args.utdate is None:
 		utds = None
@@ -585,28 +658,24 @@ if __name__=='__main__':
 	else:
 		steps = args.steps.split(',')
 	verbose = 0 if args.verbose is None else args.verbose
+	# set up the data map
 	fileMap = create_file_map(args.rawdir,args.output,
-	                          utds,args.band,args.newfiles)
+	                          utds,args.band,args.newfiles,args.darkskyframes,
+	                          args.tmpdirin,args.tmpdirout)
 	if args.frames is not None:
 		fileMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
 	if args.caldir is not None:
 		fileMap.setCalDir(os.path.join(args.caldir,'cals'))
 		fileMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
+	# convert command-line arguments into dictionary
+	opts = vars(args)
+	kwargs = { k : opts[k] for k in opts if opts[k] != None }
+	kwargs['steps'] = steps
+	# run pipeline processes
 	if args.images is not None:
 		make_images(fileMap,*args.images.split(','))
 	elif args.processes > 1:
-		rmpipe_poormp(args.processes,
-		              fileMap,args.redo,steps,verbose,
-		              noflatcorr=args.noflatcorr,
-		              nocombine=args.nocombine,
-		              calccdims=args.calccdims,
-		              norampcorr=args.norampcorr,
-		              nousepixflat=args.nousepixflat)
+		rmpipe_poormp(fileMap,**kwargs)
 	else:
-		rmpipe(fileMap,args.redo,steps,verbose,
-		       noflatcorr=args.noflatcorr,
-		       nocombine=args.nocombine,
-		       calccdims=args.calccdims,
-		       norampcorr=args.norampcorr,
-		       nousepixflat=args.nousepixflat)
+		rmpipe(fileMap,**kwargs)
 
