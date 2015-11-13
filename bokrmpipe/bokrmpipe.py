@@ -225,7 +225,7 @@ def get_bias_map(file_map):
 			biasMap[f] = biasFile
 	return biasMap
 
-def get_flat_map(file_map,normed=False):
+def get_flat_map(file_map):
 	flatMap = {}
 	flatPattern = os.path.join(file_map.getCalDir(),'flat_????????_?_?.fits')
 	flatFiles = sorted(glob.glob(flatPattern))
@@ -245,8 +245,6 @@ def get_flat_map(file_map,normed=False):
 				raise ValueError('no match for %s:%s in %s:s' % 
 				                 (utd,filt,flatUtds,flatFilt))
 			flatFile = flatFiles[jj[j]]
-			if normed:
-				flatFile = flatFile.replace('.fits','_normed.fits')
 			for f in files:
 				flatMap[f] = flatFile
 	return flatMap
@@ -285,7 +283,8 @@ def make_2d_biases(file_map,nSkip=2,reject='sigma_clip',
 				makeccd4image(file_map,biasFile,**kwargs)
 
 def make_dome_flats(file_map,bias_map,
-                    nSkip=1,reject='sigma_clip',writeccdim=False,**kwargs):
+                    nSkip=1,reject='sigma_clip',writeccdim=False,
+	                usepixflat=True,**kwargs):
 	bias2Dsub = bokproc.BokCCDProcess(bias_map,
 	                                  input_map=file_map('oscan',False),
 	                                  output_map=file_map('bias'),
@@ -294,6 +293,8 @@ def make_dome_flats(file_map,bias_map,
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
 	                                     input_map=file_map('bias',False),
 	                                     **kwargs)
+	if usepixflat:
+		normFlat = bokproc.NormalizeFlat(**kwargs)
 	for utd in file_map.iterUtDates():
 		for filt in file_map.iterFilters():
 			files,frames = file_map.getFiles(imType='flat',with_frames=True)
@@ -309,19 +310,18 @@ def make_dome_flats(file_map,bias_map,
 			                        'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 				bias2Dsub.process_files(flatFiles)
 				flatStack.stack(flatFiles[nSkip:],flatFile)
+				if usepixflat:
+					normFlat.process_files([flatFile])
 				if writeccdim:
 					makeccd4image(file_map,flatFile,**kwargs)
 
 def make_bad_pixel_masks(file_map,**kwargs):
+	# XXX hardcoded
 	utd,filt,flatNum = '20140425','g',1
 	flatFn = os.path.join(file_map.getCalDir(),
 	                      'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 	bpMaskFile = os.path.join(file_map.getCalDir(),'badpix_master.fits')
-	badpixels.build_mask_from_flat(flatFn,bpMaskFile,
-	             normed_flat_file=flatFn.replace('.fits','_normed.fits'),
-	             normed_flat_fit_file=flatFn.replace('.fits','_fit.fits'),
-	             binned_flat_file=flatFn.replace('.fits','_binned.fits'),
-	             )#,**kwargs)
+	badpixels.build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
 	makeccd4image(file_map,bpMaskFile,**kwargs)
 
 def balance_gains(file_map,**kwargs):
@@ -486,7 +486,9 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 		timerLog('2d biases')
 	if 'flat2d' in steps:
 		biasMap = get_bias_map(fileMap)
-		make_dome_flats(fileMap,biasMap,writeccdim=writeccdims,**pipekwargs)
+		make_dome_flats(fileMap,biasMap,writeccdim=writeccdims,
+		                usepixflat=not kwargs.get('nousepixflat',False),
+		                **pipekwargs)
 		timerLog('dome flats')
 	if 'bpmask' in steps:
 		make_bad_pixel_masks(fileMap)
@@ -497,7 +499,7 @@ def rmpipe(fileMap,redo,steps,verbose,**kwargs):
 		if kwargs.get('noflatcorr',False):
 			flatMap = None
 		else:
-			flatMap = get_flat_map(fileMap,normed=kwargs.get('usepixflat'))
+			flatMap = get_flat_map(fileMap)
 		if not kwargs.get('norampcorr',False):
 			fileMap.setRampCorrFile(os.path.join(fileMap.getCalDir(),
 			                                     'biasramp.fits'))
@@ -568,8 +570,8 @@ if __name__=='__main__':
 	                help='do not combine into CCD images')
 	parser.add_argument('--norampcorr',action='store_true',
 	                help='do not attempt to correct bias ramp')
-	parser.add_argument('--usepixflat',action='store_true',
-	                help='use normalized pixel flat')
+	parser.add_argument('--nousepixflat',action='store_true',
+	                help='do not use normalized pixel flat')
 	args = parser.parse_args()
 	if args.utdate is None:
 		utds = None
@@ -599,12 +601,12 @@ if __name__=='__main__':
 		              nocombine=args.nocombine,
 		              calccdims=args.calccdims,
 		              norampcorr=args.norampcorr,
-		              usepixflat=args.usepixflat)
+		              nousepixflat=args.nousepixflat)
 	else:
 		rmpipe(fileMap,args.redo,steps,verbose,
 		       noflatcorr=args.noflatcorr,
 		       nocombine=args.nocombine,
 		       calccdims=args.calccdims,
 		       norampcorr=args.norampcorr,
-		       usepixflat=args.usepixflat)
+		       nousepixflat=args.nousepixflat)
 
