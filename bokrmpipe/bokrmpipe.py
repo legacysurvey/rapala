@@ -340,6 +340,8 @@ def make_dome_flats(file_map,bias_map,
 			else:
 				flat_seqs = np.split(files,splits+1)
 			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
+				if len(flatFiles) < 5: # XXX hardcoded
+					continue
 				flatFile = os.path.join(file_map.getCalDir(),
 			                        'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 				bias2Dsub.process_files(flatFiles)
