@@ -12,6 +12,7 @@ import fitsio
 from bokpipe import *
 from bokpipe import __version__ as pipeVersion
 
+import bokrampcorr
 import bokillumcorr
 
 # XXX
@@ -398,18 +399,16 @@ def balance_gains(file_map,**kwargs):
 	return gainMap
 
 def process_all(file_map,bias_map,flat_map,
-                fixpix=False,norampcorr=False,noillumcorr=False,
-                nodarkskycorr=False,nocombine=False,**kwargs):
+                fixpix=False,norampcorr=False,
+                nocombine=False,**kwargs):
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
 	ramp = None if norampcorr else file_map('BiasRampCorrection')
-	illum = None if noillumcorr else file_map('IllumCorrImage')
-	darksky = None if nodarkskycorr else file_map('DarkSkyFlatImage')
 	proc = bokproc.BokCCDProcess(input_map=file_map('oscan',False),
 	                             output_map=file_map('proc'),
 	                             mask_map=file_map('MasterBadPixMask'),
 	                             bias=bias_map,flat=flat_map,
-	                             ramp=ramp,illum=illum,darksky=darksky,
+	                             ramp=ramp,illum=None,darksky=None,
 	                             fixpix=fixpix,**kwargs)
 	files = file_map.getFiles(imType='object')
 	if files is None:
@@ -466,7 +465,19 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 			                     'skyflat_%s_%s.fits' % (utd,filt))
 			skyFlatStack.stack(files,outfn)
 
-# process round 2: illum corr and sky sub
+def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,**kwargs):
+	illum = None if noillumcorr else file_map('IllumCorrImage')
+	darksky = None if nodarkskycorr else file_map('DarkSkyFlatImage')
+	proc = bokproc.BokCCDProcess(input_map=file_map('comb',False),
+	                             output_map=file_map('proc2'),
+	                             mask_map=file_map('MasterBadPixMask'),
+	                             bias=None,flat=None,
+	                             ramp=None,illum=illum,darksky=darksky,
+	                             fixpix=fixpix,**kwargs)
+	files = file_map.getFiles(imType='object')
+	if files is None:
+		return
+	proc.process_files(files)
 
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
@@ -577,8 +588,6 @@ def rmpipe(fileMap,**kwargs):
 		process_all(fileMap,biasMap,flatMap,
 		            fixpix=fixpix,
 		            norampcorr=kwargs.get('norampcorr'),
-		            noillumcorr=kwargs.get('noillumcorr'),
-		            nodarkskycorr=kwargs.get('nodarkskycorr'),
 		            nocombine=kwargs.get('nocombine'),
 		            **pipekwargs)
 		timerLog('ccdproc')
@@ -586,8 +595,10 @@ def rmpipe(fileMap,**kwargs):
 		make_supersky_flats(fileMap,**pipekwargs)
 		timerLog('supersky flats')
 	if 'proc2' in steps:
-		# XXX for testing
-		#fileMap = ProcessToNewFiles()
+		process_all2(fileMap,
+		             noillumcorr=kwargs.get('noillumcorr'),
+		             nodarkskycorr=kwargs.get('nodarkskycorr'),
+		             **pipekwargs)
 		timerLog('process2')
 	timerLog.dump()
 
@@ -694,7 +705,7 @@ if __name__=='__main__':
 	if args.images is not None:
 		make_images(fileMap,*args.images.split(','))
 	elif args.makerampcorr:
-		raise NotImplementedError
+		bokrampcorr.make_rampcorr_image(fileMap)#,**kwargs)
 	elif args.makeillumcorr:
 		bokillumcorr.make_illumcorr_image(fileMap)#,**kwargs)
 	elif args.processes > 1:
