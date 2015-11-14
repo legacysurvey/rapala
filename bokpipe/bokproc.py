@@ -221,8 +221,8 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 
 class NormalizeFlat(bokutil.BokProcess):
 	def __init__(self,**kwargs):
-		super(NormalizeFlat,self).__init__(**kwargs)
 		kwargs.setdefault('header_key','NORMFLT')
+		super(NormalizeFlat,self).__init__(**kwargs)
 		self.nbin = kwargs.get('nbin',32)
 		self.flatFitName = kwargs.get('normed_flat_fit_file')
 		self.binnedFlatName = kwargs.get('binned_flat_file')
@@ -275,104 +275,67 @@ class NormalizeFlat(bokutil.BokProcess):
 		return normedIm.astype(np.float32),hdr
 
 class BokCCDProcess(bokutil.BokProcess):
-	def __init__(self,bias=None,flat=None,**kwargs):
+	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','CCDPROC')
 		super(BokCCDProcess,self).__init__(**kwargs)
 		self.fixPix = kwargs.get('fixpix',False)
 		self.fixPixAlong = kwargs.get('fixpix_along','rows')
 		self.fixPixMethod = kwargs.get('fixpix_method','linear')
-		self.doRampCorr = kwargs.get('rampcorr',True)
-		self.doIllumCorr = kwargs.get('illumcorr',True)
-		self.doDarkSkyCorr = kwargs.get('darkskycorr',True)
 		self.gainMultiply = kwargs.get('gain_multiply',True)
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
-		                               for ampNum,g in zip(ampOrder,nominal_gain)})
+		                          for ampNum,g in zip(ampOrder,nominal_gain)})
+		self.imTypes = ['bias','flat','ramp','illum','darksky']
 		#
-		self.biasFile = '<none>'
-		self.biasFits = None
-		self.biasIsMaster = True
-		if type(bias) is fitsio.fitslib.FITS:
-			self.biasFile = bias._filename
-			self.biasFits = bias
-		elif type(bias) is str:
-			self.biasFile = bias
-			self.biasFits = fitsio.FITS(self.biasFile)
-		elif type(bias) is dict:
-			self.biasMap = bias
-			self.biasIsMaster = False
-		#
-		self.flatFile = '<none>'
-		self.flatFits = None
-		self.flatIsMaster = True
-		if type(flat) is fitsio.fitslib.FITS:
-			self.flatFile = flat._filename
-			self.flatFits = flat
-		elif type(flat) is str:
-			self.flatFile = flat
-			self.flatFits = fitsio.FITS(self.flatFile)
-		elif type(flat) is dict:
-			self.flatMap = flat
-			self.flatIsMaster = False
-		#
-		ramp = kwargs.get('ramp_map')
-		self.rampFile = '<none>'
-		self.rampFits = None
-		self.rampIsMaster = True
-		if type(ramp) is fitsio.fitslib.FITS:
-			self.rampFile = ramp._filename
-			self.rampFits = ramp
-		elif type(ramp) is str:
-			self.rampFile = ramp
-			self.rampFits = fitsio.FITS(self.rampFile)
-		elif type(ramp) is dict:
-			self.rampMap = ramp
-			self.rampIsMaster = False
+		self.procIms = {}
+		for imType in self.imTypes:
+			fitsIn = kwargs.get(imType)
+			self.procIms[imType] = {'file':'<none>','fits':None}
+			self.procIms[imType]['master'] = True
+			if type(fitsIn) is fitsio.fitslib.FITS:
+				self.procIms[imType]['file'] = fitsIn._filename
+				self.procIms[imType]['fits'] = fitsIn
+			elif type(fitsIn) is str:
+				self.procIms[imType]['file'] = fitsIn
+				self.procIms[imType]['fits'] = fitsio.FITS(fitsIn)
+			elif type(fitsIn) is dict:
+				self.procIms[imType]['map'] = fitsIn
+				self.procIms[imType]['master'] = False
 	def _preprocess(self,fits,f):
 		print 'ccdproc ',fits.fileName,fits.outFileName
-		if not self.biasIsMaster:
-			biasFile = self.biasMap[f]
-			if self.biasFile != biasFile:
-				if self.biasFits is not None:
-					self.biasFits.close()
-				self.biasFile = biasFile
-				self.biasFits = fitsio.FITS(self.biasFile)
-		if not self.flatIsMaster:
-			flatFile = self.flatMap[f]
-			if self.flatFile != flatFile:
-				if self.flatFits is not None:
-					self.flatFits.close()
-				self.flatFile = flatFile
-				self.flatFits = fitsio.FITS(self.flatFile)
-		if not self.rampIsMaster:
-			rampFile = self.rampMap[f]
-			if self.rampFile != rampFile:
-				if self.rampFits is not None:
-					self.rampFits.close()
-				self.rampFile = rampFile
-				self.rampFits = fitsio.FITS(self.rampFile)
+		for imType in self.imTypes:
+			if not self.procIms[imType]['master']:
+				inFile = self.procIms[imType](f)
+				if self.procIms[imType]['file'] != inFile:
+					if self.procIm[imType]['fits'] is not None:
+						self.procIm[imType]['fits'].close()
+					self.procIm[imType]['file'] = inFile
+					self.procIm[imType]['fits'] = fitsio.FITS(inFile)
 	def process_hdu(self,extName,data,hdr):
-		if self.biasFits is not None:
-			data -= self.biasFits[extName][:,:]
-		if self.doRampCorr and self.rampFits is not None:
+		bias = self.procIms['bias']['fits'] 
+		if bias is not None:
+			data -= bias[extName][:,:]
+		ramp = self.procIms['ramp']['fits'] 
+		if ramp is not None:
 			# this correction may not exist on all extensions
 			try:
-				data -= self.rampFits[extName][:,:]
+				data -= ramp[extName][:,:]
 			except:
 				pass
-		if self.flatFits is not None:
-			data /= self.flatFits[extName][:,:]
-		if self.doIllumCorr:
-			raise NotImplementedError
-		if self.doDarkSkyCorr:
-			raise NotImplementedError
+		for flatType in ['flat','illum','darksky']:
+			flat = self.procIms[flatType]['fits']
+			if flat is not None:
+				data /= flat[extName][:,:]
 		if self.fixPix:
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
 			# what should the fill value be?
 			data = data.filled(0)
-		hdr['BIASFILE'] = str(self.biasFile)
-		hdr['FLATFILE'] = str(self.flatFile)
-		hdr['RAMPFILE'] = str(self.rampFile)
+		for imType in self.imTypes:
+			# e.g., hdr['BIASFILE'] = <filename>
+			hdrKey = str(imType.upper()+'FILE')[:8]
+			# trim the file path if it is long
+			fn = os.path.split(self.procIms[imType]['file'])[-3:]
+			hdr[hdrKey] = os.path.join(*fn) 
 		if self.fixPix:
 			hdr['FIXPIX'] = self.fixPixAlong
 		if self.gainMultiply:
