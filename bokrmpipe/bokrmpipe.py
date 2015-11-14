@@ -12,6 +12,8 @@ import fitsio
 from bokpipe import *
 from bokpipe import __version__ as pipeVersion
 
+import bokillumcorr
+
 # XXX
 from astrotools.idmstuff import loadpath
 loadpath()
@@ -48,8 +50,10 @@ class FileMgr(object):
 		self.masterBpMaskFits = None
 		self.masterBpMask4Fn = 'badpix_master_4ccd.fits'
 		self.masterBpMask4Fits = None
-		self.masterRampCorrFn = None
+		self.masterRampCorrFn = 'biasramp.fits'
 		self.masterRampCorrFits = None
+		self.illumCorrFn = 'illumination.fits'
+		self.illumCorrFits = None
 		self.utDates = sorted(logs.keys())
 		self.filt = 'gi'
 		self.frames = None
@@ -99,8 +103,6 @@ class FileMgr(object):
 		self.frames = frames
 	def setFrameList(self,utDates,fileNames):
 		self.frameList = (utDates,fileNames)
-	def setRampCorrFile(self,rampCorrFn):
-		self.masterRampCorrFn = rampCorrFn
 	def __call__(self,t,output=True):
 		if t == 'raw':
 			return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
@@ -115,10 +117,13 @@ class FileMgr(object):
 				self.masterBpMask4Fits = fitsio.FITS(fn)
 			return self.masterBpMask4Fits
 		elif t == 'BiasRampCorrection':
-			if self.masterRampCorrFits is None \
-			      and self.masterRampCorrFn is not None:
+			if self.masterRampCorrFits is None:
 				self.masterRampCorrFits = fitsio.FITS(self.masterRampCorrFn)
 			return self.masterRampCorrFits
+		elif t == 'IllumCorrImage':
+			if self.illumCorrFits is None:
+				self.illumCorrFits = fitsio.FITS(self.illumCorrFn)
+			return self.illumCorrFits
 		else:
 			raise ValueError
 	def getFiles(self,imType=None,utd=None,filt=None,
@@ -397,17 +402,15 @@ def process_all(file_map,bias_map,flat_map,
                 nodarkskycorr=False,nocombine=False,**kwargs):
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
-	proc = bokproc.BokCCDProcess(bias_map,
-	                             flat_map,
-	                             input_map=file_map('oscan',False),
+	ramp = None if norampcorr else file_map('BiasRampCorrection')
+	illum = None if noillumcorr else file_map('IllumCorrImage')
+	darksky = None if nodarkskycorr else file_map('DarkSkyFlatImage')
+	proc = bokproc.BokCCDProcess(input_map=file_map('oscan',False),
 	                             output_map=file_map('proc'),
 	                             mask_map=file_map('MasterBadPixMask'),
-	                             ramp_map=file_map('BiasRampCorrection'),
-	                             fixpix=fixpix,
-	                             rampcorr=not norampcorr,
-	                             illumcorr=not noillumcorr,
-	                             darkskycorr=not nodarkskycorr,
-	                             **kwargs)
+	                             bias=bias_map,flat=flat_map,
+	                             ramp=ramp,illum=illum,darksky=darksky,
+	                             fixpix=fixpix,**kwargs)
 	files = file_map.getFiles(imType='object')
 	if files is None:
 		return
@@ -563,15 +566,14 @@ def rmpipe(fileMap,**kwargs):
 		make_bad_pixel_masks(fileMap)
 		timerLog('bad pixel masks')
 	if 'proc1' in steps:
-		if biasMap is None:
+		if kwargs.get('nobiascorr',False):
+			biasMap = None
+		elif biasMap is None:
 			biasMap = get_bias_map(fileMap)
 		if kwargs.get('noflatcorr',False):
 			flatMap = None
 		else:
 			flatMap = get_flat_map(fileMap)
-		if not kwargs.get('norampcorr',False):
-			fileMap.setRampCorrFile(os.path.join(fileMap.getCalDir(),
-			                                     'biasramp.fits'))
 		process_all(fileMap,biasMap,flatMap,
 		            fixpix=fixpix,
 		            norampcorr=kwargs.get('norampcorr'),
@@ -614,8 +616,6 @@ if __name__=='__main__':
 	                help='set calibration directory')
 	parser.add_argument('-f','--frames',type=str,default=None,
 	                help='frames to process (i1,i2) [default=all]')
-	parser.add_argument('-i','--images',type=str,default=None,
-	                help='make png images (imtype,[msktype]) [default=no]')
 	parser.add_argument('-n','--newfiles',action='store_true',
 	                help='process to new files (not in-place)')
 	parser.add_argument('-o','--output',type=str,default=None,
@@ -636,6 +636,8 @@ if __name__=='__main__':
 	                help='increase output verbosity')
 	parser.add_argument('--calccdims',action='store_true',
 	                help='generate CCD-combined images for calibration data')
+	parser.add_argument('--nobiascorr',action='store_true',
+	                help='do not apply bias correction')
 	parser.add_argument('--noflatcorr',action='store_true',
 	                help='do not apply flat correction')
 	parser.add_argument('--norampcorr',action='store_true',
@@ -654,6 +656,14 @@ if __name__=='__main__':
 	                help='read files from temporary directory')
 	parser.add_argument('--tmpdirout',action='store_true',
 	                help='write files to temporary directory')
+	parser.add_argument('--images',type=str,default=None,
+	                help='make png images (imtype,[msktype]) '
+	                     'instead of processing')
+	parser.add_argument('--makerampcorr',action='store_true',
+	                help='make ramp correction image instead of processing')
+	parser.add_argument('--makeillumcorr',action='store_true',
+	                help='make illumination correction image '
+	                     'instead of processing')
 	args = parser.parse_args()
 	if args.utdate is None:
 		utds = None
@@ -683,6 +693,10 @@ if __name__=='__main__':
 	# run pipeline processes
 	if args.images is not None:
 		make_images(fileMap,*args.images.split(','))
+	elif args.makerampcorr:
+		raise NotImplementedError
+	elif args.makeillumcorr:
+		bokillumcorr.make_illumcorr_image(fileMap)#,**kwargs)
 	elif args.processes > 1:
 		rmpipe_poormp(fileMap,**kwargs)
 	else:

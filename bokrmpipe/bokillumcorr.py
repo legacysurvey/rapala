@@ -7,15 +7,14 @@ from astropy.modeling import models,fitting
 
 from bokpipe import *
 
-def make_skyflat(skyFlatFile):
+def make_skyflat(dataMap,skyFlatFile):
 	'''Make a dark sky flat template for the illumination correction'''
 	stackPars = {}
 	stackPars['scale'] = 'normalize_median'
 	stackPars['reject'] = 'sigma_clip'
 	stackPars['nsplit'] = 8
 	stackFun = bokutil.ClippedMeanStack(**stackPars)
-	with open(os.path.join('config','illum_list.txt')) as f:
-		inputFiles = f.read().splitlines()
+	inputFiles = dataMap.getFiles()
 	print 'input: ',inputFiles
 	print 'output: ',skyFlatFile
 	stackFun.stack(inputFiles,skyFlatFile)
@@ -35,9 +34,9 @@ def form_spline_im(ccdName,splinefun,xx,yy):
 		ccdim = splinefun(xx[0,::-1],yy[::-1,0])[::-1,::-1].T
 	return ccdim
 
-def fit_illumination(rmDataMap,nbin=16,asPoly=False,order=3):
-	fits = bokutil.BokMefImage(rmDataMap('IllumCorrFlat'),
-	                           mask_file=rmDataMap('MasterBadPixMask4'),
+def fit_illumination(inputFile,dataMap,nbin=16,asPoly=False,order=3):
+	fits = bokutil.BokMefImage(inputFile,
+	                           mask_file=dataMap('MasterBadPixMask4'),
 	                           read_only=True)
 	im = fits.make_fov_image(nbin,'sky',binfunc=np.ma.mean,
 	                         binclip=True,single=True)
@@ -67,19 +66,34 @@ def fit_illumination(rmDataMap,nbin=16,asPoly=False,order=3):
 			#                       for ccdNum in range(4) ])
 	return illum
 
+def make_illumcorr_image(dataMap,**kwargs):
+	inputFile = os.path.join(dataMap._tmpDir,'tmpillum.fits')
+	make_skyflat(dataMap,inputFile)
+	illum = fit_illumination(inputFile,dataMap,**kwargs)
+	fits = bokutil.BokMefImage(inputFile,
+	                           output_file=dataMap('IllumCorrImage'),
+	                           clobber=True)
+	for extName,im,hdr in fits:
+		xx,yy = fits.get_xy(extName,'sky')
+		if asPoly:
+			ccdim = illum(xx,yy)
+		else:
+			ccdim = form_spline_im(extName,illum,xx,yy)
+		ccdim /= float(illum(0,0))
+		fits.update(ccdim,hdr)
+	fits.close()
+
 def test(skyflatf,bpmaskf,asPoly=False,nbin=16):
 	'''Generate an illumination correction image from a sky flat and a
 	   bad pixel mask.'''
 	import pickle
 	class dmap(object):
 		def __call__(self,k):
-			if k=='IllumCorrFlat':
-				return skyflatf
-			elif k=='MasterBadPixMask4':
+			if k=='MasterBadPixMask4':
 				return bpmaskf
 	dm = dmap()
 	illum = fit_illumination(dm,nbin=nbin,asPoly=asPoly)
-	fits = bokutil.BokMefImage(dm('IllumCorrFlat'),
+	fits = bokutil.BokMefImage(skyflatf,
 	                           output_file='testillum.fits',
 	                           clobber=True)
 	for extName,im,hdr in fits:
