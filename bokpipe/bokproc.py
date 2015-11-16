@@ -304,12 +304,12 @@ class BokCCDProcess(bokutil.BokProcess):
 		print 'ccdproc ',fits.fileName,fits.outFileName
 		for imType in self.imTypes:
 			if not self.procIms[imType]['master']:
-				inFile = self.procIms[imType](f)
+				inFile = self.procIms[imType]['map'][f]
 				if self.procIms[imType]['file'] != inFile:
-					if self.procIm[imType]['fits'] is not None:
-						self.procIm[imType]['fits'].close()
-					self.procIm[imType]['file'] = inFile
-					self.procIm[imType]['fits'] = fitsio.FITS(inFile)
+					if self.procIms[imType]['fits'] is not None:
+						self.procIms[imType]['fits'].close()
+					self.procIms[imType]['file'] = inFile
+					self.procIms[imType]['fits'] = fitsio.FITS(inFile)
 	def process_hdu(self,extName,data,hdr):
 		bias = self.procIms['bias']['fits'] 
 		if bias is not None:
