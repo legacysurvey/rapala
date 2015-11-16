@@ -60,6 +60,7 @@ class FileMgr(object):
 		self._curFilt = None
 		self._tmpInput = False
 		self._tmpOutput = False
+		self._tmpDir = os.path.join(self.procDir,'tmp')
 	def getRawDir(self):
 		return self.rawDir
 	def getProcDir(self):
@@ -68,7 +69,6 @@ class FileMgr(object):
 		self._tmpInput = True
 	def setTmpOutput(self):
 		self._tmpOutput = True
-		self._tmpDir = os.path.join(self.procDir,'tmp')
 		if not os.path.exists(self._tmpDir):
 			os.mkdir(self._tmpDir)
 	def getCalDir(self):
@@ -119,11 +119,13 @@ class FileMgr(object):
 			return self.masterBpMask4Fits
 		elif t == 'BiasRampCorrection':
 			if self.masterRampCorrFits is None:
-				self.masterRampCorrFits = fitsio.FITS(self.masterRampCorrFn)
+				fn = os.path.join(self.calDir,self.masterRampCorrFn)
+				self.masterRampCorrFits = fitsio.FITS(fn)
 			return self.masterRampCorrFits
 		elif t == 'IllumCorrImage':
 			if self.illumCorrFits is None:
-				self.illumCorrFits = fitsio.FITS(self.illumCorrFn)
+				fn = os.path.join(self.calDir,self.illumCorrFn)
+				self.illumCorrFits = fitsio.FITS(fn)
 			return self.illumCorrFits
 		else:
 			raise ValueError

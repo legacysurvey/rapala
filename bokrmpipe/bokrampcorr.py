@@ -33,7 +33,7 @@ def make_gradient_ims(files,outputFile,bpmask,nbin=16,
 		outrmsFits = fitsio.FITS(outrmsf,'rw')
 		outrmsFits.write(None)
 	for f in files:
-		print 'processing ',f
+		print 'constructing ramp image for ',f
 		mef = bokutil.BokMefImage(f,read_only=True,mask_file=bpmask)
 		for extn in extensions:
 			im = mef.get(extn)
@@ -76,7 +76,7 @@ def make_gradient_ims(files,outputFile,bpmask,nbin=16,
 	if dorms:
 		outrmsFits.close()
 
-def make_correction_im(gradientFile,outputFile,fitFile=None):
+def make_correction_im(gradientFile,outputFile,fitFile=None,nKnots=5):
 	from scipy.interpolate import LSQBivariateSpline
 	gradientFits = fitsio.FITS(gradientFile)
 	if os.path.exists(outputFile):
@@ -93,9 +93,16 @@ def make_correction_im(gradientFile,outputFile,fitFile=None):
 		ny,nx = gim.shape
 		nY,nX = ny*nbin,nx*nbin
 		yi,xi = np.indices(gim.shape)
-		ii = gim != 0
+		mask = gim == 0
+		if extn=='IM9':
+			# add extra mask around a group of hot pixels
+			mask |= ( (xi*nbin > 190) & (xi*nbin < 290) &
+			          (yi*nbin > 235) & (xi*nbin < 260) )
+		ii = np.where(~mask)
+		xknots = np.linspace(0,nX,nKnots)
+		yknots = np.linspace(0,nY,nKnots)
 		spfit = LSQBivariateSpline(xi[ii]*nbin,yi[ii]*nbin,gim[ii],
-		                           [0,nX],[0,nY],kx=3,ky=3)
+		                           xknots,yknots,kx=3,ky=3)
 		im = spfit(np.arange(nX),np.arange(nY)).T
 		corrFits.write(im,extname=extn)
 		if fitFile is not None:
@@ -108,7 +115,9 @@ def make_correction_im(gradientFile,outputFile,fitFile=None):
 
 def make_rampcorr_image(dataMap,**kwargs):
 	gradientFile = os.path.join(dataMap._tmpDir,'tmpramp.fits')
-	make_gradient_ims(dataMap.getFiles(),gradientFile,
-	                  dataMap('MasterBadPixMask'))
-	make_correction_im(gradientFile,dataMap('BiasRampCorrection'))
+	files = [dataMap('proc1',False)(f) for f in dataMap.getFiles()]
+	if not os.path.exists(gradientFile):
+		make_gradient_ims(files,gradientFile,dataMap('MasterBadPixMask'))
+	outFn = os.path.join(dataMap.calDir,dataMap.masterRampCorrFn)
+	make_correction_im(gradientFile,outFn)
 
