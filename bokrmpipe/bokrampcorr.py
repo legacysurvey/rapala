@@ -110,5 +110,5 @@ def make_rampcorr_image(dataMap,**kwargs):
 	gradientFile = os.path.join(dataMap._tmpDir,'tmpramp.fits')
 	make_gradient_ims(dataMap.getFiles(),gradientFile,
 	                  dataMap('MasterBadPixMask'))
-	make_correction_im(gradientFile,dataMap('BiasRampCorrection')
+	make_correction_im(gradientFile,dataMap('BiasRampCorrection'))
 

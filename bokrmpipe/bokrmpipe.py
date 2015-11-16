@@ -15,12 +15,6 @@ from bokpipe import __version__ as pipeVersion
 import bokrampcorr
 import bokillumcorr
 
-# XXX
-from astrotools.idmstuff import loadpath
-loadpath()
-import boklog
-logs = boklog.load_Bok_logs()
-
 all_process_steps = ['oscan','bias2d','flat2d','bpmask',
                      'proc1','skyflat','proc2']
 
@@ -42,7 +36,7 @@ class RMFileNameMap(bokutil.FileNameMap):
 			return os.path.join(self.procDir,fn)
 
 class FileMgr(object):
-	def __init__(self,rawDir,procDir):
+	def __init__(self,obsDb,rawDir,procDir):
 		self.rawDir = rawDir
 		self.procDir = procDir
 		self.calDir = os.path.join(self.procDir,'cals')
@@ -55,7 +49,9 @@ class FileMgr(object):
 		self.masterRampCorrFits = None
 		self.illumCorrFn = 'illumination.fits'
 		self.illumCorrFits = None
-		self.utDates = sorted(logs.keys())
+		self.obsDb = obsDb
+		self.allUtDates = np.unique(self.obsDb['utDate'])
+		self.utDates = self.allUtDates
 		self.filt = 'gi'
 		self.frames = None
 		self.frameList = None
@@ -103,7 +99,10 @@ class FileMgr(object):
 	def setFrames(self,frames):
 		self.frames = frames
 	def setFrameList(self,utDates,fileNames):
-		self.frameList = (utDates,fileNames)
+		frames = [ np.where( (self.obsDb['utDate']==utd) &
+		                     (self.obsDb['fileName']==f) )[0][0]
+		             for utd,f in zip(utDates,fileNames) ]
+		self.frameList = np.array(frames)
 	def __call__(self,t,output=True):
 		if t == 'raw':
 			return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
@@ -129,80 +128,72 @@ class FileMgr(object):
 			raise ValueError
 	def getFiles(self,imType=None,utd=None,filt=None,
 	             im_range=None,exclude_objs=None,with_frames=False):
+		file_sel = np.zeros(len(self.obsDb),dtype=bool)
+		# select on UT date(s)
 		if utd is not None:
 			utds = [utd] if type(utd) is str else utd
-		elif self._curUtDate is None:
-			utds = self.getUtDates() 
-		else:
+		elif self._curUtDate is not None:
 			utds = [self._curUtDate]
-		files,frames = [],[]
-		for utd in utds:
-			nFrames = len(logs[utd])
-			if im_range is None and self.frames is None:
-				# need one boolean array to be full length
-				is_range = np.ones(nFrames,dtype=bool)
-			else:
-				if im_range is not None:
-					i1,i2 = im_range
-				else:
-					i1,i2 = self.frames
-				frameNum = np.arange(nFrames)
-				is_range = ( (i1 <= frameNum) & (frameNum <= i2) )
+		else:
+			utds = self.getUtDates() 
+		if np.all(utds == self.allUtDates):
+			# all utds are valid
+			file_sel[:] = True
+		else:
+			for utd in utds:
+				file_sel |= self.obsDb['utDate'] == utd
+		# restrict on image type
+		if imType is not None:
+			file_sel &= self.obsDb['imType'] == imType
+		# restrict on filter
+		if filt is not None:
+			f = filt
+		elif self._curFilt is not None:
+			f = self._curFilt
+		else:
+			f = self.filt
+		if f != 'gi':
+			isFilt = self.obsDb['filter'] == f
 			if imType is None:
-				is_type = True
-			else:
-				is_type = logs[utd]['imType'] == imType
-			if filt is None and self._curFilt is None and self.filt=='gi':
-				# using all filters (good thing there aren't >2!)
-				is_filt = True
-			else:
-				# restricted to one filter
-				if filt is not None:
-					f = filt
-				elif self._curFilt is not None:
-					f = self._curFilt
-				else:
-					f = self.filt
-				is_filt = logs[utd]['filter'] == f
-				if imType is None:
-					# special case to include bias frames regardless of 
-					# what filter was in place when they were taken
-					is_filt |= logs[utd]['imType'] == 'zero'
-			exclude = np.zeros(nFrames,dtype=bool)
-			if exclude_objs is not None:
-				for objnm in exclude_objs:
-					exclude[logs[utd]['objectName']==objnm] = True
-			if self.frameList is not None:
-				l_utds,l_fns = self.frameList
-				l_ii = np.where(l_utds==utd)[0]
-				if len(l_ii)==0:
-					exclude[:] = True
-				else:
-					for _j,fn in enumerate(logs[utd]['fileName']):
-						if fn not in l_fns[l_ii]:
-							exclude[_j] = True
-			ii = np.where(is_range & is_type & is_filt & ~exclude)[0]
-			if len(ii) > 0:
-				files.append(char_add('ut'+utd+'/',logs[utd]['fileName'][ii]))
-				if with_frames:
-					frames.append(ii)
-				# XXX could use utds here for getting nearest cal
-		if len(files)==0:
-			files = None
+				# special case to include bias frames regardless of 
+				# what filter was in place when they were taken
+				isFilt |= self.obsDb['imType'] == 'zero'
+			file_sel &= isFilt
+		# restrict on specified range of frames
+		if im_range is not None:
+			file_sel &= ( (self.obsDb['frameIndex'] >= im_range[0]) & 
+			              (self.obsDb['frameIndex'] <= im_range[1]) )
+		elif self.frames is not None:
+			file_sel &= ( (self.obsDb['frameIndex'] >= self.frames[0]) & 
+			              (self.obsDb['frameIndex'] <= self.frames[1]) )
+		# list of objects to exclude
+		if exclude_objs is not None:
+			for objnm in exclude_objs:
+				file_sel ^= self.obsDb['objName'] == objnm
+		# finally check input frame list
+		if self.frameList is not None:
+			isFrame = np.zeros(len(self.obsDb),dtype=bool)
+			isFrame[self.frameList] = True
+			file_sel &= isFrame
+		# construct the output file list
+		ii = np.where(file_sel)[0]
+		if len(ii) > 0:
+			# XXX os.path.join for arrays?
+			files = char_add(char_add(self.obsDb['utDir'][ii],'/'),
+			                 self.obsDb['fileName'][ii])
 			if with_frames:
-				frames = None
+				return files,ii
+			else:
+				return files
 		else:
-			files = np.concatenate(files)
 			if with_frames:
-				frames = np.concatenate(frames)
-		if with_frames:
-			return files,frames
-		else:
-			return files
+				return None,None
+			else:
+				return None
 
 class ProcessInPlace(FileMgr):
-	def __init__(self,rawDir,procDir):
-		super(ProcessInPlace,self).__init__(rawDir,procDir)
+	def __init__(self,obsDb,rawDir,procDir):
+		super(ProcessInPlace,self).__init__(obsDb,rawDir,procDir)
 		self.fmap = RMFileNameMap(self.rawDir,self.procDir)
 		# hacky to add oscan here, because files are pulled from the raw
 		# directory for overscan subtraction, and need to be mapped to the
@@ -232,8 +223,8 @@ class ProcessInPlace(FileMgr):
 					return self.fmap
 
 class ProcessToNewFiles(FileMgr):
-	def __init__(self,rawDir,procDir):
-		super(ProcessToNewFiles,self).__init__(rawDir,procDir)
+	def __init__(self,obsDb,rawDir,procDir):
+		super(ProcessToNewFiles,self).__init__(obsDb,rawDir,procDir)
 		self.fmap = {'oscan':'','bias':'_b','proc':'_p','comb':'_c',
 		             'pass1cat':'.cat1','skymask':'.skymsk',
 		             '_sky':'_tmpsky','sky':'_s','proc2':'_q'}
@@ -512,7 +503,7 @@ def make_images(file_map,imtype='comb',msktype=None):
 		bokproc.make_fov_image_fromfile(f,imgfile,mask=maskmap(ff))
 	plt.ion()
 
-def create_file_map(rawDir,procDir,utds,bands,newfiles,
+def create_file_map(obsDb,rawDir,procDir,utds,bands,newfiles,
                     darkskyframes=False,tmpdirin=False,tmpdirout=False):
 	# set default file paths
 	if rawDir is None:
@@ -521,9 +512,9 @@ def create_file_map(rawDir,procDir,utds,bands,newfiles,
 		procDir = os.path.join(os.environ['BOK90PRIMEOUTDIR'],pipeVersion)
 	# create the file manager object
 	if newfiles:
-		fileMap = ProcessToNewFiles(rawDir,procDir) 
+		fileMap = ProcessToNewFiles(obsDb,rawDir,procDir) 
 	else:
-		fileMap = ProcessInPlace(rawDir,procDir) 
+		fileMap = ProcessInPlace(obsDb,rawDir,procDir) 
 	if tmpdirin:
 		fileMap.setTmpInput()
 	if tmpdirout:
@@ -629,6 +620,8 @@ if __name__=='__main__':
 	                help='frames to process (i1,i2) [default=all]')
 	parser.add_argument('-n','--newfiles',action='store_true',
 	                help='process to new files (not in-place)')
+	parser.add_argument('--obsdb',type=str,default=None,
+	                help='location of observations db')
 	parser.add_argument('-o','--output',type=str,default=None,
 	                help='output directory [default=$BOK90PRIMEOUTDIR]')
 	parser.add_argument('-p','--processes',type=int,default=1,
@@ -676,6 +669,10 @@ if __name__=='__main__':
 	                help='make illumination correction image '
 	                     'instead of processing')
 	args = parser.parse_args()
+	if args.obsdb is None:
+		obsDb = Table.read(os.path.join('config','sdssrm-bok2014.fits'))
+	else:
+		obsDb = Table.read(args.obsdb)
 	if args.utdate is None:
 		utds = None
 	else:
@@ -689,7 +686,7 @@ if __name__=='__main__':
 		steps = args.steps.split(',')
 	verbose = 0 if args.verbose is None else args.verbose
 	# set up the data map
-	fileMap = create_file_map(args.rawdir,args.output,
+	fileMap = create_file_map(obsDb,args.rawdir,args.output,
 	                          utds,args.band,args.newfiles,args.darkskyframes,
 	                          args.tmpdirin,args.tmpdirout)
 	if args.frames is not None:
