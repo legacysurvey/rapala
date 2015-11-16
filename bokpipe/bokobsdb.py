@@ -11,6 +11,8 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astropy.table import Table
 
+badfloat = -9999.99
+
 def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 	# load all FITS files in the specified directories
 	if filePattern is None:
@@ -67,61 +69,110 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 		if objFilter is not None and imageType == 'object' and \
 		       not objFilter(objName):
 			continue
+		utDate = h['DATE'].strip().replace('-','')
 		# airmass values in header are not very accurate (one decimal place)
-		#if not 'AIRMASS' in h:
-		#	airmass=-9999
-		#else:
-		#	airmass=h['AIRMASS']
 		if not 'ELEVAT' in h:
-			airmass=-9999
+			airmass = badfloat
 		else:
-			airmass=1/cos(radians(90-h['ELEVAT']))
+			airmass = 1/cos(radians(90.-h['ELEVAT']))
 			if abs(airmass-h['AIRMASS']) > 0.1:
 				print airmass,h['AIRMASS'],h['ELEVAT']
 				raise ValueError
-		utDate = h['DATE'].strip().replace('-','')
-		coord = h['RA'].rstrip()+' '+h['DEC'].rstrip()
-		sc = SkyCoord(coord,unit=(u.hourangle,u.deg))
-		ra = sc.ra.degree
-		dec = sc.dec.degree
-		mjd = Time(h['DATE']+' '+h['UT'],scale='utc').mjd
-		focA,focB,focC = [float(x) for x in h['FOCUSVAL'].split('*')[1:]]
-		tempstr = r'.*TEMP_F=(.*) HUMID_%=(.*) DEWPOINT_F=(.*)'
-		m = re.match(tempstr,h['TEMPS0'])
-		outTemp,outHum,outDew = [float(x) for x in m.groups()]
-		m = re.match(tempstr,h['TEMPS1'])
-		inTemp,inHum,inDew = [float(x) for x in m.groups()]
-		m = re.match(tempstr,h['TEMPS2'])
-		mirrorCellTemp,mcHum,mcDew = [float(x) for x in m.groups()]
-		tempstr = r'.*TEMP_F=(.*)'
-		m = re.match(tempstr,h['TEMPS4'])
-		primaryTemp = float(m.groups()[0])
-		m = re.match(tempstr,h['TEMPS5'])
-		strutTemp = float(m.groups()[0])
-		m = re.match(tempstr,h['TEMPS6'])
-		primeTemp = float(m.groups()[0])
-		wstr = r'wind_speed=(.*)'
-		m = re.match(wstr,h['WEATHER0'])
-		windSpeed = float(m.groups()[0])
-		wstr = r'wind_direction=(.*)'
-		m = re.match(wstr,h['WEATHER1'])
-		windDir = float(m.groups()[0])
-		wstr = r'air_temperature=(.*)'
-		m = re.match(wstr,h['WEATHER2'])
-		airTemp = float(m.groups()[0])
-		wstr = r'relative_humid=(.*)'
-		m = re.match(wstr,h['WEATHER3'])
-		relHumid = float(m.groups()[0])
-		wstr = r'barometer=(.*) in'
-		m = re.match(wstr,h['WEATHER4'])
-		barom = float(m.groups()[0])
+		try:
+			hdrAirmass = h['AIRMASS']
+		except ValueError:
+			hdrAirmass = badfloat
+		try:
+			alt,az = h['ELEVAT'],h['AZIMUTH'] 
+		except ValueError:
+			alt,az = badfloat,badfloat
+		try:
+			ha,lst = h['HA'].strip(),h['LST-OBS'].strip()
+		except ValueError:
+			ha,lst = '',''
+		try:
+			coord = h['RA'].rstrip()+' '+h['DEC'].rstrip()
+			sc = SkyCoord(coord,unit=(u.hourangle,u.deg))
+			ra = sc.ra.degree
+			dec = sc.dec.degree
+		except ValueError:
+			coord,ra,dec = '',badfloat,badfloat
+		try:
+			mjd = Time(h['DATE']+' '+h['UT'],scale='utc').mjd
+		except ValueError:
+			mjd = badfloat
+		try:
+			focA,focB,focC = [float(x) for x in h['FOCUSVAL'].split('*')[1:]]
+		except ValueError:
+			focA,focB,focC = badfloat,badfloat,badfloat
+		try:
+			tempstr = r'.*TEMP_F=(.*) HUMID_%=(.*) DEWPOINT_F=(.*)'
+			m = re.match(tempstr,h['TEMPS0'])
+			outTemp,outHum,outDew = [float(x) for x in m.groups()]
+		except:
+			outTemp,outHum,outDew = badfloat,badfloat,badfloat
+		try:
+			m = re.match(tempstr,h['TEMPS1'])
+			inTemp,inHum,inDew = [float(x) for x in m.groups()]
+		except:
+			inTemp,inHum,inDew = badfloat,badfloat,badfloat
+		try:
+			m = re.match(tempstr,h['TEMPS2'])
+			mirrorCellTemp,mcHum,mcDew = [float(x) for x in m.groups()]
+		except:
+			mirrorCellTemp,mcHum,mcDew = badfloat,badfloat,badfloat
+		try:
+			tempstr = r'.*TEMP_F=(.*)'
+			m = re.match(tempstr,h['TEMPS4'])
+			primaryTemp = float(m.groups()[0])
+		except:
+			primaryTemp = badfloat
+		try:
+			m = re.match(tempstr,h['TEMPS5'])
+			strutTemp = float(m.groups()[0])
+		except:
+			strutTemp = badfloat
+		try:
+			m = re.match(tempstr,h['TEMPS6'])
+			primeTemp = float(m.groups()[0])
+		except:
+			primeTemp = badfloat
+		try:
+			wstr = r'wind_speed=(.*)'
+			m = re.match(wstr,h['WEATHER0'])
+			windSpeed = float(m.groups()[0])
+		except:
+			windSpeed = badfloat
+		try:
+			wstr = r'wind_direction=(.*)'
+			m = re.match(wstr,h['WEATHER1'])
+			windDir = float(m.groups()[0])
+		except:
+			windDir = badfloat
+		try:
+			wstr = r'air_temperature=(.*)'
+			m = re.match(wstr,h['WEATHER2'])
+			airTemp = float(m.groups()[0])
+		except:
+			airTemp = badfloat
+		try:
+			wstr = r'relative_humid=(.*)'
+			m = re.match(wstr,h['WEATHER3'])
+			relHumid = float(m.groups()[0])
+		except:
+			relHumid = badfloat
+		try:
+			wstr = r'barometer=(.*) in'
+			m = re.match(wstr,h['WEATHER4'])
+			barom = float(m.groups()[0])
+		except:
+			barom = badfloat
 		#
 		row.extend([i,utDir,fn,utDate])
 		row.extend([imageType,filt,objName,h['EXPTIME']])
 		row.extend([h['CCDBIN1'],h['CCDBIN2'],focA,focB,focC])
-		row.extend([h['AIRMASS'],airmass])
-		row.extend([h['ELEVAT'],h['AZIMUTH'],
-		            h['HA'].strip(),h['LST-OBS'].strip()])
+		row.extend([hdrAirmass,airmass])
+		row.extend([alt,az,ha,lst])
 		row.extend([ra,dec,coord])
 		row.extend([h['UT'],mjd])
 		row.extend([h['CAMTEMP'],h['DEWTEMP']])
