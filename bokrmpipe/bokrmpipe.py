@@ -8,6 +8,7 @@ import multiprocessing
 import numpy as np
 from numpy.core.defchararray import add as char_add
 import fitsio
+from astropy.table import Table
 
 from bokpipe import *
 from bokpipe import __version__ as pipeVersion
@@ -578,8 +579,10 @@ def rmpipe(fileMap,**kwargs):
 			flatMap = get_flat_map(fileMap)
 		process_all(fileMap,biasMap,flatMap,
 		            fixpix=fixpix,
+		            header_key=kwargs.get('prockey','CCDPROC'),
 		            norampcorr=kwargs.get('norampcorr'),
 		            nocombine=kwargs.get('nocombine'),
+		            gain_multiply=not kwargs.get('nogainmul',False),
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'skyflat' in steps:
@@ -650,12 +653,16 @@ if __name__=='__main__':
 	                help='do not apply illumination correction')
 	parser.add_argument('--nodarkskycorr',action='store_true',
 	                help='do not apply dark sky flat correction')
+	parser.add_argument('--nogainmul',action='store_true',
+	                help='do not multiply gain when processing')
 	parser.add_argument('--nocombine',action='store_true',
 	                help='do not combine into CCD images')
 	parser.add_argument('--nousepixflat',action='store_true',
 	                help='do not use normalized pixel flat')
 	parser.add_argument('--darkskyframes',action='store_true',
 	                help='load only the dark sky frames')
+	parser.add_argument('--prockey',type=str,default=None,
+	                help='set new header key for ccdproc')
 	parser.add_argument('--tmpdirin',action='store_true',
 	                help='read files from temporary directory')
 	parser.add_argument('--tmpdirout',action='store_true',
