@@ -8,7 +8,7 @@ from math import cos,radians
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
-from astropy.time import Time
+from astropy.time import Time,TimeDelta
 from astropy.table import Table
 
 badfloat = -9999.99
@@ -69,7 +69,6 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 		if objFilter is not None and imageType == 'object' and \
 		       not objFilter(objName):
 			continue
-		utDate = h['DATE'].strip().replace('-','')
 		# airmass values in header are not very accurate (one decimal place)
 		if not 'ELEVAT' in h:
 			airmass = badfloat
@@ -98,7 +97,14 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 		except ValueError:
 			coord,ra,dec = '',badfloat,badfloat
 		try:
-			mjd = Time(h['DATE']+' '+h['UT'],scale='utc').mjd
+			tObs = Time(h['DATE']+' '+h['UT'],scale='utc')
+			# Add 5 hours and round down. Thus noon local (=7pm UT) becomes
+			# midnight of the next day. This way afternoon cals get counted
+			# with data from that night.
+			tOff = tObs + TimeDelta(5*u.hour)
+			# "2014-01-01 12:00:00.000" -> "20140101"
+			utDate = str(tOff.utc).split()[0].replace('-','')
+			mjd = tObs.mjd
 		except ValueError:
 			mjd = badfloat
 		try:
