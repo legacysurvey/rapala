@@ -139,7 +139,7 @@ class FileMgr(object):
 			utds = [self._curUtDate]
 		else:
 			utds = self.getUtDates() 
-		if np.all(utds == self.allUtDates):
+		if np.array_equal(utds,self.allUtDates):
 			# all utds are valid
 			file_sel[:] = True
 		else:
@@ -402,6 +402,7 @@ def process_all(file_map,bias_map,flat_map,
 	proc = bokproc.BokCCDProcess(input_map=file_map('oscan',False),
 	                             output_map=file_map('proc'),
 	                             mask_map=file_map('MasterBadPixMask'),
+	                             header_key=kwargs.get('prockey','CCDPROC'),
 	                             bias=bias_map,flat=flat_map,
 	                             ramp=ramp,illum=None,darksky=None,
 	                             fixpix=fixpix,**kwargs)
@@ -468,7 +469,7 @@ def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,**kwargs):
 	                             mask_map=file_map('MasterBadPixMask'),
 	                             bias=None,flat=None,
 	                             ramp=None,illum=illum,darksky=darksky,
-	                             fixpix=fixpix,**kwargs)
+	                             fixpix=False,**kwargs)
 	files = file_map.getFiles(imType='object')
 	if files is None:
 		return
@@ -582,7 +583,6 @@ def rmpipe(fileMap,**kwargs):
 			flatMap = get_flat_map(fileMap)
 		process_all(fileMap,biasMap,flatMap,
 		            fixpix=fixpix,
-		            header_key=kwargs.get('prockey','CCDPROC'),
 		            norampcorr=kwargs.get('norampcorr'),
 		            nocombine=kwargs.get('nocombine'),
 		            gain_multiply=not kwargs.get('nogainmul',False),
@@ -611,7 +611,8 @@ def rmpipe_poormp(fileMap,**kwargs):
 	for i,utds in enumerate(utdSets):
 		fmap = copy(fileMap)
 		fmap.setUtDates(utds)
-		p = multiprocessing.Process(target=rmpipe,args=(fmap),kwargs=kwargs)
+		p = multiprocessing.Process(target=rmpipe,
+		                            args=(fmap,),kwargs=kwargs)
 		jobs.append(p)
 		p.start()
 
