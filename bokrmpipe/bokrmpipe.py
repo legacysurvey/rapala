@@ -388,7 +388,8 @@ def balance_gains(file_map,**kwargs):
 				gainMap['corrections'][f] = gainCor
 				gainMap['skyvals'][f] = skyv
 			gainBalance.reset()
-			if not os.path.exists(diagfile):
+			if not os.path.exists(diagfile) and \
+			     not kwargs.get('nosavegain',False):
 				np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
 	return gainMap
 
@@ -585,6 +586,7 @@ def rmpipe(fileMap,**kwargs):
 		            norampcorr=kwargs.get('norampcorr'),
 		            nocombine=kwargs.get('nocombine'),
 		            gain_multiply=not kwargs.get('nogainmul',False),
+		            nosavegain=kwargs.get('nosavegain'),
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'skyflat' in steps:
@@ -659,6 +661,8 @@ if __name__=='__main__':
 	                help='do not multiply gain when processing')
 	parser.add_argument('--nocombine',action='store_true',
 	                help='do not combine into CCD images')
+	parser.add_argument('--nosavegain',action='store_true',
+	                help='do not save per-image gain balance factors')
 	parser.add_argument('--nousepixflat',action='store_true',
 	                help='do not use normalized pixel flat')
 	parser.add_argument('--darkskyframes',action='store_true',

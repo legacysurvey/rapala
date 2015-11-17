@@ -14,9 +14,11 @@ def make_skyflat(dataMap,skyFlatFile):
 	stackPars['reject'] = 'sigma_clip'
 	stackPars['nsplit'] = 8
 	stackFun = bokutil.ClippedMeanStack(**stackPars)
-	inputFiles = dataMap.getFiles()
-	print 'input: ',inputFiles
-	print 'output: ',skyFlatFile
+	# excluding fields with bright stars
+	files = dataMap.getFiles(exclude_objs=['rm10','rm11','rm12','rm13'])
+	# limit it to ~50 images
+	files = files[::len(files)//50]
+	inputFiles = [dataMap('proc1',False)(f) for f in files]
 	stackFun.stack(inputFiles,skyFlatFile)
 
 # argh. spline requires monotonically increasing coordinates
@@ -34,7 +36,7 @@ def form_spline_im(ccdName,splinefun,xx,yy):
 		ccdim = splinefun(xx[0,::-1],yy[::-1,0])[::-1,::-1].T
 	return ccdim
 
-def fit_illumination(inputFile,dataMap,nbin=16,asPoly=False,order=3):
+def fit_illumination(inputFile,dataMap,nbin=16,asPoly=False,order=3,nKnots=3):
 	fits = bokutil.BokMefImage(inputFile,
 	                           mask_file=dataMap('MasterBadPixMask4'),
 	                           read_only=True)
@@ -48,7 +50,7 @@ def fit_illumination(inputFile,dataMap,nbin=16,asPoly=False,order=3):
 	else:
 		nIter = 1
 		mask = im['im'].mask
-		knotints = np.linspace(0.1,1.0,5)
+		knotints = np.linspace(0.1,1.0,nKnots)
 		for iterNum in range(nIter):
 			ii = np.where(~mask)
 			xmin,xmax = im['x'].min(),im['x'].max()
@@ -70,12 +72,11 @@ def make_illumcorr_image(dataMap,**kwargs):
 	inputFile = os.path.join(dataMap._tmpDir,'tmpillum.fits')
 	make_skyflat(dataMap,inputFile)
 	illum = fit_illumination(inputFile,dataMap,**kwargs)
-	fits = bokutil.BokMefImage(inputFile,
-	                           output_file=dataMap('IllumCorrImage'),
-	                           clobber=True)
+	outFn = os.path.join(dataMap.calDir,dataMap.illumCorrFn)
+	fits = bokutil.BokMefImage(inputFile,output_file=outFn,clobber=True)
 	for extName,im,hdr in fits:
 		xx,yy = fits.get_xy(extName,'sky')
-		if asPoly:
+		if kwargs.get('asPoly',False):
 			ccdim = illum(xx,yy)
 		else:
 			ccdim = form_spline_im(extName,illum,xx,yy)
