@@ -395,14 +395,14 @@ def balance_gains(file_map,**kwargs):
 
 def process_all(file_map,bias_map,flat_map,
                 fixpix=False,norampcorr=False,
-                nocombine=False,**kwargs):
+                nocombine=False,prockey='CCDPROC',**kwargs):
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
 	ramp = None if norampcorr else file_map('BiasRampCorrection')
 	proc = bokproc.BokCCDProcess(input_map=file_map('oscan',False),
 	                             output_map=file_map('proc'),
 	                             mask_map=file_map('MasterBadPixMask'),
-	                             header_key=kwargs.get('prockey','CCDPROC'),
+	                             header_key=prockey,
 	                             bias=bias_map,flat=flat_map,
 	                             ramp=ramp,illum=None,darksky=None,
 	                             fixpix=fixpix,**kwargs)
@@ -416,7 +416,7 @@ def process_all(file_map,bias_map,flat_map,
 	gainMap = balance_gains(file_map,**kwargs)
 	# 3. combine per-amp images (16) into CCD images (4)
 	bokproc.combine_ccds(files,
-	                     input_map=file_map('proc',False),
+	                     input_map=file_map('proc'), # using output from above
 	                     output_map=file_map('comb'),
 	                     gain_map=gainMap,
 	                     **kwargs)
@@ -466,7 +466,7 @@ def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,**kwargs):
 	darksky = None if nodarkskycorr else file_map('DarkSkyFlatImage')
 	proc = bokproc.BokCCDProcess(input_map=file_map('comb',False),
 	                             output_map=file_map('proc2'),
-	                             mask_map=file_map('MasterBadPixMask'),
+	                             mask_map=file_map('MasterBadPixMask4'),
 	                             bias=None,flat=None,
 	                             ramp=None,illum=illum,darksky=darksky,
 	                             fixpix=False,**kwargs)
@@ -587,6 +587,7 @@ def rmpipe(fileMap,**kwargs):
 		            nocombine=kwargs.get('nocombine'),
 		            gain_multiply=not kwargs.get('nogainmul',False),
 		            nosavegain=kwargs.get('nosavegain'),
+		            prockey=kwargs.get('prockey','CCDPROC'),
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'skyflat' in steps:
