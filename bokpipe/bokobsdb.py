@@ -190,7 +190,5 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 		sys.stdout.write("\r%d/%d" % (i+1,len(files)))
 		sys.stdout.flush()
 	print
-	if os.path.exists(logFile):
-		os.unlink(logFile)
-	t.write(logFile)
+	t.write(logFile,overwrite=True)
 
