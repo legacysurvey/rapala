@@ -239,7 +239,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.procIms = {}
 		for imType in self.imTypes:
 			fitsIn = kwargs.get(imType)
-			self.procIms[imType] = {'file':'<none>','fits':None}
+			self.procIms[imType] = {'file':None,'fits':None}
 			self.procIms[imType]['master'] = True
 			if type(fitsIn) is fitsio.fitslib.FITS:
 				self.procIms[imType]['file'] = fitsIn._filename
@@ -260,6 +260,14 @@ class BokCCDProcess(bokutil.BokProcess):
 						self.procIms[imType]['fits'].close()
 					self.procIms[imType]['file'] = inFile
 					self.procIms[imType]['fits'] = fitsio.FITS(inFile)
+			hdrCards = {}
+			if self.procIms[imType]['file'] is not None:
+				# e.g., hdr['BIASFILE'] = <filename>
+				hdrKey = str(imType.upper()+'FILE')[:8]
+				# trim the file path if it is long
+				fn = os.path.split(self.procIms[imType]['file'])[-3:]
+				hdrCards[hdrKey] = os.path.join(*fn) 
+			fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
 		bias = self.procIms['bias']['fits'] 
 		if bias is not None:
@@ -280,12 +288,6 @@ class BokCCDProcess(bokutil.BokProcess):
 			                                 method=self.fixPixMethod)
 			# what should the fill value be?
 			data = data.filled(0)
-		for imType in self.imTypes:
-			# e.g., hdr['BIASFILE'] = <filename>
-			hdrKey = str(imType.upper()+'FILE')[:8]
-			# trim the file path if it is long
-			fn = os.path.split(self.procIms[imType]['file'])[-3:]
-			hdr[hdrKey] = os.path.join(*fn) 
 		if self.fixPix:
 			hdr['FIXPIX'] = self.fixPixAlong
 		if self.gainMultiply:
