@@ -81,49 +81,68 @@ def interpolate_masked_pixels(data,along='twod',method='linear'):
 		raise ValueError
 	return data
 
-def bok_polyfit(fits,nbin,order,writeImg=False):
-	binnedIm = fits.make_fov_image(nbin,'sky')
-	# collect the CCD mosaic into a single image
-	X,Y,fovIm = [],[],[]
-	for ccd in ['CCD%d'%i for i in range(1,5)]:
-		print 'getting sky for ',ccd
-		clippedIm = sigma_clip(binnedIm[ccd]['im'],iters=2,sig=2.5,
-		                       cenfunc=np.ma.mean)
-		im = clippedIm.mean(axis=-1)
-		#im = binnedIm[ccd]['im'].mean(axis=-1)
-		nbad = clippedIm.mask.sum(axis=-1)
-		#too_few_pixels = nbad < nbin*2//3
-		too_few_pixels = nbad > nbin**2//3
-		#print 'biggest: ',nbad.max(),binnedIm[ccd]['im'].shape
-		#too_few_pixels = nbad > 1e10
-		ii = np.where(~too_few_pixels)
-		im[too_few_pixels] = np.ma.masked
-		X.append(binnedIm[ccd]['x'][ii])
-		Y.append(binnedIm[ccd]['y'][ii])
-		fovIm.append(im[ii])
-		binnedIm[ccd]['im'] = im
-	X = np.concatenate(X)
-	Y = np.concatenate(Y)
-	fovIm = np.concatenate(fovIm)
-	print X.shape,Y.shape,fovIm.shape
-	# fit a polynomial to the binned mosaic image
-	poly_model = models.Polynomial2D(degree=order)
-	#fitfun = fitting.LevMarLSQFitter()
-	fitfun = fitting.LinearLSQFitter()
-	p = fitfun(poly_model,X,Y,fovIm)
-	# return the model images for each CCD at native resolution
-	rv = {}
-	for ccd in ['CCD%d'%i for i in range(1,5)]:
-		rv[ccd] = p(*fits.get_xy(ccd,'sky'))
-	rv['skymodel'] = p
-	if writeImg:
-		# save the original binned image
-		make_fov_image(binnedIm,'tmp1.png')
-		# and the sky model fit
-		for ccd in ['CCD%d'%i for i in range(1,5)]:
-			binnedIm[ccd]['im'] = p(binnedIm[ccd]['x'],binnedIm[ccd]['y'])
-		make_fov_image(binnedIm,'tmp2.png')
-	return rv
+class BackgroundFit(object):
+	def __init__(self,fits,nbin=64,coordsys='sky'):
+		self.fits = fits
+		self.binnedIm = fits.make_fov_image(nbin,coordsys,binfunc=np.ma.mean,
+		                                    binclip=True,single=True,
+		                                    mingood=nbin**2//3)
+		self.coordSys = coordsys
+		extensions = ['CCD%d'%i for i in range(1,5)] # XXX 4-CCD only...
+	def __call__(self,extn):
+		raise NotImplementedError
+
+class SplineBackgroundFit(BackgroundFit):
+	def __init__(self,fits,nKnots=2,order=1,**kwargs):
+		super(SplineBackgroundFit,self).__init__(fits,**kwargs)
+		self.nKnots = nKnots
+		self.splineOrder = order
+		im = self.binnedIm['im']
+		x = self.binnedIm['x']
+		y = self.binnedIm['y']
+		tx = np.linspace(x.min(),x.max(),nKnots)
+		ty = np.linspace(y.min(),y.max(),nKnots)
+		self.spFit = LSQBivariateSpline(x[~im.mask],y[~im.mask],
+		                                im.data[~im.mask],tx,ty,
+		                                kx=self.splineOrder,
+		                                ky=self.splineOrder)
+	def _form_spline_im(self,ccdName,splinefun,xx,yy):
+		# argh. spline requires monotonically increasing coordinates
+		# as input, but my origin is at the center...
+		if type(ccdName) is int:
+			ccdName = 'CCD%d' % (ccdName+1)
+		if ccdName == 'CCD1':
+			ccdim = splinefun(xx[0,:],yy[:,0]).T
+		elif ccdName == 'CCD2':
+			ccdim = splinefun(xx[0,:],yy[::-1,0])[:,::-1].T
+		elif ccdName == 'CCD3':
+			ccdim = splinefun(xx[0,::-1],yy[:,0])[::-1,:].T
+		elif ccdName == 'CCD4':
+			ccdim = splinefun(xx[0,::-1],yy[::-1,0])[::-1,::-1].T
+		return ccdim
+	def __call__(self,x,y):
+		return self.spFit(x,y)
+	def get(self,extn):
+		xi,yi = self.fits.get_xy(extn,self.coordSys)
+		return self._form_spline_im(extn,self.spFit,xi,yi)
+
+class PolynomialBackgroundFit(BackgroundFit):
+	def __init__(self,fits,order=1,**kwargs):
+		super(PolynomialBackgroundFit,self).__init__(fits,**kwargs)
+		self.polyOrder = order
+		im = self.binnedIm['im']
+		x = self.binnedIm['x']
+		y = self.binnedIm['y']
+		self.polyModel = models.Polynomial2D(degree=order)
+		self.polyFitFun = fitting.LinearLSQFitter()
+		self.polyFit = self.polyFitFun(self.polyModel,
+		                               x[~im.mask],y[~im.mask],
+		                               im.data[~im.mask])
+	def __call__(self,x,y):
+		return self.polyFit(x,y)
+	def get(self,extn):
+		xi,yi = self.fits.get_xy(extn,self.coordSys)
+		return self.polyFit(xi,yi)
 
 class BokBiasStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
@@ -283,22 +302,45 @@ class BokSkySubtract(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','SKYSUB')
 		super(BokSkySubtract,self).__init__(**kwargs)
-	def fit_sky_model(self,fits):
-		self.skyFit = bok_polyfit(fits,64,1)
+		self.skyFitMap = kwargs.get('skyfit_map')
+		self.skyFits = None
+		self.method = kwargs.get('method','spline')
+		self.order = kwargs.get('order',1)
+		self.nBin = kwargs.get('nbin',64)
+		self.nKnots = kwargs.get('nKnots',2)
+		if self.method == 'spline':
+			self.fitKwargs = {'nbin':self.nBin,'nKnots':self.nKnots,
+			                  'order':self.order,'coordsys':'sky'}
+			self.fitGen = SplineBackgroundFit
+		elif self.method == 'polynomial':
+			self.fitKwargs = {'nbin':self.nBin,
+			                  'order':self.order,'coordsys':'sky'}
+			self.fitGen = PolynomialBackgroundFit
+		else:
+			raise ValueError('fit method %s unknown' % method)
+	def _fit_sky_model(self,fits):
+		self.skyFit = self.fitGen(fits,**self.fitKwargs)
 		# subtract the sky level at the origin so as to only remove 
 		# the gradient
-		self.sky0 = self.skyFit['skymodel'](0,0)
+		self.sky0 = self.skyFit(0,0)
 	def _preprocess(self,fits,f):
 		print 'sky subtracting ',fits.fileName,fits.outFileName
-		self.fit_sky_model(fits)
+		self._fit_sky_model(fits)
+		if self.skyFitMap is not None:
+			self.skyFits = fitsio.FITS(self.skyFitMap(f),'rw')
+			self.skyFits.write(None,header=fits.get_header(0))
 	def process_hdu(self,extName,data,hdr):
-		skyFit = (self.skyFit[extName] - self.sky0).astype(np.float32)
+		skyFit = (self.skyFit.get(extName) - self.sky0).astype(np.float32)
 		data -= skyFit
-		hdr['SKYVAL'] = self.sky0
-		skyModel = self.skyFit['skymodel']
-		for k,v in zip(skyModel.param_names,skyModel.parameters):
-			hdr['SKY'+k.upper()] = v
+		hdr['SKYVAL'] = float(self.sky0)
+		# XXX should write fit parameters to header
+		if self.skyFits is not None:
+			self.skyFits.write(skyFit,extname=extName,header=hdr)
 		return data,hdr
+	def _finish(self):
+		if self.skyFits is not None:
+			self.skyFits.close()
+			self.skyFits = None
 
 ###############################################################################
 #                                                                             #

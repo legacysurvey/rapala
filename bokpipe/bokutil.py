@@ -289,17 +289,21 @@ class BokMefImage(object):
 		hdr = self.fits[extName].read_header()
 		return bok_getxy(hdr,coordsys)
 	def make_fov_image(self,nbin=1,coordsys='sky',
-	                   binfunc=None,binclip=False,single=False):
+	                   binfunc=None,binclip=False,single=False,mingood=0):
 		rv = OrderedDict()
 		hdr0 = self.fits[0].read_header()
 		for extName,im,hdr in self:
 			x,y = bok_getxy(hdr,coordsys)
 			if nbin > 1:
 				im = rebin(im,nbin)
+				if binclip:
+					im = array_clip(im,axis=-1)
+				if mingood > 0:
+					nbad = im.mask.sum(axis=-1)
 				if binfunc is not None:
-					if binclip:
-						im = array_clip(im,axis=-1)
 					im = binfunc(im,axis=-1)
+				if mingood > 0:
+					im[nbad>mingood] = np.ma.masked
 				x = x[nbin//2::nbin,nbin//2::nbin]
 				y = y[nbin//2::nbin,nbin//2::nbin]
 			rv[extName] = {'x':x,'y':y,'im':im}
