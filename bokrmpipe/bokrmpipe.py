@@ -480,31 +480,6 @@ def load_darksky_frames(filt):
 	# a quick pruning of the repeat images
 	return darkSkyFrames[::2]
 
-def make_images(file_map,imtype='comb',msktype=None):
-	import matplotlib.pyplot as plt
-	files = file_map.getFiles(imType='object')
-	_fmap = file_map(imtype)
-	if msktype=='badpix':
-		msktype = 'MasterBadPixMask4'
-	if msktype==None:
-		maskmap = lambda f: None
-	else:
-		maskmap = file_map(msktype)
-	imdir = os.path.join(file_map.getProcDir(),'images')
-	if not os.path.exists(imdir):
-		os.mkdir(imdir)
-	plt.ioff()
-	for ff in files:
-		f = _fmap(ff)
-		if not os.path.exists(f):
-			continue
-		imgfile = os.path.basename(f).replace('.fits','.png')
-		imgfile = os.path.join(imdir,imgfile)
-		if os.path.exists(imgfile):
-			continue
-		bokproc.make_fov_image_fromfile(f,imgfile,mask=maskmap(ff))
-	plt.ion()
-
 def create_file_map(obsDb,rawDir,procDir,utds,bands,newfiles,
                     darkskyframes=False,tmpdirin=False,tmpdirout=False):
 	# set default file paths
@@ -613,6 +588,31 @@ def rmpipe_poormp(fileMap,**kwargs):
 		                            args=(fmap,),kwargs=kwargs)
 		jobs.append(p)
 		p.start()
+
+def make_images(file_map,imtype='comb',msktype=None):
+	import matplotlib.pyplot as plt
+	files = file_map.getFiles(imType='object')
+	_fmap = file_map(imtype)
+	if msktype=='badpix':
+		msktype = 'MasterBadPixMask4'
+	if msktype==None:
+		maskmap = lambda f: None
+	else:
+		maskmap = file_map(msktype)
+	imdir = os.path.join(file_map.getProcDir(),'images')
+	if not os.path.exists(imdir):
+		os.mkdir(imdir)
+	plt.ioff()
+	for ff in files:
+		f = _fmap(ff)
+		if not os.path.exists(f):
+			continue
+		imgfile = os.path.basename(f).replace('.fits','.png')
+		imgfile = os.path.join(imdir,imgfile)
+		if os.path.exists(imgfile):
+			continue
+		bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(ff))
+	plt.ion()
 
 if __name__=='__main__':
 	import sys
