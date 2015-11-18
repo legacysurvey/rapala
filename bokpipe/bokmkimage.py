@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import numpy as np
+from astropy.stats import sigma_clip
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib import rc
@@ -11,8 +12,9 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	maskFile = kwargs.get('mask')
 	losig = kwargs.get('lo',2.5)
 	hisig = kwargs.get('hi',5.0)
-	#kwargs.setdefault('cmap',plt.cm.hot_r)
-	cmap = plt.cm.jet
+	cmap = kwargs.get('cmap','jet')
+	print 'using colormap ',cmap
+	cmap = plt.get_cmap(cmap)
 	cmap.set_bad('w',1.0)
 	w = 0.4575
 	h = 0.455
