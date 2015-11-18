@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import os
+import shutil
 import numpy as np
 import fitsio
 
 from bokpipe import *
 
-def make_correction_im(gradientFile,outputFile):
+def smooth_correction_im(gradientFile,outputFile):
 	from scipy.interpolate import LSQBivariateSpline
 	spOrder = {'IM1':1,'IM2':1,'IM3':1,'IM4':1,
 	           'IM5':3,'IM6':3,'IM7':1,'IM8':1,
@@ -71,5 +72,8 @@ def make_rampcorr_image(dataMap,**kwargs):
 			imsub.process_files([inputMap(files[0])])
 	stackFun = bokutil.ClippedMeanStack()
 	stackFun.stack(rampFiles,tmpRampFile)
-	make_correction_im(tmpRampFile,rampFile)
+	if kwargs.get('dosplinefit',False):
+		smooth_correction_im(tmpRampFile,rampFile)
+	else:
+		shutil.copy(tmpRampFile,rampFile)
 
