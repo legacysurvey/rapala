@@ -194,7 +194,7 @@ class BokMefImage(object):
 		if self.readOnly:
 			self.fits = fitsio.FITS(self.fileName)
 		else:
-			if self.outFileName is None:
+			if self.outFileName == self.fileName:
 				self._check_header_key(self.fileName)
 				self.outFits = self.fits = fitsio.FITS(self.fileName,'rw')
 				self.closeFiles.append(self.fits)
@@ -343,12 +343,8 @@ class FileNameMap(object):
 
 class BokProcess(object):
 	def __init__(self,**kwargs):
-		self.inputNameMap = kwargs.get('input_map')
-		if self.inputNameMap is None:
-			self.inputNameMap = IdentityNameMap
-		self.outputNameMap = kwargs.get('output_map')
-		if self.outputNameMap is None:
-			self.outputNameMap = NullNameMap
+		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
+		self.outputNameMap = kwargs.get('output_map',IdentityNameMap)
 		self.masks = []
 		self.maskNameMap = kwargs.get('mask_map')
 		if self.maskNameMap is None:
@@ -393,8 +389,6 @@ class BokProcess(object):
 				if self.ignoreExisting:
 					if self.verbose > 0:
 						_f = self.outputNameMap(f)
-						if _f is None:
-							_f = self.inputNameMap(f)
 						print '%s already processed by %s'%(_f,self.headerKey)
 					continue
 				else:

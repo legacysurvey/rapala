@@ -397,7 +397,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		if self.saveArrays:
 			self.arrays = []
 	def _preprocess(self,fits,f):
-		print 'calculating gain balance factors for ',f
+		print 'calculating gain balance factors for ',self.inputNameMap(f)
 		self.files.append(f)
 		self.skyVals = []
 	def _postprocess(self,fits,f):
@@ -500,10 +500,8 @@ def _orient_mosaic(hdr,ims,ccdNum,origin):
 	return outIm,hdr
 
 def combine_ccds(fileList,**kwargs):
-	inputFileMap = kwargs.get('input_map')
-	if inputFileMap is None:
-		inputFileMap = bokutil.IdentityNameMap
-	outputFileMap = kwargs.get('output_map')
+	inputFileMap = kwargs.get('input_map',bokutil.IdentityNameMap)
+	outputFileMap = kwargs.get('output_map',bokutil.IdentityNameMap)
 	gainMap = kwargs.get('gain_map')
 	origin = kwargs.get('origin','center')
 	clobber = kwargs.get('clobber')
@@ -513,23 +511,25 @@ def combine_ccds(fileList,**kwargs):
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
 	for f in fileList:
 		inputFile = inputFileMap(f)
-		print 'combine: ',inputFile
+		outputFile = outputFileMap(f)
+		print 'combine: ',inputFile,outputFile
 		inFits = fitsio.FITS(inputFile)
 		if 'CCDJOIN' in inFits[0].read_header():
 			print '%s already combined, skipping' % inputFile
 			inFits.close()
 			continue
-		if outputFileMap is not None:
-			outFn = outputFileMap(f)
-			if os.path.exists(outFn):
+		if outputFile != inputFile:
+			if os.path.exists(outputFile):
 				if clobber:
-					os.unlink(outFn)
+					os.unlink(outputFile)
+				# XXX should be checking header key here?
 				elif ignoreExisting:
-					print '%s already exists, skipping' % outFn
+					print '%s already exists, skipping' % outputFile
 					continue
 				else:
-					raise bokutil.OutputExistsError('%s already exists'%outFn)
-			outFits = fitsio.FITS(outFn,'rw')
+					raise bokutil.OutputExistsError(
+					                    '%s already exists'%outputFile)
+			outFits = fitsio.FITS(outputFile,'rw')
 		else:
 			# have to use a temporary file to change format
 			if os.path.exists(tmpFileName):
@@ -568,7 +568,7 @@ def combine_ccds(fileList,**kwargs):
 			outIm,hdr = _orient_mosaic(hdr,ccdIms,ccdNum,origin)
 			outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
 		outFits.close()
-		if outputFileMap is None:
+		if outputFile == inputFile:
 			shutil.move(tmpFileName,inputFile)
 
 
@@ -715,9 +715,7 @@ def grow_obj_mask(im,objsIm,**kwargs):
 
 def sextract_pass1(fileList,**kwargs):
 	clobber = kwargs.get('clobber',False)
-	inputNameMap = kwargs.get('input_map')
-	if inputNameMap is None:
-		inputNameMap = bokutil.IdentityNameMap
+	inputNameMap = kwargs.get('input_map',bokutil.IdentityNameMap)
 	catalogFileNameMap = kwargs.get('catalog_map',
 	                                bokutil.FileNameMap(newSuffix='.cat1'))
 	withPsf = kwargs.get('with_psf',False)
