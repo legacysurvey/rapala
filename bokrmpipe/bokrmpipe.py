@@ -356,7 +356,7 @@ def make_bad_pixel_masks(file_map,**kwargs):
 	flatFn = os.path.join(file_map.getCalDir(),
 	                      'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
 	bpMaskFile = os.path.join(file_map.getCalDir(),'badpix_master.fits')
-	badpixels.build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
+	build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
 	makeccd4image(file_map,bpMaskFile,**kwargs)
 
 def balance_gains(file_map,**kwargs):
