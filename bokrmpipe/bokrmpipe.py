@@ -464,7 +464,7 @@ def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,**kwargs):
 	proc = bokproc.BokCCDProcess(input_map=file_map('comb',False),
 	                             output_map=file_map('proc2'),
 	                             mask_map=file_map('MasterBadPixMask4'),
-	                             bias=None,flat=None,
+	                             gain_multiply=False,bias=None,flat=None,
 	                             ramp=None,illum=illum,darksky=darksky,
 	                             fixpix=False,**kwargs)
 	files = file_map.getFiles(imType='object')

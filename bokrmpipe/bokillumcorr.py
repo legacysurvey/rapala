@@ -12,7 +12,7 @@ def make_skyflat(dataMap,skyFlatFile):
 	stackPars = {}
 	stackPars['scale'] = 'normalize_median'
 	stackPars['reject'] = 'sigma_clip'
-	stackPars['nsplit'] = 4
+	stackPars['nsplit'] = 5
 	stackFun = bokutil.ClippedMeanStack(**stackPars)
 	# excluding fields with bright stars
 	files = dataMap.getFiles(exclude_objs=['rm10','rm11','rm12','rm13'])
