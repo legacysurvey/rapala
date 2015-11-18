@@ -215,10 +215,7 @@ class ProcessInPlace(FileMgr):
 				# some files need to be remapped even when processing in-place
 				return RMFileNameMap(self.rawDir,outDir,self.fremap[t])
 			elif output:
-				if self._tmpOutput and not self._tmpInput:
-					return RMFileNameMap(self.rawDir,outDir)
-				else:
-					return None
+				return RMFileNameMap(self.rawDir,outDir)
 			else:
 				if self._tmpInput:
 					return RMFileNameMap(self.rawDir,outDir)
@@ -365,7 +362,7 @@ def make_bad_pixel_masks(file_map,**kwargs):
 def balance_gains(file_map,**kwargs):
 	# need bright star mask here?
 	gainBalance = bokproc.BokCalcGainBalanceFactors(
-	                                     input_map=file_map('proc',False),
+	                                     input_map=file_map('proc'),
 	                                     mask_map=file_map('MasterBadPixMask'),
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
