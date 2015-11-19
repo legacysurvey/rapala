@@ -745,7 +745,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.rawStackFile = kwargs.get('raw_stack_file')
 		self.rawStackFits = None
 		self.normCCD = 'CCD1'
-		self.headerKey = 'SKYFLT'
+		self.headerKey = 'SKYFL'
 	def _preprocess(self,fileList,outFits):
 		self.norms = np.zeros(len(fileList),dtype=np.float32)
 		for i,f in enumerate(fileList):
