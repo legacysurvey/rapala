@@ -201,8 +201,7 @@ class ProcessInPlace(FileMgr):
 		# hacky to add oscan here, because files are pulled from the raw
 		# directory for overscan subtraction, and need to be mapped to the
 		# output directory
-		self.fremap = {'oscan':'','pass1cat':'.cat1','skymask':'.skymsk',
-		               '_sky':'_tmpsky'}
+		self.fremap = {'oscan':'','pass1cat':'.cat1','skymask':'.skymsk'}
 	def __call__(self,t,output=True):
 		if output:
 			outDir = self.procDir if not self._tmpOutput else self._tmpDir
@@ -428,10 +427,21 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 		stackin = file_map('_sky',False)
 	else:
 		stackin = file_map('comb',False)
+	# old way using sextractor masks
+	#bokproc.sextract_pass1(files,
+	#                       input_map=file_map('comb',False),
+	#                       catalog_map=file_map('pass1cat'),
+	#                       object_mask_map=file_map('skymask'),
+	#                       **kwargs)
 	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
 	                                    input_map=file_map('comb',False),
 	                                    output_map=file_map('skymask'),
 	                                    mask_map=file_map('MasterBadPixMask4'))
+	files = file_map.getFiles(imType='object')
+	skyFlatMask.process_files(files)
+	if skysub:
+		skySub.process_files(files)
+	#
 	caldir = file_map.getCalDir()
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=file_map('skymask'),
@@ -439,25 +449,22 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'),
 	                                        header_bad_key='BADSKY')
 	skyFlatStack.set_badpixelmask(file_map('MasterBadPixMask4'))
-	for utd in file_map.iterUtDates():
-		for filt in file_map.iterFilters():
-			# exclude RM10 and RM11 because they are swamped by a bright star
-			files = file_map.getFiles(imType='object',
-			                  )#exclude_objs=['rm10','rm11'])
-			if files is None:
-				continue
-			# XXX need to use the bad pix mask for weighting
-			#bokproc.sextract_pass1(files,
-			#                       input_map=file_map('comb',False),
-			#                       catalog_map=file_map('pass1cat'),
-			#                       object_mask_map=file_map('skymask'),
-			#                       **kwargs)
-			skyFlatMask.process_files(files)
-			if skysub:
-				skySub.process_files(files)
-			outfn = os.path.join(file_map.getCalDir(),
-			                     'skyflat_%s_%s.fits' % (utd,filt))
-			skyFlatStack.stack(files,outfn)
+	for filt in file_map.iterFilters():
+		if True:
+			files = file_map.getFiles(imType='object')
+			if files is not None:
+				outfn = os.path.join(file_map.getCalDir(),
+				                     'skyflat_%s.fits' % (filt))
+				skyFlatStack.stack(files,outfn)
+		if False:
+			# this does a sky flat each night
+			for utd in file_map.iterUtDates():
+				files = file_map.getFiles(imType='object')
+				if files is None:
+					continue
+				outfn = os.path.join(file_map.getCalDir(),
+				                     'skyflat_%s_%s.fits' % (utd,filt))
+				skyFlatStack.stack(files,outfn)
 
 def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,prockey='CCDPRO2',**kwargs):
 	illum = None if noillumcorr else file_map('IllumCorrImage')

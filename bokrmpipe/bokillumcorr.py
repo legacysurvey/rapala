@@ -13,6 +13,9 @@ def make_skyflat(dataMap,skyFlatFile):
 	stackPars['scale'] = 'normalize_median'
 	stackPars['reject'] = 'sigma_clip'
 	stackPars['nsplit'] = 5
+	# note that by leaving stats_region undefined and with nsplit>1, the
+	# normalization occurs in the first ~4096/5 rows, which is near the
+	# center so is reasonable
 	stackFun = bokutil.ClippedMeanStack(**stackPars)
 	# excluding fields with bright stars
 	files = dataMap.getFiles(exclude_objs=['rm10','rm11','rm12','rm13'])
