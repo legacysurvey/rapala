@@ -226,7 +226,7 @@ class ProcessToNewFiles(FileMgr):
 		super(ProcessToNewFiles,self).__init__(obsDb,rawDir,procDir)
 		self.fmap = {'oscan':'','bias':'_b','proc':'_p','comb':'_c',
 		             'pass1cat':'.cat1','skymask':'.skymsk',
-		             '_sky':'_tmpsky','sky':'_s','proc2':'_q'}
+		             'sky':'_s','proc2':'_q'}
 	def __call__(self,t,output=True):
 		if output:
 			outDir = self.procDir if not self._tmpOutput else self._tmpDir
@@ -417,31 +417,7 @@ def process_all(file_map,bias_map,flat_map,
 	                     gain_map=gainMap,
 	                     **kwargs)
 
-def make_supersky_flats(file_map,skysub=True,**kwargs):
-	if skysub:
-		skySub = bokproc.BokSkySubtract(input_map=file_map('comb',False),
-		                                output_map=file_map('_sky'),
-		                                mask_map=file_map('skymask'),
-		                                method='polynomial',order=1)
-		skySub.add_mask(file_map('MasterBadPixMask4'))
-		stackin = file_map('_sky',False)
-	else:
-		stackin = file_map('comb',False)
-	# old way using sextractor masks
-	#bokproc.sextract_pass1(files,
-	#                       input_map=file_map('comb',False),
-	#                       catalog_map=file_map('pass1cat'),
-	#                       object_mask_map=file_map('skymask'),
-	#                       **kwargs)
-	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
-	                                    input_map=file_map('comb',False),
-	                                    output_map=file_map('skymask'),
-	                                    mask_map=file_map('MasterBadPixMask4'))
-	files = file_map.getFiles(imType='object')
-	skyFlatMask.process_files(files)
-	if skysub:
-		skySub.process_files(files)
-	#
+def make_supersky_flats(file_map,**kwargs):
 	caldir = file_map.getCalDir()
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=file_map('skymask'),
@@ -466,7 +442,11 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 				                     'skyflat_%s_%s.fits' % (utd,filt))
 				skyFlatStack.stack(files,outfn)
 
-def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,prockey='CCDPRO2',**kwargs):
+def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,
+                 noskysub=False,prockey='CCDPRO2',**kwargs):
+	#
+	# Second round flat-field corrections
+	#
 	illum = None if noillumcorr else file_map('IllumCorrImage')
 	darksky = None if nodarkskycorr else file_map('DarkSkyFlatImage')
 	proc = bokproc.BokCCDProcess(input_map=file_map('comb',False),
@@ -480,6 +460,33 @@ def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,prockey='CCDPRO2
 	if files is None:
 		return
 	proc.process_files(files)
+	if noskysub:
+		return
+	#
+	# Sky subtraction
+	#
+	# Generate sky masks by agressively masking objects
+	# old way using sextractor masks
+	#bokproc.sextract_pass1(files,
+	#                       input_map=file_map('comb',False),
+	#                       catalog_map=file_map('pass1cat'),
+	#                       object_mask_map=file_map('skymask'),
+	#                       **kwargs)
+	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
+	                                    input_map=file_map('proc2'),
+	                                    output_map=file_map('skymask'),
+	                                    mask_map=file_map('MasterBadPixMask4'))
+	files = file_map.getFiles(imType='object')
+	skyFlatMask.process_files(files)
+	skySub = bokproc.BokSkySubtract(input_map=file_map('proc2'),
+	                                output_map=file_map('sky'),
+	                                mask_map=file_map('skymask'),
+	                                method=kwargs.get('skymethod',
+	                                                  'polynomial'),
+	                                order=kwargs.get('skyorder',1))
+	skySub.add_mask(file_map('MasterBadPixMask4'))
+	stackin = file_map('sky',False)
+	skySub.process_files(files)
 
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
@@ -602,19 +609,21 @@ def rmpipe_poormp(fileMap,**kwargs):
 def make_images(file_map,imtype='comb',msktype=None):
 	import matplotlib.pyplot as plt
 	files = file_map.getFiles(imType='object')
-	_fmap = file_map(imtype)
+	_fmap = file_map(imtype,False)
 	if msktype=='badpix':
 		msktype = 'MasterBadPixMask4'
 	if msktype==None:
 		maskmap = lambda f: None
 	else:
-		maskmap = file_map(msktype)
+		maskmap = file_map(msktype,False)
 	imdir = os.path.join(file_map.getProcDir(),'images')
 	if not os.path.exists(imdir):
 		os.mkdir(imdir)
 	plt.ioff()
 	for ff in files:
 		f = _fmap(ff)
+		print ff
+		print f
 		if not os.path.exists(f):
 			continue
 		imgfile = os.path.basename(f).replace('.fits','.png')
@@ -674,6 +683,12 @@ if __name__=='__main__':
 	                help='do not save per-image gain balance factors')
 	parser.add_argument('--nousepixflat',action='store_true',
 	                help='do not use normalized pixel flat')
+	parser.add_argument('--noskysub',action='store_true',
+	                help='do not perform sky subtraction')
+	parser.add_argument('--skymethod',type=str,default='polynomial',
+	                help='sky subtraction method ([polynomial]|spline)')
+	parser.add_argument('--skyorder',type=int,default=1,
+	                help='sky subtraction order [default: 1 (linear)]')
 	parser.add_argument('--darkskyframes',action='store_true',
 	                help='load only the dark sky frames')
 	parser.add_argument('--prockey',type=str,default=None,
