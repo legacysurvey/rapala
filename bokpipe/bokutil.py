@@ -480,12 +480,9 @@ class BokMefImageCube(object):
 		# if it's a map convert it to a list of files
 		if isinstance(weights,FileNameMap):
 			weights = [weights(f) for f in fileList]
-		print 'weights are ',weights
 		# if it's a list of files convert it to arrays
 		if type(weights) is list:
 			weights = build_cube(weights,extn,rows=rows)
-		if weights is not None:
-			print 'and then ',weights.shape
 		# return either the arrays, and input weight array, or None
 		return weights
 	def _stack_cube(self,imCube,weights=None,**kwargs):
