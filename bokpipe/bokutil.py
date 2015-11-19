@@ -476,7 +476,19 @@ class BokMefImageCube(object):
 			imCube[:,:,imCube.argmax(axis=-1)] = np.ma.masked
 			imCube[:,:,imCube.argmin(axis=-1)] = np.ma.masked
 		return imCube
-	def _stack_cube(self,imCube,**kwargs):
+	def _load_weights(self,weights,fileList,extn,rows):
+		# if it's a map convert it to a list of files
+		if isinstance(weights,FileNameMap):
+			weights = [weights(f) for f in fileList]
+		print 'weights are ',weights
+		# if it's a list of files convert it to arrays
+		if type(weights) is list:
+			weights = build_cube(weights,extn,rows=rows)
+		if weights is not None:
+			print 'and then ',weights.shape
+		# return either the arrays, and input weight array, or None
+		return weights
+	def _stack_cube(self,imCube,weights=None,**kwargs):
 		raise NotImplementedError
 	def _preprocess(self,fileList,outFits):
 		pass
@@ -485,7 +497,7 @@ class BokMefImageCube(object):
 			for i,s in enumerate(self._scales):
 				hdr[self.scaleKey+'%03d'%i] = float(s)
 		return stack,hdr
-	def stack(self,fileList,outputFile,scales=None,**kwargs):
+	def stack(self,fileList,outputFile,weights=None,scales=None,**kwargs):
 		if os.path.exists(outputFile):
 			if self.clobber:
 				clobberHdus = True
@@ -554,7 +566,8 @@ class BokMefImageCube(object):
 				                    badKey=self.badKey)
 				imCube = self._rescale(imCube,scales=scales)
 				imCube = self._reject_pixels(imCube)
-				_stack = self._stack_cube(imCube,**kwargs)
+				w = self._load_weights(weights,fileList,extn,rows)
+				_stack = self._stack_cube(imCube,w,**kwargs)
 				stack.append(_stack)
 				if self.withExpTimeMap:
 					expTime.append(np.sum(~imCube.mask*expTimes,axis=-1))
