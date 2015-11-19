@@ -422,7 +422,8 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 	if skysub:
 		skySub = bokproc.BokSkySubtract(input_map=file_map('comb',False),
 		                                output_map=file_map('_sky'),
-		                                mask_map=file_map('skymask'))
+		                                mask_map=file_map('skymask'),
+		                                method='polynomial',order=1)
 		skySub.add_mask(file_map('MasterBadPixMask4'))
 		stackin = file_map('_sky',False)
 	else:
@@ -458,12 +459,13 @@ def make_supersky_flats(file_map,skysub=True,**kwargs):
 			                     'skyflat_%s_%s.fits' % (utd,filt))
 			skyFlatStack.stack(files,outfn)
 
-def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,**kwargs):
+def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,prockey='CCDPRO2',**kwargs):
 	illum = None if noillumcorr else file_map('IllumCorrImage')
 	darksky = None if nodarkskycorr else file_map('DarkSkyFlatImage')
 	proc = bokproc.BokCCDProcess(input_map=file_map('comb',False),
 	                             output_map=file_map('proc2'),
 	                             mask_map=file_map('MasterBadPixMask4'),
+	                             header_key=prockey,
 	                             gain_multiply=False,bias=None,flat=None,
 	                             ramp=None,illum=illum,darksky=darksky,
 	                             fixpix=False,**kwargs)
@@ -569,6 +571,7 @@ def rmpipe(fileMap,**kwargs):
 		process_all2(fileMap,
 		             noillumcorr=kwargs.get('noillumcorr'),
 		             nodarkskycorr=kwargs.get('nodarkskycorr'),
+		             prockey=kwargs.get('prockey','CCDPRO2'),
 		             **pipekwargs)
 		timerLog('process2')
 	timerLog.dump()
