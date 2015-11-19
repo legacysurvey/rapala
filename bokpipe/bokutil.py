@@ -443,6 +443,8 @@ class BokMefImageCube(object):
 		self.headerKey = 'CUBE'
 		self.extensions = None
 		self.badPixelMask = None
+		self.scaleKey = kwargs.get('scale_key','IMSCL')
+		self._scales = None
 	def set_badpixelmask(self,maskFits):
 		self.badPixelMask = maskFits
 	def _rescale(self,imCube,scales=None):
@@ -450,6 +452,8 @@ class BokMefImageCube(object):
 			pass
 		elif self.scale is None:
 			return imCube
+		elif self._scales is not None:
+			scales = self._scales
 		elif self.scale.startswith('normalize'):
 			method = self.scale[self.scale.find('_')+1:]
 			imScales = imCube[self.statsPix] / imCube[self.statsPix+([0],)]
@@ -460,6 +464,9 @@ class BokMefImageCube(object):
 		else:
 			scales = self.scale(imCube)
 		self.scales = scales.squeeze()
+		# save the scales that were used. note that for nsplit>1, this has
+		# the effect of using the scales from the first chunk only.
+		self._scales = scales
 		return imCube * scales
 	def _reject_pixels(self,imCube):
 		if self.reject == 'sigma_clip':
@@ -474,6 +481,9 @@ class BokMefImageCube(object):
 	def _preprocess(self,fileList,outFits):
 		pass
 	def _postprocess(self,extName,stack,hdr):
+		if self._scales is not None:
+			for i,s in enumerate(self._scales):
+				hdr[self.scaleKey+'%03d'%i] = float(s)
 		return stack,hdr
 	def stack(self,fileList,outputFile,scales=None,**kwargs):
 		if os.path.exists(outputFile):
@@ -575,7 +585,7 @@ class BokMefImageCube(object):
 			varFits.close()
 		self._cleanup()
 	def _cleanup(self):
-		pass
+		self._scales = None
 
 class ClippedMeanStack(BokMefImageCube):
 	def _stack_cube(self,imCube,weights=None):
