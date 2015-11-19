@@ -704,7 +704,7 @@ if __name__=='__main__':
 			steps = all_process_steps
 		else:
 			steps = all_process_steps[:all_process_steps.index(args.stepto)+1]
-	elif steps == 'proc':
+	elif args.steps == 'proc':
 		steps = ['oscan','proc1','proc2']
 	else:
 		steps = args.steps.split(',')
