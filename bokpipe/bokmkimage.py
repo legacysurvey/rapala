@@ -5,6 +5,7 @@ from astropy.stats import sigma_clip
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib import rc
+import fitsio
 
 from . import bokutil
 
@@ -13,7 +14,6 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	losig = kwargs.get('lo',2.5)
 	hisig = kwargs.get('hi',5.0)
 	cmap = kwargs.get('cmap','jet')
-	print 'using colormap ',cmap
 	cmap = plt.get_cmap(cmap)
 	cmap.set_bad('w',1.0)
 	w = 0.4575
