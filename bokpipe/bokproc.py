@@ -599,8 +599,6 @@ def mask_bright_stars(im,saturation,minNSat=50):
 		     (cntrx-xextent):(cntrx+xextent)] = True
 	return mask
 
-import matplotlib.pyplot as plt #XXX
-
 class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		self.nBin = kwargs.get('binSize',4)
@@ -797,39 +795,6 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		if self.rawStackFits is not None:
 			self.rawStackFits.close()
 			self.rawStackFits = None
-
-def process_round2(fileList,superSkyFlatFile,**kwargs):
-	outputFileMap = kwargs.get('output_file_map')
-	flatDivMap = kwargs.get('flat_div_map')
-	skyFlatFits = fitsio.FITS(superSkyFlatFile)
-	sextract_pass1(fileList,**kwargs)
-	make_supersky_flats(fileList,**kwargs)
-	#extensions = kwargs.get('extensions',bok90mef_extensions)
-	extensions = ['CCD%d' % i for i in range(1,5)]
-	for f in fileList:
-		if outputFileMap is None:
-			# modify the file in-place
-			outFits = fitsio.FITS(f,'rw')
-			inFits = outFits
-		else:
-			inFits = fitsio.FITS(f)
-			outFits = fitsio.FITS(outputFileMap(f),'rw')
-		if flatDivMap is not None:
-			flatDivFits = fitsio.FITS(flatDivMap(f),'rw')
-		for extn in extensions:
-			data,hdr = inFits[extn].read(header=True)
-			data /= skyFlatFits[extn][:,:]
-			if flatDivMap is not None:
-				flatDivFits.write(data,extname=extn,header=hdr)
-			# XXX now gain-correct using the sky
-			hdr['SKYFLATF'] = superSkyFlatFile
-			outFits.write(data,extname=extn,header=hdr)
-		if outFits != inFits:
-			outFits.close()
-		inFits.close()
-		if flatDivMap is not None:
-			flatDivFits.close()
-	skyFlatFits.close()
 
 
 
