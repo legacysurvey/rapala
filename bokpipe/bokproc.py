@@ -331,6 +331,11 @@ class BokSkySubtract(bokutil.BokProcess):
 		if self.skyFitMap is not None:
 			self.skyFits = fitsio.FITS(self.skyFitMap(f),'rw')
 			self.skyFits.write(None,header=fits.get_header(0))
+		hdrCards = {'SKYMETH':self.method,'SKYORDR':self.order,
+		            'SKYNBIN':self.nBin}
+		if self.method=='spline':
+			hdrCards['SKYNKNOT'] = self.nKnots
+		fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
 		skyFit = (self.skyFit.get(extName) - self.sky0).astype(np.float32)
 		data -= skyFit
