@@ -201,7 +201,8 @@ class ProcessInPlace(FileMgr):
 		# hacky to add oscan here, because files are pulled from the raw
 		# directory for overscan subtraction, and need to be mapped to the
 		# output directory
-		self.fremap = {'oscan':'','pass1cat':'.cat1','skymask':'.skymsk'}
+		self.fremap = {'oscan':'','pass1cat':'.cat1',
+		               'skymask':'.skymsk','skyfit':'.sky'}
 	def __call__(self,t,output=True):
 		if output:
 			outDir = self.procDir if not self._tmpOutput else self._tmpDir
@@ -225,7 +226,7 @@ class ProcessToNewFiles(FileMgr):
 	def __init__(self,obsDb,rawDir,procDir):
 		super(ProcessToNewFiles,self).__init__(obsDb,rawDir,procDir)
 		self.fmap = {'oscan':'','bias':'_b','proc':'_p','comb':'_c',
-		             'pass1cat':'.cat1','skymask':'.skymsk',
+		             'pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
 		             'sky':'_s','proc2':'_q'}
 	def __call__(self,t,output=True):
 		if output:
@@ -442,8 +443,9 @@ def make_supersky_flats(file_map,**kwargs):
 				                     'skyflat_%s_%s.fits' % (utd,filt))
 				skyFlatStack.stack(files,outfn)
 
-def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,
-                 noskysub=False,prockey='CCDPRO2',**kwargs):
+def process_all2(file_map,skyArgs,noillumcorr=False,nodarkskycorr=False,
+                 noskysub=False,prockey='CCDPRO2',save_sky=False,
+                 **kwargs):
 	#
 	# Second round flat-field corrections
 	#
@@ -478,12 +480,11 @@ def process_all2(file_map,noillumcorr=False,nodarkskycorr=False,
 	                                    mask_map=file_map('MasterBadPixMask4'))
 	files = file_map.getFiles(imType='object')
 	skyFlatMask.process_files(files)
+	skyfitmap = file_map('skyfit') if save_sky else None
 	skySub = bokproc.BokSkySubtract(input_map=file_map('proc2'),
 	                                output_map=file_map('sky'),
 	                                mask_map=file_map('skymask'),
-	                                method=kwargs.get('skymethod',
-	                                                  'polynomial'),
-	                                order=kwargs.get('skyorder',1))
+	                                skyfit_map=skyfitmap,**skyArgs)
 	skySub.add_mask(file_map('MasterBadPixMask4'))
 	stackin = file_map('sky',False)
 	skySub.process_files(files)
@@ -582,10 +583,13 @@ def rmpipe(fileMap,**kwargs):
 		make_supersky_flats(fileMap,**pipekwargs)
 		timerLog('supersky flats')
 	if 'proc2' in steps:
-		process_all2(fileMap,
+		skyArgs = { k:kwargs[k] for k in ['skymethod','skyorder']}
+		print 'skyargs is ',skyArgs
+		process_all2(fileMap,skyArgs,
 		             noillumcorr=kwargs.get('noillumcorr'),
 		             nodarkskycorr=kwargs.get('nodarkskycorr'),
 		             prockey=kwargs.get('prockey','CCDPRO2'),
+		             save_sky=kwargs.get('savesky'),
 		             **pipekwargs)
 		timerLog('process2')
 	timerLog.dump()
@@ -641,7 +645,9 @@ if __name__=='__main__':
 	                help='band to process (g or i) [default=both]')
 	parser.add_argument('-c','--caldir',type=str,default=None,
 	                help='set calibration directory')
-	parser.add_argument('-f','--frames',type=str,default=None,
+	parser.add_argument('-f','--file',type=str,default=None,
+	                help='file to process [default=all]')
+	parser.add_argument('--frames',type=str,default=None,
 	                help='frames to process (i1,i2) [default=all]')
 	parser.add_argument('-n','--newfiles',action='store_true',
 	                help='process to new files (not in-place)')
@@ -689,6 +695,8 @@ if __name__=='__main__':
 	                help='sky subtraction method ([polynomial]|spline)')
 	parser.add_argument('--skyorder',type=int,default=1,
 	                help='sky subtraction order [default: 1 (linear)]')
+	parser.add_argument('--savesky',action='store_true',
+	                help='save sky background fit')
 	parser.add_argument('--darkskyframes',action='store_true',
 	                help='load only the dark sky frames')
 	parser.add_argument('--prockey',type=str,default=None,
