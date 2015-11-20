@@ -584,7 +584,6 @@ def rmpipe(fileMap,**kwargs):
 		timerLog('supersky flats')
 	if 'proc2' in steps:
 		skyArgs = { k:kwargs[k] for k in ['skymethod','skyorder']}
-		print 'skyargs is ',skyArgs
 		process_all2(fileMap,skyArgs,
 		             noillumcorr=kwargs.get('noillumcorr'),
 		             nodarkskycorr=kwargs.get('nodarkskycorr'),
