@@ -50,6 +50,8 @@ class FileMgr(object):
 		self.masterRampCorrFits = None
 		self.illumCorrFn = 'illumination.fits'
 		self.illumCorrFits = None
+		self.skyFlatFn = 'skyflat_g.fits'
+		self.skyFlatFits = None
 		self.obsDb = obsDb
 		self.allUtDates = np.unique(self.obsDb['utDate'])
 		self.utDates = self.allUtDates
@@ -127,6 +129,11 @@ class FileMgr(object):
 				fn = os.path.join(self.calDir,self.illumCorrFn)
 				self.illumCorrFits = fitsio.FITS(fn)
 			return self.illumCorrFits
+		elif t == 'DarkSkyFlatImage':
+			if self.skyFlatFits is None:
+				fn = os.path.join(self.calDir,self.skyFlatFn)
+				self.skyFlatFits = fitsio.FITS(fn)
+			return self.skyFlatFits
 		else:
 			raise ValueError
 	def getFiles(self,imType=None,utd=None,filt=None,
