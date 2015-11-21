@@ -594,7 +594,8 @@ def rmpipe(fileMap,**kwargs):
 		make_supersky_flats(fileMap,**pipekwargs)
 		timerLog('supersky flats')
 	if 'proc2' in steps:
-		skyArgs = { k:kwargs[k] for k in ['skymethod','skyorder']}
+		skyArgs = { k.lstrip('sky'):kwargs[k] 
+		                 for k in ['skymethod','skyorder']}
 		process_all2(fileMap,skyArgs,
 		             noillumcorr=kwargs.get('noillumcorr'),
 		             nodarkskycorr=kwargs.get('nodarkskycorr'),
