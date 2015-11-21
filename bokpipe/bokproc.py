@@ -264,9 +264,20 @@ class BokCCDProcess(bokutil.BokProcess):
 			if self.procIms[imType]['file'] is not None:
 				# e.g., hdr['BIASFILE'] = <filename>
 				hdrKey = str(imType.upper()+'FILE')[:8]
-				# trim the file path if it is long
-				fn = os.path.split(self.procIms[imType]['file'])[-3:]
-				hdrCards[hdrKey] = os.path.join(*fn) 
+				curPath = self.procIms[imType]['file'].rstrip('.fits')
+				if len(curPath) > 65:
+					# trim the file path if it is long
+					fn = ''
+					while len(fn)<60:
+						curPath,curEl = os.path.split(curPath)
+						if len(fn) == 0:
+							fn = curEl
+						else:
+							fn = os.path.join(curEl,fn)
+					fn = os.path.join('...',fn)
+				else:
+					fn = curPath
+				hdrCards[hdrKey] = fn
 			fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
 		bias = self.procIms['bias']['fits'] 
