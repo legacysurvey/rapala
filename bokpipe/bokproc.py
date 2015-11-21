@@ -3,6 +3,7 @@
 import os
 import re
 import shutil
+import tempfile
 import subprocess
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
@@ -497,7 +498,10 @@ def combine_ccds(fileList,**kwargs):
 	origin = kwargs.get('origin','center')
 	clobber = kwargs.get('clobber')
 	ignoreExisting = kwargs.get('ignore_existing',True)
-	tmpFileName = '/tmp/tmp.fits'
+	# fitsio doesn't accept file descriptors, but tempfile opens files...
+	tmpFile = tempfile.NamedTemporaryFile()
+	tmpFileName = tmpFile.name
+	tmpFile.close()
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
 	for f in fileList:
