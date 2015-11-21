@@ -101,6 +101,10 @@ class FileMgr(object):
 		self._curFilt = None
 	def setFrames(self,frames):
 		self.frames = frames
+	def setFile(self,fileName,utDate=None):
+		isUtd = True if utDate is None else self.obsDb['utDate']==utDate
+		self.frameList = np.where( isUtd & 
+		                           (self.obsDb['fileName']==fileName) )[0]
 	def setFrameList(self,utDates,fileNames):
 		frames = [ np.where( (self.obsDb['utDate']==utd) &
 		                     (self.obsDb['fileName']==f) )[0][0]
@@ -744,6 +748,8 @@ if __name__=='__main__':
 	                          args.tmpdirin,args.tmpdirout)
 	if args.frames is not None:
 		fileMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
+	elif args.file is not None:
+		fileMap.setFile(args.file)
 	if args.caldir is not None:
 		fileMap.setCalDir(os.path.join(args.caldir,'cals'))
 		fileMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
