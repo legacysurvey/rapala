@@ -58,6 +58,7 @@ class FileMgr(object):
 		self.filt = 'gi'
 		self.frames = None
 		self.frameList = None
+		self.imType = None
 		self._curUtDate = None
 		self._curFilt = None
 		self._tmpInput = False
@@ -110,6 +111,8 @@ class FileMgr(object):
 		                     (self.obsDb['fileName']==f) )[0][0]
 		             for utd,f in zip(utDates,fileNames) ]
 		self.frameList = np.array(frames)
+	def setImageType(self,imType):
+		self.imType = imType
 	def __call__(self,t,output=True):
 		if t == 'raw':
 			return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
@@ -159,6 +162,8 @@ class FileMgr(object):
 		# restrict on image type
 		if imType is not None:
 			file_sel &= self.obsDb['imType'] == imType
+		elif self.imType is not None:
+			file_sel &= self.obsDb['imType'] == self.imType
 		# restrict on filter
 		if filt is not None:
 			f = filt
@@ -676,6 +681,8 @@ if __name__=='__main__':
 	                help='processing steps to execute [default=all]')
 	parser.add_argument('-S','--stepto',type=str,default=None,
 	                help='process until this step [default=last]')
+	parser.add_argument('-t','--imtype',type=str,default=None,
+	                help='specify image type to process')
 	parser.add_argument('-u','--utdate',type=str,default=None,
 	                help='UT date(s) to process [default=all]')
 	parser.add_argument('-v','--verbose',action='count',
@@ -751,6 +758,8 @@ if __name__=='__main__':
 		fileMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
 	elif args.file is not None:
 		fileMap.setFile(args.file)
+	if args.imtype is not None:
+		fileMap.setImageType(args.imtype)
 	if args.caldir is not None:
 		fileMap.setCalDir(os.path.join(args.caldir,'cals'))
 		fileMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
