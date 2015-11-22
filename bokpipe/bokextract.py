@@ -23,7 +23,10 @@ def sextract(imageFile,catFile,psfFile=None,overwrite=False):
 	  '-STARNNW_NAME',os.path.join(configDir,'default.nnw'),
 	])
 	cmd.append(imageFile)
-	subprocess.call(cmd)
+	try:
+		subprocess.call(cmd)
+	except:
+		subprocess.call(['sex']+cmd[1:])
 	if psfFile is not None:
 		cmd = ['psfex','-c','config/default.psfex',ldaccatpath]
 		subprocess.call(cmd)
