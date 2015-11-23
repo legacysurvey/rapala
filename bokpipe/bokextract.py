@@ -1,29 +1,32 @@
 #!/usr/bin/env python
 
 import os
+import shutil
 import subprocess
 
-def sextract(imageFile,catFile,psfFile=None,clobber=False,
+configDir = os.path.join(os.path.split(__file__)[0],'config')
+
+def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
              verbose=0,**kwargs):
-	configDir = os.path.join(os.path.split(__file__)[0],'config')
 	if not clobber and os.path.exists(catFile):
 		if verbose > 0:
 			print catFile,' already exists, skipping'
 		return
-	extractCmd = 'sex'
-	cmd = [extractCmd,'-c',os.path.join(configDir,'bok_extract.sex')]
+	cmd = ['sex','-c',os.path.join(configDir,'bok_extract.sex')]
 	cmd.extend(['-CATALOG_NAME',catFile])
-	cmd.extend(['-CATALOG_TYPE','FITS_LDAC'])
-	if psfFile is not None:
-		raise NotImplementedError
-		if psfpath is None:
-			ldaccatpath = catpath.replace('.cat','.ldac_cat')
-			psfpath = ldaccatpath.replace('.fits','.psf')
-		else:
-			ldaccatpath = psfpath.replace('.psf','.ldac_cat.fits')
-		cmd.extend(['-PSF_NAME',psfpath])
+	if full:
+		cmd.extend(['-PARAMETERS_NAME',
+		            os.path.join(configDir,'bok_catalog.par')])
+		cmd.extend(['-PHOT_APERTURES',"7.5,15.0,22.0"])
+		cmd.extend(['-CATALOG_TYPE','FITS_1.0'])
+		if psfFile is None:
+			psfFile = catFile.replace('.fits','.psf')
+		cmd.extend(['-PSF_NAME',psfFile])
+	else:
+		cmd.extend(['-PARAMETERS_NAME',
+		            os.path.join(configDir,'bok_extract.par')])
+		cmd.extend(['-CATALOG_TYPE','FITS_LDAC'])
 	cmd.extend([
-	  '-PARAMETERS_NAME',os.path.join(configDir,'bok_extract.par'),
 	  '-FILTER_NAME',os.path.join(configDir,'default.conv'),
 	  '-STARNNW_NAME',os.path.join(configDir,'default.nnw'),
 	])
@@ -34,11 +37,32 @@ def sextract(imageFile,catFile,psfFile=None,clobber=False,
 	elif verbose > 0:
 		print 'generating wcs catalog for ',imageFile
 	cmd.append(imageFile)
-	try:
-		subprocess.call(cmd)
-	except:
-		subprocess.call(['sex']+cmd[1:])
-	if psfFile is not None:
-		cmd = ['psfex','-c','config/default.psfex',ldaccatpath]
-		subprocess.call(cmd)
+	if verbose > 1:
+		print ' '.join(cmd)
+	subprocess.call(cmd)
+
+def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
+	defPsfFile = catFile.replace('.fits','.psf')
+	if psfFile is not None and psfFile != defPsfFile:
+		rename = True
+	else:
+		if psfFile is None:
+			psfFile = defPsfFile
+		rename = False
+	if not clobber and os.path.exists(psfFile):
+		if verbose > 0:
+			print psfFile,' already exists, skipping'
+		return
+	cmd = ['psfex','-c',os.path.join(configDir,'bok90.psfex'),catFile]
+	if verbose > 2:
+		cmd.extend(['-VERBOSE_TYPE','FULL'])
+	elif verbose > 1:
+		cmd.extend(['-VERBOSE_TYPE','NORMAL'])
+	elif verbose > 0:
+		print 'generating psf for ',catFile
+	if verbose > 1:
+		print ' '.join(cmd)
+	subprocess.call(cmd)
+	if rename:
+		shutil.move(defPsfFile,psfFile)
 

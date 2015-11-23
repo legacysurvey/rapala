@@ -17,7 +17,7 @@ import bokrampcorr
 import bokillumcorr
 
 all_process_steps = ['oscan','bias2d','flat2d','bpmask',
-                     'proc1','skyflat','proc2','wcs']
+                     'proc1','skyflat','proc2','wcs','cat']
 
 class RMFileNameMap(bokutil.FileNameMap):
 	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
@@ -232,7 +232,7 @@ class ProcessInPlace(FileMgr):
 		# output directory
 		self.fremap = {'oscan':'','pass1cat':'.cat1',
 		               'skymask':'.skymsk','skyfit':'.sky',
-		               'wcscat':'.wcscat'}
+		               'wcscat':'.wcscat','cat':'.cat','psf':'.psf'}
 	def __call__(self,t,output=True):
 		if output:
 			outDir = self.procDir if not self._tmpOutput else self._tmpDir
@@ -257,7 +257,8 @@ class ProcessToNewFiles(FileMgr):
 		super(ProcessToNewFiles,self).__init__(obsDb,rawDir,procDir)
 		self.fmap = {'oscan':'','bias':'_b','proc':'_p','comb':'_c',
 		             'pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
-		             'sky':'_s','proc2':'_q','wcscat':'.wcscat'}
+		             'sky':'_s','proc2':'_q','wcscat':'.wcscat',
+		             'cat':'.cat','psf':'.psf'}
 	def __call__(self,t,output=True):
 		if output:
 			outDir = self.procDir if not self._tmpOutput else self._tmpDir
@@ -531,6 +532,19 @@ def set_wcs(file_map,inputType='sky',keepwcscat=False,**kwargs):
 		if not keepwcscat:
 			os.unlink(catFile)
 
+def make_catalogs(file_map,inputType='sky',**kwargs):
+	files = file_map.getFiles(imType='object')
+	for imFile in files:
+		imageFile = file_map(inputType)(imFile)
+		psfFile = file_map('psf',output=True)(imFile)
+		print 'psfFile: ',psfFile,os.path.exists(psfFile)
+		if not os.path.exists(psfFile):
+			catFile = file_map('wcscat',output=True)(imFile)
+			bokextract.sextract(imageFile,catFile,full=False,**kwargs)
+			bokextract.run_psfex(catFile,psfFile,**kwargs)
+		catFile = file_map('cat',output=True)(imFile)
+		bokextract.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
+
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
 	                                        'bokrm_darksky_%s.txt'%filt),
@@ -639,6 +653,9 @@ def rmpipe(fileMap,**kwargs):
 	if 'wcs' in steps:
 		set_wcs(fileMap,**pipekwargs)
 		timerLog('wcs')
+	if 'cat' in steps:
+		make_catalogs(fileMap,**pipekwargs)
+		timerLog('catalog')
 	timerLog.dump()
 
 def rmpipe_poormp(fileMap,**kwargs):
