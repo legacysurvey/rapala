@@ -520,7 +520,7 @@ def process_all2(file_map,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	stackin = file_map('sky',False)
 	skySub.process_files(files)
 
-def set_wcs(file_map,inputType='sky',keepwcscat=False,**kwargs):
+def set_wcs(file_map,inputType='sky',keepwcscat=True,**kwargs):
 	filesAndFields = file_map.getFiles(imType='object',with_objnames=True)
 	for imFile,fieldName in zip(*filesAndFields):
 		imageFile = file_map(inputType)(imFile)
@@ -537,7 +537,6 @@ def make_catalogs(file_map,inputType='sky',**kwargs):
 	for imFile in files:
 		imageFile = file_map(inputType)(imFile)
 		psfFile = file_map('psf',output=True)(imFile)
-		print 'psfFile: ',psfFile,os.path.exists(psfFile)
 		if not os.path.exists(psfFile):
 			catFile = file_map('wcscat',output=True)(imFile)
 			bokextract.sextract(imageFile,catFile,full=False,**kwargs)

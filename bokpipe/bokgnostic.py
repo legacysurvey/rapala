@@ -95,25 +95,26 @@ def run_scamp_diag(imageFiles,**kwargs):
 	tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
 	for imFile in imageFiles:
 		aheadfn = imFile.replace('.fits','.ahead')
+		rowstr = r'<td>%s</td>' % os.path.basename(imFile)
 		if not os.path.exists(aheadfn):
 			print imFile,' missing'
-			continue
-		hdrs = bokastrom.read_headers(aheadfn)
-		rowstr = r'<td>%s</td>' % os.path.basename(imFile)
-		for ccdNum,hdr in enumerate(hdrs,start=1):
-			rms = 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS1']**2)
-			if rms < 0:
-				rowstr += r'<td bgcolor=gray>%.2f</td>' % rms
-				#nmissing += 1
-			elif rms > 0.4:
-				rowstr += r'<td bgcolor=red>%.2f</td>' % rms
-				#nbad += 1
-			elif rms > 0.25:
-				rowstr += r'<td bgcolor=yellow>%.2f</td>' % rms
-				#nmarginal += 1
-			else:
-				rowstr += r'<td>%.2f</td>' % rms
-				#ngood += 1
+			rowstr += ''.join([r'<td bgcolor=black></td>']*4)
+		else:
+			hdrs = bokastrom.read_headers(aheadfn)
+			for ccdNum,hdr in enumerate(hdrs,start=1):
+				rms = 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS1']**2)
+				if rms < 0:
+					rowstr += r'<td bgcolor=gray>%.2f</td>' % rms
+					#nmissing += 1
+				elif rms > 0.4:
+					rowstr += r'<td bgcolor=red>%.2f</td>' % rms
+					#nbad += 1
+				elif rms > 0.25:
+					rowstr += r'<td bgcolor=yellow>%.2f</td>' % rms
+					#nmarginal += 1
+				else:
+					rowstr += r'<td>%.2f</td>' % rms
+					#ngood += 1
 		tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
 	tabf.write(_scamp_diag_foot)
 	tabf.close()
