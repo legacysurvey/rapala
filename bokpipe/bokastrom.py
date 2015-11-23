@@ -9,12 +9,12 @@ import numpy as np
 from astropy.io import fits
 
 def scamp_solve(imageFile,catFile,refStarCatFile=None,
-                filt='g',savewcs=False,overwrite=False,
-                check_plots=False,verbose=0):
+                filt='g',savewcs=False,clobber=False,
+                check_plots=False,verbose=0,**kwargs):
 	configDir = os.path.join(os.path.split(__file__)[0],'config')
 	headf = catFile.replace('.fits','.head') 
 	wcsFile = imageFile.replace('.fits','.ahead')
-	if not overwrite and os.path.exists(wcsFile):
+	if not clobber and os.path.exists(wcsFile):
 		if verbose > 0:
 			print wcsFile,' already exists, skipping'
 		return
@@ -23,10 +23,6 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 		if len(refCatPath)==0:
 			refCatPath = '.'
 	#
-#	rmfield = logs[utdate]['objectName'][frame]
-#	filt = logs[utdate]['filter'][frame]
-#	astrefcatfn = '%s_ccd%d_%s_ref.cat' % (rmfield,ccdNum,filt)
-#	astrefcatf = os.path.join(wcscatdir,astrefcatfn)
 	scamp_cmd_base = ['scamp',catFile,
 	                  '-c',os.path.join(configDir,'boksolve.scamp')]
 	def add_scamp_pars(scamp_pars):
@@ -49,16 +45,20 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	if verbose > 0:
 		scamp_pars['VERBOSE_TYPE'] = 'FULL'
 	if refStarCatFile is not None and os.path.exists(refStarCatFile):
-		scamp_pars['ASTREFCAT_NAME'] = os.path.basename(refStarCatFile)
+		scamp_pars['ASTREFCAT_NAME'] = refStarCatFile
 		scamp_pars['ASTREF_CATALOG'] = 'FILE'
-		scamp_pars['REFOUT_CATPATH'] = refCatPath
 	else:
 		scamp_pars['ASTREF_CATALOG'] = 'SDSS-R9'
 		scamp_pars['ASTREF_BAND'] = filt
 		scamp_pars['SAVE_REFCATALOG'] = 'Y'
+		# see below
+		#scamp_pars['ASTREFCAT_NAME'] = os.path.basename(refStarCatFile)
+		#scamp_pars['REFOUT_CATPATH'] = refCatPath
 	scamp_cmd = add_scamp_pars(scamp_pars)
 	if verbose > 1:
 		print ' '.join(scamp_cmd)
+	elif verbose > 0:
+		print 'first pass scamp_solve for ',imageFile
 	rv = subprocess.call(scamp_cmd)
 	tmpAhead = catFile.replace('.fits','.ahead') 
 	shutil.move(headf,tmpAhead)
@@ -83,8 +83,7 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	#
 	if refStarCatFile is not None:
 		scamp_pars['ASTREF_CATALOG'] = 'FILE'
-		scamp_pars['REFOUT_CATPATH'] = refCatPath
-		scamp_pars['ASTREFCAT_NAME'] = os.path.basename(refStarCatFile)
+		scamp_pars['ASTREFCAT_NAME'] = refStarCatFile
 	try:
 		del scamp_pars['ASTREF_BAND']
 	except:
@@ -100,6 +99,8 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	scamp_cmd = add_scamp_pars(scamp_pars)
 	if verbose > 1:
 		print ' '.join(scamp_cmd)
+	elif verbose > 0:
+		print 'second pass scamp_solve for ',imageFile
 	rv = subprocess.call(scamp_cmd)
 	shutil.move(headf,wcsFile)
 	os.unlink(tmpAhead)

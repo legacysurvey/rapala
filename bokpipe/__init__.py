@@ -7,4 +7,6 @@ from .badpixels import build_mask_from_flat
 import bokutil
 import bokproc
 import bokmkimage
+import bokextract
+import bokastrom
 

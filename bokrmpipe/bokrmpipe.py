@@ -17,7 +17,7 @@ import bokrampcorr
 import bokillumcorr
 
 all_process_steps = ['oscan','bias2d','flat2d','bpmask',
-                     'proc1','skyflat','proc2']
+                     'proc1','skyflat','proc2','wcs']
 
 class RMFileNameMap(bokutil.FileNameMap):
 	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
@@ -113,6 +113,13 @@ class FileMgr(object):
 		self.frameList = np.array(frames)
 	def setImageType(self,imType):
 		self.imType = imType
+	def setScampRefCatDir(self,refCatDir):
+		self.refCatDir = refCatDir
+		if not os.path.exists(self.refCatDir):
+			os.mkdir(self.refCatDir)
+	def getScampRefCat(self,fieldName):
+		refCatFn = 'scampref_%s.cat' % fieldName
+		return os.path.join(self.refCatDir,refCatFn)
 	def __call__(self,t,output=True):
 		if t == 'raw':
 			return RMFileNameMap(self.rawDir,self.procDir,fromRaw=True)
@@ -144,7 +151,8 @@ class FileMgr(object):
 		else:
 			raise ValueError
 	def getFiles(self,imType=None,utd=None,filt=None,
-	             im_range=None,exclude_objs=None,with_frames=False):
+	             im_range=None,exclude_objs=None,
+	             with_objnames=False,with_frames=False):
 		file_sel = np.zeros(len(self.obsDb),dtype=bool)
 		# select on UT date(s)
 		if utd is not None:
@@ -200,10 +208,12 @@ class FileMgr(object):
 			# XXX os.path.join for arrays?
 			files = char_add(char_add(self.obsDb['utDir'][ii],'/'),
 			                 self.obsDb['fileName'][ii])
+			rv = [files]
+			if with_objnames:
+				rv.append(self.obsDb['objName'][ii])
 			if with_frames:
-				return files,ii
-			else:
-				return files
+				rv.append(ii)
+			return tuple(rv)
 		else:
 			if with_frames:
 				return None,None
@@ -218,7 +228,8 @@ class ProcessInPlace(FileMgr):
 		# directory for overscan subtraction, and need to be mapped to the
 		# output directory
 		self.fremap = {'oscan':'','pass1cat':'.cat1',
-		               'skymask':'.skymsk','skyfit':'.sky'}
+		               'skymask':'.skymsk','skyfit':'.sky',
+		               'wcscat':'.wcscat'}
 	def __call__(self,t,output=True):
 		if output:
 			outDir = self.procDir if not self._tmpOutput else self._tmpDir
@@ -243,7 +254,7 @@ class ProcessToNewFiles(FileMgr):
 		super(ProcessToNewFiles,self).__init__(obsDb,rawDir,procDir)
 		self.fmap = {'oscan':'','bias':'_b','proc':'_p','comb':'_c',
 		             'pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
-		             'sky':'_s','proc2':'_q'}
+		             'sky':'_s','proc2':'_q','wcscat':'.wcscat'}
 	def __call__(self,t,output=True):
 		if output:
 			outDir = self.procDir if not self._tmpOutput else self._tmpDir
@@ -505,6 +516,16 @@ def process_all2(file_map,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	stackin = file_map('sky',False)
 	skySub.process_files(files)
 
+def set_wcs(file_map,inputType='sky',**kwargs):
+	filesAndFields = file_map.getFiles(imType='object',with_objnames=True)
+	for imFile,fieldName in zip(*filesAndFields):
+		imageFile = file_map(inputType)(imFile)
+		catFile = file_map('wcscat',output=True)(imFile)
+		bokextract.sextract(imageFile,catFile,**kwargs)
+		bokastrom.scamp_solve(imageFile,catFile,
+		                      file_map.getScampRefCat(fieldName),
+		                      filt='r',**kwargs)
+
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
 	                                        'bokrm_darksky_%s.txt'%filt),
@@ -550,6 +571,8 @@ def create_file_map(obsDb,rawDir,procDir,utds,bands,newfiles,
 		if tmpdirout:
 			utdir = os.path.join(fileMap._tmpDir,'ut'+utd)
 			if not os.path.exists(utdir): os.mkdir(utdir)
+	fileMap.setScampRefCatDir(os.path.join(os.environ['BOK90PRIMEOUTDIR'],
+	                                       'scamp_refs'))
 	return fileMap
 
 def rmpipe(fileMap,**kwargs):
@@ -608,6 +631,9 @@ def rmpipe(fileMap,**kwargs):
 		             save_sky=kwargs.get('savesky'),
 		             **pipekwargs)
 		timerLog('process2')
+	if 'wcs' in steps:
+		set_wcs(fileMap,**pipekwargs)
+		timerLog('wcs')
 	timerLog.dump()
 
 def rmpipe_poormp(fileMap,**kwargs):

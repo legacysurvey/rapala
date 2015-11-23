@@ -3,10 +3,10 @@
 import os
 import subprocess
 
-def sextract(imageFile,catFile,psfFile=None,overwrite=False,
-             verbose=0):
+def sextract(imageFile,catFile,psfFile=None,clobber=False,
+             verbose=0,**kwargs):
 	configDir = os.path.join(os.path.split(__file__)[0],'config')
-	if not overwrite and os.path.exists(catFile):
+	if not clobber and os.path.exists(catFile):
 		if verbose > 0:
 			print catFile,' already exists, skipping'
 		return
@@ -29,8 +29,10 @@ def sextract(imageFile,catFile,psfFile=None,overwrite=False,
 	])
 	if verbose > 2:
 		cmd.extend(['-VERBOSE_TYPE','FULL'])
-	if verbose > 1:
+	elif verbose > 1:
 		cmd.extend(['-VERBOSE_TYPE','NORMAL'])
+	elif verbose > 0:
+		print 'generating wcs catalog for ',imageFile
 	cmd.append(imageFile)
 	try:
 		subprocess.call(cmd)
