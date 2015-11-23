@@ -3,8 +3,13 @@
 import os
 import subprocess
 
-def sextract(imageFile,catFile,psfFile=None,overwrite=False):
+def sextract(imageFile,catFile,psfFile=None,overwrite=False,
+             verbose=0):
 	configDir = os.path.join(os.path.split(__file__)[0],'config')
+	if not overwrite and os.path.exists(catFile):
+		if verbose > 0:
+			print catFile,' already exists, skipping'
+		return
 	extractCmd = 'sextractor'
 	cmd = [extractCmd,'-c',os.path.join(configDir,'bok_extract.sex')]
 	cmd.extend(['-CATALOG_NAME',catFile])
@@ -22,6 +27,10 @@ def sextract(imageFile,catFile,psfFile=None,overwrite=False):
 	  '-FILTER_NAME',os.path.join(configDir,'default.conv'),
 	  '-STARNNW_NAME',os.path.join(configDir,'default.nnw'),
 	])
+	if verbose > 2:
+		cmd.extend(['-VERBOSE_TYPE','FULL'])
+	if verbose > 1:
+		cmd.extend(['-VERBOSE_TYPE','NORMAL'])
 	cmd.append(imageFile)
 	try:
 		subprocess.call(cmd)

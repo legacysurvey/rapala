@@ -9,12 +9,14 @@ import numpy as np
 from astropy.io import fits
 
 def scamp_solve(imageFile,catFile,refStarCatFile=None,
-                filt='g',savewcs=False,overwrite=False):
+                filt='g',savewcs=False,overwrite=False,
+                check_plots=False,verbose=0):
 	configDir = os.path.join(os.path.split(__file__)[0],'config')
 	headf = catFile.replace('.fits','.head') 
 	wcsFile = imageFile.replace('.fits','.ahead')
 	if not overwrite and os.path.exists(wcsFile):
-		print wcsFile,' already exists, skipping'
+		if verbose > 0:
+			print wcsFile,' already exists, skipping'
 		return
 	if refStarCatFile is not None:
 		refCatPath = os.path.dirname(refStarCatFile)
@@ -44,6 +46,8 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	  'ASTRCLIP_NSIGMA':3.0,
 	  'CHECKPLOT_TYPE':'NONE',
 	}
+	if verbose > 0:
+		scamp_pars['VERBOSE_TYPE'] = 'FULL'
 	if refStarCatFile is not None and os.path.exists(refStarCatFile):
 		scamp_pars['ASTREFCAT_NAME'] = os.path.basename(refStarCatFile)
 		scamp_pars['ASTREF_CATALOG'] = 'FILE'
@@ -53,7 +57,8 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 		scamp_pars['ASTREF_BAND'] = filt
 		scamp_pars['SAVE_REFCATALOG'] = 'Y'
 	scamp_cmd = add_scamp_pars(scamp_pars)
-	print ' '.join(scamp_cmd)
+	if verbose > 1:
+		print ' '.join(scamp_cmd)
 	rv = subprocess.call(scamp_cmd)
 	tmpAhead = catFile.replace('.fits','.ahead') 
 	shutil.move(headf,tmpAhead)
@@ -63,7 +68,8 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 		# take the auto-saved file and rename it
 		tmpfn = min(glob.iglob('%s_*.cat'%scamp_pars['ASTREF_CATALOG']),
 		            key=os.path.getctime)
-		print 'tmpfn=',tmpfn
+		if verbose > 0:
+			print 'tmpfn=',tmpfn
 		#shutil.move(tmpfn,refStarCatFile)
 		# XXX for some reason RA/Dec are being flipped
 		f = fits.open(tmpfn)
@@ -89,8 +95,11 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	scamp_pars['CROSSID_RADIUS'] = 5.0
 	scamp_pars['DISTORT_DEGREES'] = 3
 	scamp_pars['MOSAIC_TYPE'] = 'FIX_FOCALPLANE'
+	if check_plots:
+		del scamp_pars['CHECKPLOT_TYPE']
 	scamp_cmd = add_scamp_pars(scamp_pars)
-	print ' '.join(scamp_cmd)
+	if verbose > 1:
+		print ' '.join(scamp_cmd)
 	rv = subprocess.call(scamp_cmd)
 	shutil.move(headf,wcsFile)
 	os.unlink(tmpAhead)
@@ -98,6 +107,7 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	if savewcs:
 		configFile = os.path.join(configDir,'wcsput.missfits')
 		missfits_cmd = ['missfits','-c',configFile,imageFile]
-		print ' '.join(missfits_cmd)
+		if verbose > 1:
+			print ' '.join(missfits_cmd)
 		rv = subprocess.call(missfits_cmd)
 
