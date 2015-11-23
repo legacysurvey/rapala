@@ -112,3 +112,13 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 			print ' '.join(missfits_cmd)
 		rv = subprocess.call(missfits_cmd)
 
+def read_headers(aheadFile):
+	endLine = "END     \n"
+	with open(aheadFile,'r') as f:
+		hdrText = f.read()
+	hdrs = []
+	for hstr in hdrText.split(endLine)[:-1]:
+		h = fits.Header.fromstring(hstr,sep='\n')
+		hdrs.append(h)
+	return hdrs
+
