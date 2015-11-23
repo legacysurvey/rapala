@@ -10,7 +10,7 @@ def sextract(imageFile,catFile,psfFile=None,clobber=False,
 		if verbose > 0:
 			print catFile,' already exists, skipping'
 		return
-	extractCmd = 'sextractor'
+	extractCmd = 'sex'
 	cmd = [extractCmd,'-c',os.path.join(configDir,'bok_extract.sex')]
 	cmd.extend(['-CATALOG_NAME',catFile])
 	cmd.extend(['-CATALOG_TYPE','FITS_LDAC'])
