@@ -87,35 +87,37 @@ _scamp_diag_foot = '''
 </body></html>
 '''
 
-def run_scamp_diag(imageFiles,**kwargs):
+def run_scamp_diag(imageFiles,ncols=4,**kwargs):
 	tabf = open(os.path.join('scamp_diag.html'),'w')
 	tabf.write(_scamp_diag_head)
-	tabkeys = ['frame']+['ccd%drms'%n for n in range(1,5)]
-	rowstr = ''.join([r'<th>%s</th>' % k for k in tabkeys])
-	tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
-	for imFile in imageFiles:
+	#tabkeys = ['frame']+['ccd%drms'%n for n in range(1,5)]
+	#rowstr = ''.join([r'<th>%s</th>' % k for k in tabkeys])
+	#tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
+	rowstr = ''
+	for n,imFile in enumerate(imageFiles):
 		aheadfn = imFile.replace('.fits','.ahead')
-		rowstr = r'<td>%s</td>' % os.path.basename(imFile)
+		rowstr += r'<td>%s</td>' % os.path.basename(imFile)
 		if not os.path.exists(aheadfn):
 			print imFile,' missing'
-			rowstr += ''.join([r'<td bgcolor=black></td>']*4)
+			rowstr += r'<td bgcolor=black></td>'
 		else:
-			hdrs = bokastrom.read_headers(aheadfn)
-			for ccdNum,hdr in enumerate(hdrs,start=1):
-				rms = 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS1']**2)
-				if rms < 0:
-					rowstr += r'<td bgcolor=gray>%.2f</td>' % rms
-					#nmissing += 1
-				elif rms > 0.4:
-					rowstr += r'<td bgcolor=red>%.2f</td>' % rms
-					#nbad += 1
-				elif rms > 0.25:
-					rowstr += r'<td bgcolor=yellow>%.2f</td>' % rms
-					#nmarginal += 1
-				else:
-					rowstr += r'<td>%.2f</td>' % rms
-					#ngood += 1
-		tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
+			hdr = bokastrom.read_headers(aheadfn)[0]
+			rms = 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS1']**2)
+			if rms < 0:
+				rowstr += r'<td bgcolor=gray>%.2f</td>' % rms
+				#nmissing += 1
+			elif rms > 0.4:
+				rowstr += r'<td bgcolor=red>%.2f</td>' % rms
+				#nbad += 1
+			elif rms > 0.25:
+				rowstr += r'<td bgcolor=yellow>%.2f</td>' % rms
+				#nmarginal += 1
+			else:
+				rowstr += r'<td>%.2f</td>' % rms
+				#ngood += 1
+		if (n%ncols)==ncols-1:
+			tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
+			rowstr = ''
 	tabf.write(_scamp_diag_foot)
 	tabf.close()
 
