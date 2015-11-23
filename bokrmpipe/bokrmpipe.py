@@ -516,7 +516,7 @@ def process_all2(file_map,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	stackin = file_map('sky',False)
 	skySub.process_files(files)
 
-def set_wcs(file_map,inputType='sky',**kwargs):
+def set_wcs(file_map,inputType='sky',keepwcscat=False,**kwargs):
 	filesAndFields = file_map.getFiles(imType='object',with_objnames=True)
 	for imFile,fieldName in zip(*filesAndFields):
 		imageFile = file_map(inputType)(imFile)
@@ -525,6 +525,8 @@ def set_wcs(file_map,inputType='sky',**kwargs):
 		bokastrom.scamp_solve(imageFile,catFile,
 		                      file_map.getScampRefCat(fieldName),
 		                      filt='r',**kwargs)
+		if not keepwcscat:
+			os.unlink(catFile)
 
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
