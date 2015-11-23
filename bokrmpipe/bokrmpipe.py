@@ -213,7 +213,10 @@ class FileMgr(object):
 				rv.append(self.obsDb['objName'][ii])
 			if with_frames:
 				rv.append(ii)
-			return tuple(rv)
+			if len(rv)>1:
+				return tuple(rv)
+			else:
+				return rv[0]
 		else:
 			if with_frames:
 				return None,None
@@ -759,6 +762,8 @@ if __name__=='__main__':
 	parser.add_argument('--makeillumcorr',action='store_true',
 	                help='make illumination correction image '
 	                     'instead of processing')
+	parser.add_argument('--wcscheck',action='store_true',
+	                help='make astrometry diagnostic files')
 	args = parser.parse_args()
 	if args.obsdb is None:
 		obsDb = Table.read(os.path.join('config','sdssrm-bok2014.fits'))
@@ -802,6 +807,9 @@ if __name__=='__main__':
 		bokrampcorr.make_rampcorr_image(fileMap)#,**kwargs)
 	elif args.makeillumcorr:
 		bokillumcorr.make_illumcorr_image(fileMap)#,**kwargs)
+	elif args.wcscheck:
+		files = [fileMap('sky')(f) for f in fileMap.getFiles('object')]
+		bokgnostic.run_scamp_diag(files)
 	elif args.processes > 1:
 		rmpipe_poormp(fileMap,**kwargs)
 	else:

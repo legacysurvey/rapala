@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 import fitsio
 
@@ -7,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from . import bokutil
 from . import bokproc
+from . import bokastrom
 
 def check_gain_bal(fileName,badPixMaskFile=None,
                    showMean=True,showMode=True,**kwargs):
@@ -69,4 +71,50 @@ def check_sky_level(fileName,maskFile=None,statreg='ccd_central_quadrant',
 		print '%4s %8d %8.1f %8.1f %8.1f %8.1f %8.1f %8.1f' % \
 		        (extn,(~pix.mask).sum(),modalVal,medVal,meanVal,
 		         pix.std(),pix.min(),pix.max())
+
+
+_scamp_diag_head = '''<html>
+<head>
+ <style type="text/css">
+  body {font-family: monospace}
+  body {font-size: xx-small}
+  td {padding-right: 10px}
+ </style>
+<body><table border=1>
+'''
+_scamp_diag_foot = '''
+</table>
+</body></html>
+'''
+
+def run_scamp_diag(imageFiles,**kwargs):
+	tabf = open(os.path.join('scamp_diag.html'),'w')
+	tabf.write(_scamp_diag_head)
+	tabkeys = ['frame']+['ccd%drms'%n for n in range(1,5)]
+	rowstr = ''.join([r'<th>%s</th>' % k for k in tabkeys])
+	tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
+	for imFile in imageFiles:
+		aheadfn = imFile.replace('.fits','.ahead')
+		if not os.path.exists(aheadfn):
+			print imFile,' missing'
+			continue
+		hdrs = bokastrom.read_headers(aheadfn)
+		rowstr = r'<td>%s</td>' % os.path.basename(imFile)
+		for ccdNum,hdr in enumerate(hdrs,start=1):
+			rms = 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS1']**2)
+			if rms < 0:
+				rowstr += r'<td bgcolor=gray>%.2f</td>' % rms
+				#nmissing += 1
+			elif rms > 0.4:
+				rowstr += r'<td bgcolor=red>%.2f</td>' % rms
+				#nbad += 1
+			elif rms > 0.25:
+				rowstr += r'<td bgcolor=yellow>%.2f</td>' % rms
+				#nmarginal += 1
+			else:
+				rowstr += r'<td>%.2f</td>' % rms
+				#ngood += 1
+		tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
+	tabf.write(_scamp_diag_foot)
+	tabf.close()
 
