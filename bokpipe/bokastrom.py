@@ -11,7 +11,7 @@ from astropy.io import fits
 def scamp_solve(imageFile,catFile,refStarCatFile=None,
                 filt='g',savewcs=False,overwrite=False):
 	configDir = os.path.join(os.path.split(__file__)[0],'config')
-	headf = catFile.replace('.fits','.head') # named automatically by scamp?
+	headf = catFile.replace('.fits','.head') 
 	wcsFile = imageFile.replace('.fits','.ahead')
 	if not overwrite and os.path.exists(wcsFile):
 		print wcsFile,' already exists, skipping'
@@ -55,7 +55,8 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	scamp_cmd = add_scamp_pars(scamp_pars)
 	print ' '.join(scamp_cmd)
 	rv = subprocess.call(scamp_cmd)
-	shutil.move(headf,wcsFile)
+	tmpAhead = catFile.replace('.fits','.ahead') 
+	shutil.move(headf,tmpAhead)
 	if refStarCatFile is not None and scamp_pars['ASTREF_CATALOG'] != 'FILE':
 		# scamp automatically names the cached reference file, and as far
 		# as I can tell ignores the value of ASTREFCAT_NAME
@@ -83,14 +84,16 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	except:
 		pass
 	scamp_pars['SAVE_REFCATALOG'] = 'N'
-	scamp_pars['POSITION_MAXERR'] = 0.1
+	scamp_pars['POSITION_MAXERR'] = 0.25
 	scamp_pars['POSANGLE_MAXERR'] = 0.5
-	scamp_pars['CROSSID_RADIUS'] = 2.0
+	scamp_pars['CROSSID_RADIUS'] = 5.0
 	scamp_pars['DISTORT_DEGREES'] = 3
+	scamp_pars['MOSAIC_TYPE'] = 'FIX_FOCALPLANE'
 	scamp_cmd = add_scamp_pars(scamp_pars)
 	print ' '.join(scamp_cmd)
 	rv = subprocess.call(scamp_cmd)
 	shutil.move(headf,wcsFile)
+	os.unlink(tmpAhead)
 	#
 	if savewcs:
 		configFile = os.path.join(configDir,'wcsput.missfits')

@@ -21,7 +21,7 @@ ASTREFCENT_KEYS        X_WORLD,Y_WORLD # Local ref.cat.centroid parameters
 ASTREFERR_KEYS         ERRA_WORLD, ERRB_WORLD, ERRTHETA_WORLD
                                        # Local ref.cat.error ellipse parameters
 ASTREFMAG_KEY          MAG             # Local ref.cat.magnitude parameter
-ASTREFMAG_LIMITS       -99.9,99.9      # Select magnitude range in ASTREF_BAND
+ASTREFMAG_LIMITS       15.0,21.0       # Select magnitude range in ASTREF_BAND
 SAVE_REFCATALOG        N               # Save ref catalogs in FITS-LDAC format?
 REFOUT_CATPATH         .               # Save path for reference catalogs
  
@@ -40,8 +40,8 @@ FULLOUTCAT_NAME        full.cat        # Full output catalog filename
 MATCH                  Y               # Do pattern-matching (Y/N) ?
 MATCH_NMAX             0               # Max.number of detections for MATCHing
                                        # (0=auto)
-PIXSCALE_MAXERR        1.2             # Max scale-factor uncertainty
-POSANGLE_MAXERR        3.0             # Max position-angle uncertainty (deg)
+PIXSCALE_MAXERR        1.05            # Max scale-factor uncertainty
+POSANGLE_MAXERR        1.0             # Max position-angle uncertainty (deg)
 POSITION_MAXERR        2.0             # Max positional uncertainty (arcmin)
 MATCH_RESOL            0               # Matching resolution (arcsec); 0=auto
 MATCH_FLIPPED          N               # Allow matching with flipped axes?
@@ -50,7 +50,7 @@ MOSAIC_TYPE            LOOSE           # UNCHANGED, SAME_CRVAL, SHARE_PROJAXIS,
  
 #---------------------------- Cross-identification ----------------------------
  
-CROSSID_RADIUS         5.0             # Cross-id initial radius (arcsec)
+CROSSID_RADIUS         10.0            # Cross-id initial radius (arcsec)
  
 #---------------------------- Astrometric solution ----------------------------
  
