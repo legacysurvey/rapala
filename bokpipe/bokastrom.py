@@ -73,14 +73,7 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 		            key=os.path.getctime)
 		if verbose > 0:
 			print 'tmpfn=',tmpfn
-		#shutil.move(tmpfn,refStarCatFile)
-		# XXX for some reason RA/Dec are being flipped
-		f = fits.open(tmpfn)
-		dec = f[2].data['X_WORLD'].copy()
-		f[2].data['X_WORLD'][:] = f[2].data['Y_WORLD']
-		f[2].data['Y_WORLD'][:] = dec
-		f.writeto(refStarCatFile)
-		os.unlink(tmpfn)
+		shutil.move(tmpfn,refStarCatFile)
 	#
 	# SECOND PASS
 	#
