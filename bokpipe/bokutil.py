@@ -13,7 +13,7 @@ from astropy.stats import sigma_clip
 def array_clip(arr,axis=None,**kwargs):
 	# for some reason in newer version of astropy (>1.1) axis=-1 
 	# no longer works ...
-	if axis < 0:
+	if axis is not None and axis < 0:
 		axis = len(arr.shape) + axis
 	arr = sigma_clip(arr,axis=axis,
 	                 sigma=kwargs.get('clip_sig',2.5),
