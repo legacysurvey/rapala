@@ -3,6 +3,16 @@
 import os
 import shutil
 import subprocess
+import numpy as np
+from astropy.table import Table,vstack
+import fitsio
+
+from .bokastrom import read_headers,wcs_from_header
+
+try:
+	import sep
+except ImportError:
+	print 'sep is not installed, cannot perform aperture photometry routines'
 
 configDir = os.path.join(os.path.split(__file__)[0],'config')
 
@@ -65,4 +75,45 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 	subprocess.call(cmd)
 	if rename:
 		shutil.move(defPsfFile,psfFile)
+
+def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5):
+	w = wcs_from_header(hdr)
+	y,x = w.wcs_world2pix(ra,dec,0,ra_dec_order=True)
+	ii = np.where((x>edge_buf) & (y>edge_buf) & 
+	              (x<4096-edge_buf) & (y<4032-edge_buf))[0]
+	#bkg = sep.Background(image)
+	nObj,nAper = len(ii),len(aperRad)
+	cts = np.empty((nObj,nAper),dtype=np.float32)
+	ctserr = np.empty((nObj,nAper),dtype=np.float32)
+	flags = np.empty((nObj,nAper),dtype=np.int32)
+	for j,aper in enumerate(aperRad):
+		rv = sep.sum_circle(image,x[ii],y[ii],aper,mask=badPixMask,
+		                    gain=1.0,bkgann=(25.,32.))
+		cts[:,j],ctserr[:,j],flags[:,j] = rv
+	return x[ii],y[ii],ii,cts,ctserr,flags
+
+def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
+	                aHeadFile=None,**kwargs):
+	if aHeadFile is not None:
+		hdrs = read_headers(aHeadFile)
+	tabs = []
+	fitsData = fitsio.FITS(imageFile)
+	for i,hdu in enumerate(fitsData[1:]):
+		im = hdu.read()
+		if aHeadFile is None:
+			hdr = hdu.read_header()
+		else:
+			hdr = hdrs[i]
+		phot = aper_phot(im,hdr,ra,dec,aperRad,badPixMask,**kwargs)
+		n = len(phot[0])
+		if n==0:
+			continue
+		# add ccd number
+		phot += (np.repeat(i+1,n),)
+		t = Table(phot,
+		          names=('x','y','idx','counts','countsErr','flags','ccdNum'),
+		          dtype=('f4','f4','i4','f4','f4','i4','i4'))
+		tabs.append(t)
+	phot = vstack(tabs)
+	return phot
 
