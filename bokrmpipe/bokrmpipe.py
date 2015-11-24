@@ -525,7 +525,7 @@ def set_wcs(file_map,inputType='sky',keepwcscat=True,**kwargs):
 	for imFile,fieldName in zip(*filesAndFields):
 		imageFile = file_map(inputType)(imFile)
 		catFile = file_map('wcscat',output=True)(imFile)
-		bokextract.sextract(imageFile,catFile,**kwargs)
+		bokphot.sextract(imageFile,catFile,**kwargs)
 		bokastrom.scamp_solve(imageFile,catFile,
 		                      file_map.getScampRefCat(fieldName),
 		                      filt='r',**kwargs)
@@ -539,10 +539,10 @@ def make_catalogs(file_map,inputType='sky',**kwargs):
 		psfFile = file_map('psf',output=True)(imFile)
 		if not os.path.exists(psfFile):
 			catFile = file_map('wcscat',output=True)(imFile)
-			bokextract.sextract(imageFile,catFile,full=False,**kwargs)
-			bokextract.run_psfex(catFile,psfFile,**kwargs)
+			bokphot.sextract(imageFile,catFile,full=False,**kwargs)
+			bokphot.run_psfex(catFile,psfFile,**kwargs)
 		catFile = file_map('cat',output=True)(imFile)
-		bokextract.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
+		bokphot.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
 
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
