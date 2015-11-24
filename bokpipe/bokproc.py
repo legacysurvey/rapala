@@ -459,19 +459,25 @@ def _orient_mosaic(hdr,ims,ccdNum,origin):
 	# --> these two disagree in physical coords by 1 pixel for det_i==1
 	if origin == 'center':
 		# works for WCS but not IRAF for some reason
-		hdr['CD1_1'] = 0.0
-		hdr['CD2_2'] = 0.0
-		signx = [-1,+1][det_i]
+		hdr['CTYPE1'] = 'RA---TAN'
+		hdr['CTYPE2'] = 'DEC--TAN'
+		crval1 = hdr['CRVAL1'] 
+		hdr['CRVAL1'] = hdr['CRVAL2']
+		hdr['CRVAL2'] = crval1
+		signx = [+1,-1][det_i]
 		signy = [-1,+1][det_j]
-		hdr['CD2_1'] = -signx*plateScale
-		hdr['CD1_2'] = signy*plateScale
+		hdr['CD1_2'] = 0.0
+		hdr['CD2_1'] = 0.0
+		hdr['CD1_1'] = signx*plateScale
+		hdr['CD2_2'] = signy*plateScale
 		hdr['CRPIX1'] = -182.01
 		hdr['CRPIX2'] = -59.04
-		hdr['LTM1_1'] = float(signx)
+		hdr['LTM1_1'] = -float(signx)
 		hdr['LTM2_2'] = float(signy)
-		hdr['LTV1'] = [4096.0,-4097.0][det_i]
-		hdr['LTV2'] = [4033.0,-4032.0][det_j]
+		hdr['LTV1'] = -182.
+		hdr['LTV2'] = -59.
 	elif origin == 'lower left':
+		raise NotImplementedError # this is vestigial, need to update
 		hdr['LTM1_1'] = 1.0
 		hdr['LTM2_2'] = 1.0
 		hdr['LTV1'] = 0 if det_i == 0 else -nx
