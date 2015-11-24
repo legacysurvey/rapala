@@ -644,6 +644,7 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		self.clipArgs.setdefault('clip_sig',2.2)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
 		self.growKern = None #np.ones((self.binGrowSize,self.binGrowSize),dtype=bool)
+		self.noConvert = True
 	def _preprocess(self,fits,f):
 		print 'generating sky mask for ',f
 	def process_hdu(self,extName,data,hdr):
