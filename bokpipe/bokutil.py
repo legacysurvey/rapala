@@ -11,9 +11,13 @@ from astropy.stats import sigma_clip
 
 # just translates the kwargs
 def array_clip(arr,axis=None,**kwargs):
+	# for some reason in newer version of astropy (>1.1) axis=-1 
+	# no longer works ...
+	if axis < 0:
+		axis = len(arr.shape) + axis
 	arr = sigma_clip(arr,axis=axis,
+	                 sigma=kwargs.get('clip_sig',2.5),
 	                 iters=kwargs.get('clip_iters',2),
-	                 sig=kwargs.get('clip_sig',2.5),
 	                 cenfunc=kwargs.get('clip_cenfunc',np.ma.mean))
 	return arr
 
