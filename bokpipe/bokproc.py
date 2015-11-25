@@ -281,6 +281,10 @@ class BokCCDProcess(bokutil.BokProcess):
 				hdrCards[hdrKey] = fn
 			fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
+		# XXX hacky way to preserve arithmetic on masked pixels,
+		#     but need to keep mask for fixpix
+		if type(data) is np.ma.core.MaskedArray:
+			data = data.data
 		bias = self.procIms['bias']['fits'] 
 		if bias is not None:
 			data -= bias[extName][:,:]
@@ -349,6 +353,8 @@ class BokSkySubtract(bokutil.BokProcess):
 			hdrCards['SKYNKNOT'] = self.nKnots
 		fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
+		if type(data) is np.ma.core.MaskedArray:
+			data = data.data
 		skyFit = (self.skyFit.get(extName) - self.sky0).astype(np.float32)
 		data -= skyFit
 		hdr['SKYVAL'] = float(self.sky0)
