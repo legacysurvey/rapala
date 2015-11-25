@@ -78,9 +78,16 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 
 def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5,**kwargs):
 	w = wcs_from_header(hdr)
-	x,y = w.wcs_world2pix(ra,dec,0,ra_dec_order=True)
-	ii = np.where((x>edge_buf) & (y>edge_buf) & 
-	              (x<4096-edge_buf) & (y<4032-edge_buf))[0]
+	foot = w.calc_footprint()
+	raMin,raMax = foot[:,0].min(),foot[:,0].max()
+	decMin,decMax = foot[:,1].min(),foot[:,1].max()
+	ii = np.where((ra>raMin)&(ra<raMax)&(dec>decMin)&(dec<decMax))[0]
+	x,y = w.wcs_world2pix(ra[ii],dec[ii],0)
+	ii2 = np.where((x>edge_buf) & (y>edge_buf) & 
+	               (x<4096-edge_buf) & (y<4032-edge_buf))[0]
+	x = x[ii2]
+	y = y[ii2]
+	ii = ii[ii2]
 	#bkg = sep.Background(image)
 	nObj,nAper = len(ii),len(aperRad)
 	cts = np.empty((nObj,nAper),dtype=np.float32)
@@ -88,24 +95,26 @@ def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5,**kwargs):
 	flags = np.empty((nObj,nAper),dtype=np.int32)
 	for j,aper in enumerate(aperRad):
 		# XXX why is mask crashing on bad type?
-		rv = sep.sum_circle(image,x[ii],y[ii],aper,#mask=badPixMask,
+		rv = sep.sum_circle(image,x,y,aper,#mask=badPixMask,
 		                    gain=1.0,bkgann=(25.,32.))
 		cts[:,j],ctserr[:,j],flags[:,j] = rv
-	return x[ii],y[ii],ii,cts,ctserr,flags
+	return x,y,ii,cts,ctserr,flags
 
 def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
 	                aHeadFile=None,**kwargs):
+	from astropy.io.fits import getheader
 	if aHeadFile is not None:
-		hdrs = read_headers(aHeadFile)
+		wcsHdrs = read_headers(aHeadFile)
 	tabs = []
 	fitsData = fitsio.FITS(imageFile)
 	for i,hdu in enumerate(fitsData[1:]):
 		im = hdu.read()
 		extn = hdu.get_extname()
-		if aHeadFile is None:
-			hdr = hdu.read_header()
-		else:
-			hdr = hdrs[i]
+		# argh... header need to be from astropy, fix this!!!
+		hdr = getheader(imageFile,extn)
+		if aHeadFile is not None:
+			for k,v in wcsHdrs[i].items():
+				hdr[k] = v
 		mask = badPixMask[extn].read().astype(np.bool)
 		phot = aper_phot(im,hdr,ra,dec,aperRad,mask,**kwargs)
 		n = len(phot[0])
