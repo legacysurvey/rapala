@@ -10,6 +10,8 @@ parser.add_argument("image",type=str,
                     help="input FITS image")
 parser.add_argument("catalog",type=str,
                     help="input FITS catalog")
+parser.add_argument("-a","--args",type=str,
+                    help="arguments to pass to scamp config")
 parser.add_argument("-f","--filter",type=str,default='g',
                     help="reference band")
 parser.add_argument("-p","--plots",action="store_true",
@@ -24,8 +26,15 @@ parser.add_argument("--single",action="store_true",
                     help="single pass")
 args = parser.parse_args()
 
+kwargs = {}
+if args.args is not None:
+	arglist = args.args.split(',')
+	for a in arglist:
+		k,v = a.split('=')
+		kwargs[k] = v
+
 scamp_solve(args.image,args.catalog,refStarCatFile=args.reference,
-            filt=args.filter,savewcs=args.write,overwrite=True,
+            filt=args.filter,savewcs=args.write,clobber=True,
             check_plots=args.plots,twopass=not args.single,
-            verbose=args.verbose)
+            verbose=args.verbose,**kwargs)
 

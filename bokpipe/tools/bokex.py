@@ -2,7 +2,7 @@
 
 import argparse
 
-from bokpipe.bokextract import sextract
+from bokpipe.bokphot import sextract
 
 parser = argparse.ArgumentParser()
 parser.add_argument("image",type=str,

@@ -9,10 +9,18 @@ import numpy as np
 from astropy.io import fits
 from astropy.wcs import WCS
 
+configDir = os.path.join(os.path.split(__file__)[0],'config')
+
+def put_wcs(imageFile,verbose=0):
+	configFile = os.path.join(configDir,'wcsput.missfits')
+	missfits_cmd = ['missfits','-c',configFile,imageFile]
+	if verbose > 1:
+		print ' '.join(missfits_cmd)
+	rv = subprocess.call(missfits_cmd)
+
 def scamp_solve(imageFile,catFile,refStarCatFile=None,
                 filt='g',savewcs=False,clobber=False,
                 check_plots=False,twopass=True,verbose=0,**kwargs):
-	configDir = os.path.join(os.path.split(__file__)[0],'config')
 	headf = catFile.replace('.fits','.head') 
 	wcsFile = imageFile.replace('.fits','.ahead')
 	if not clobber and os.path.exists(wcsFile):
@@ -53,10 +61,14 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	else:
 		scamp_pars['ASTREF_CATALOG'] = 'SDSS-R9'
 		scamp_pars['ASTREF_BAND'] = filt
-		scamp_pars['SAVE_REFCATALOG'] = 'Y'
+		if refStarCatFile is not None:
+			scamp_pars['SAVE_REFCATALOG'] = 'Y'
 		# see below
 		#scamp_pars['ASTREFCAT_NAME'] = os.path.basename(refStarCatFile)
 		#scamp_pars['REFOUT_CATPATH'] = refCatPath
+	# copy in options passed from command-line (override existing)
+	for k,v in kwargs.items():
+		scamp_pars[k] = v
 	scamp_cmd = add_scamp_pars(scamp_pars)
 	if verbose > 1:
 		print ' '.join(scamp_cmd)
@@ -75,6 +87,9 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 			print 'tmpfn=',tmpfn
 		shutil.move(tmpfn,refStarCatFile)
 	if not twopass:
+		shutil.move(tmpAhead,wcsFile)
+		if savewcs:
+			put_wcs(imageFile,verbose=verbose)
 		return
 	#
 	# SECOND PASS
@@ -104,11 +119,7 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	os.unlink(tmpAhead)
 	#
 	if savewcs:
-		configFile = os.path.join(configDir,'wcsput.missfits')
-		missfits_cmd = ['missfits','-c',configFile,imageFile]
-		if verbose > 1:
-			print ' '.join(missfits_cmd)
-		rv = subprocess.call(missfits_cmd)
+		put_wcs(imageFile,verbose=verbose)
 
 def read_headers(aheadFile):
 	endLine = "END     \n"
