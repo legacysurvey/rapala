@@ -11,7 +11,7 @@ from astropy.wcs import WCS
 
 def scamp_solve(imageFile,catFile,refStarCatFile=None,
                 filt='g',savewcs=False,clobber=False,
-                check_plots=False,verbose=0,**kwargs):
+                check_plots=False,twopass=True,verbose=0,**kwargs):
 	configDir = os.path.join(os.path.split(__file__)[0],'config')
 	headf = catFile.replace('.fits','.head') 
 	wcsFile = imageFile.replace('.fits','.ahead')
@@ -74,6 +74,8 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 		if verbose > 0:
 			print 'tmpfn=',tmpfn
 		shutil.move(tmpfn,refStarCatFile)
+	if not twopass:
+		return
 	#
 	# SECOND PASS
 	#
