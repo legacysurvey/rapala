@@ -544,6 +544,26 @@ def make_catalogs(file_map,inputType='sky',**kwargs):
 		catFile = file_map('cat',output=True)(imFile)
 		bokphot.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
 
+def aperture_phot(file_map,inputType='sky',**kwargs):
+	from astropy.table import Table,vstack
+	files = file_map.getFiles(imType='object')
+	bpMask = file_map('MasterBadPixMask4')
+	sdss = fitsio.read(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
+	allPhot = []
+	for imFile in files:
+		imageFile = file_map(inputType)(imFile)
+		print 'processing ',imageFile
+		phot = bokphot.aper_phot_image(imageFile,sdss['ra'],sdss['dec'],
+		                               [7.5,15.0,22.5],bpMask,
+		                      aHeadFile=imageFile.replace('.fits','.ahead'),
+		                               **kwargs)
+		if phot is None:
+			print 'no apertures found!!!!'
+			continue
+		allPhot.append(phot)
+	allPhot = vstack(allPhot)
+	allPhot.write('phot.fits')
+
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
 	                                        'bokrm_darksky_%s.txt'%filt),
@@ -654,6 +674,7 @@ def rmpipe(fileMap,**kwargs):
 		timerLog('wcs')
 	if 'cat' in steps:
 		make_catalogs(fileMap,**pipekwargs)
+		aperture_phot(fileMap,**pipekwargs)
 		timerLog('catalog')
 	timerLog.dump()
 
@@ -796,6 +817,8 @@ if __name__=='__main__':
 			steps = all_process_steps[:all_process_steps.index(args.stepto)+1]
 	elif args.steps == 'proc':
 		steps = ['oscan','proc1','proc2']
+	elif args.steps == 'all':
+		steps = ['oscan','proc1','proc2','wcs','cat']
 	else:
 		steps = args.steps.split(',')
 	verbose = 0 if args.verbose is None else args.verbose

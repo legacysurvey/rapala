@@ -76,9 +76,9 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 	if rename:
 		shutil.move(defPsfFile,psfFile)
 
-def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5):
+def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5,**kwargs):
 	w = wcs_from_header(hdr)
-	y,x = w.wcs_world2pix(ra,dec,0,ra_dec_order=True)
+	x,y = w.wcs_world2pix(ra,dec,0,ra_dec_order=True)
 	ii = np.where((x>edge_buf) & (y>edge_buf) & 
 	              (x<4096-edge_buf) & (y<4032-edge_buf))[0]
 	#bkg = sep.Background(image)
@@ -87,7 +87,8 @@ def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5):
 	ctserr = np.empty((nObj,nAper),dtype=np.float32)
 	flags = np.empty((nObj,nAper),dtype=np.int32)
 	for j,aper in enumerate(aperRad):
-		rv = sep.sum_circle(image,x[ii],y[ii],aper,mask=badPixMask,
+		# XXX why is mask crashing on bad type?
+		rv = sep.sum_circle(image,x[ii],y[ii],aper,#mask=badPixMask,
 		                    gain=1.0,bkgann=(25.,32.))
 		cts[:,j],ctserr[:,j],flags[:,j] = rv
 	return x[ii],y[ii],ii,cts,ctserr,flags
@@ -100,11 +101,13 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
 	fitsData = fitsio.FITS(imageFile)
 	for i,hdu in enumerate(fitsData[1:]):
 		im = hdu.read()
+		extn = hdu.get_extname()
 		if aHeadFile is None:
 			hdr = hdu.read_header()
 		else:
 			hdr = hdrs[i]
-		phot = aper_phot(im,hdr,ra,dec,aperRad,badPixMask,**kwargs)
+		mask = badPixMask[extn].read().astype(np.bool)
+		phot = aper_phot(im,hdr,ra,dec,aperRad,mask,**kwargs)
 		n = len(phot[0])
 		if n==0:
 			continue
@@ -114,6 +117,9 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
 		          names=('x','y','idx','counts','countsErr','flags','ccdNum'),
 		          dtype=('f4','f4','i4','f4','f4','i4','i4'))
 		tabs.append(t)
-	phot = vstack(tabs)
-	return phot
+	if len(tabs)==0:
+		return None
+	else:
+		phot = vstack(tabs)
+		return phot
 
