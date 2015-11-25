@@ -91,6 +91,8 @@ class FileMgr(object):
 			self._curUtDate = u
 			yield u
 		self._curUtDate = None
+	def getUtDirs(self):
+		return sorted(np.unique(self.obsDb['utDir']))
 	def setFilters(self,filt):
 		self.filt = filt
 	def getFilters(self):
@@ -603,11 +605,11 @@ def create_file_map(obsDb,rawDir,procDir,utds,bands,newfiles,
 	for d in [procDir,fileMap.getCalDir(),fileMap.getDiagDir()]:
 		if not os.path.exists(d):
 			os.mkdir(d)
-	for utd in fileMap.getUtDates():
-		utdir = os.path.join(fileMap.procDir,'ut'+utd)
+	for _utdir in fileMap.getUtDirs():
+		utdir = os.path.join(fileMap.procDir,_utdir)
 		if not os.path.exists(utdir): os.mkdir(utdir)
 		if tmpdirout:
-			utdir = os.path.join(fileMap._tmpDir,'ut'+utd)
+			utdir = os.path.join(fileMap._tmpDir,_utdir)
 			if not os.path.exists(utdir): os.mkdir(utdir)
 	fileMap.setScampRefCatDir(os.path.join(os.environ['BOK90PRIMEOUTDIR'],
 	                                       'scamp_refs'))
