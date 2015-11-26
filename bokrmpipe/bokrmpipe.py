@@ -548,23 +548,44 @@ def make_catalogs(file_map,inputType='sky',**kwargs):
 
 def aperture_phot(file_map,inputType='sky',**kwargs):
 	from astropy.table import Table,vstack
-	files = file_map.getFiles(imType='object')
-	bpMask = file_map('MasterBadPixMask4')
+	redo = kwargs.get('redo',False)
+	aperRad = np.concatenate([np.arange(2,9.51,1.5),[15.,22.5]])
 	sdss = fitsio.read(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
-	allPhot = []
-	for imFile in files:
-		imageFile = file_map(inputType)(imFile)
-		print 'processing ',imageFile
-		phot = bokphot.aper_phot_image(imageFile,sdss['ra'],sdss['dec'],
-		                               [7.5,15.0,22.5],bpMask,
-		                      aHeadFile=imageFile.replace('.fits','.ahead'),
-		                               **kwargs)
-		if phot is None:
-			print 'no apertures found!!!!'
-			continue
-		allPhot.append(phot)
-	allPhot = vstack(allPhot)
-	allPhot.write('phot.fits')
+	bpMask = file_map('MasterBadPixMask4')
+	catDir = os.path.join(file_map.procDir,'catalogs')
+	if not os.path.exists(catDir):
+		os.mkdir(catDir)
+	catPfx = 'bokrm_sdss'
+	for filt in file_map.iterFilters():
+		for utd in file_map.iterUtDates():
+			fn = '.'.join([catPfx,utd,filt,'cat','fits'])
+			catFile = os.path.join(catDir,fn)
+			if os.path.exists(catFile):
+				if redo:
+					os.unlink(catFile)
+				else:
+					print catFile,' already exists, skipping'
+					continue
+			files,frames = file_map.getFiles(imType='object',
+			                                 with_frames=True)
+			if files is None:
+				continue
+			allPhot = []
+			for imFile,frame in zip(files,frames):
+				imageFile = file_map(inputType)(imFile)
+				aHeadFile = imageFile.replace('.fits','.ahead')
+				print 'processing ',imageFile
+				phot = bokphot.aper_phot_image(imageFile,
+				                               sdss['ra'],sdss['dec'],
+				                               aperRad,bpMask,
+				                               aHeadFile=aHeadFile,**kwargs)
+				phot['frameNum'] = np.int32(frame)
+				if phot is None:
+					print 'no apertures found!!!!'
+					continue
+				allPhot.append(phot)
+			allPhot = vstack(allPhot)
+			allPhot.write(catFile)
 
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
