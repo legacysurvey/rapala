@@ -19,7 +19,7 @@ import bokillumcorr
 all_process_steps = ['oscan','bias2d','flat2d','bpmask',
                      'proc1','skyflat','proc2','wcs','cat']
 
-class RMFileNameMap(bokutil.FileNameMap):
+class RMFileNameMap(bokio.FileNameMap):
 	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
 		self.newSuffix = '' if newSuffix is None else newSuffix
 		self.fromRaw = fromRaw
@@ -316,7 +316,7 @@ def get_flat_map(file_map):
 	return flatMap
 
 def makeccd4image(file_map,inputFile,**kwargs):
-	ccd4map = bokutil.FileNameMap(file_map.getCalDir(),'_4ccd')
+	ccd4map = bokio.FileNameMap(file_map.getCalDir(),'_4ccd')
 	bokproc.combine_ccds([inputFile,],output_map=ccd4map,**kwargs)
 
 def overscan_subtract(file_map,**kwargs):
@@ -455,8 +455,8 @@ def make_supersky_flats(file_map,**kwargs):
 	caldir = file_map.getCalDir()
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=file_map('skymask'),
-	                    exposure_time_map=bokutil.FileNameMap(caldir,'.exp'),
-	                       raw_stack_file=bokutil.FileNameMap(caldir,'_raw'),
+	                    exposure_time_map=bokio.FileNameMap(caldir,'.exp'),
+	                       raw_stack_file=bokio.FileNameMap(caldir,'_raw'),
 	                                        header_bad_key='BADSKY')
 	skyFlatStack.set_badpixelmask(file_map('MasterBadPixMask4'))
 	for filt in file_map.iterFilters():
