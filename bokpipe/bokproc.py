@@ -12,6 +12,7 @@ from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
 import fitsio
 
+from .bokio import *
 from . import bokutil
 
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
@@ -46,6 +47,19 @@ saturation_dn = 65000
 configdir = os.environ['BOKPIPE']+'/config/'
 
 from scipy.interpolate import interp1d,interp2d
+
+class BokImArith(bokutil.BokProcess):
+	def __init__(self,op,operand,**kwargs):
+		super(BokImArith,self).__init__(**kwargs)
+		ops = {'+':np.add,'-':np.subtract,'*':np.multiply,'/':np.divide}
+		try:
+			self.op = ops[op]
+		except:
+			raise ValueError("operation %s not supported" % op)
+		self.operand = operand
+		self.operandFits = fitsio.FITS(self.operand)
+	def process_hdu(self,extName,data,hdr):
+		return self.op(data,self.operandFits[extName][:,:]),hdr
 
 def interpolate_masked_pixels(data,along='twod',method='linear'):
 	if along=='rows':
@@ -504,8 +518,8 @@ def _orient_mosaic(hdr,ims,ccdNum,origin):
 	return outIm,hdr
 
 def combine_ccds(fileList,**kwargs):
-	inputFileMap = kwargs.get('input_map',bokutil.IdentityNameMap)
-	outputFileMap = kwargs.get('output_map',bokutil.IdentityNameMap)
+	inputFileMap = kwargs.get('input_map',IdentityNameMap)
+	outputFileMap = kwargs.get('output_map',IdentityNameMap)
 	gainMap = kwargs.get('gain_map')
 	origin = kwargs.get('origin','center')
 	clobber = kwargs.get('clobber')
@@ -721,12 +735,12 @@ def grow_obj_mask(im,objsIm,**kwargs):
 
 def sextract_pass1(fileList,**kwargs):
 	clobber = kwargs.get('clobber',False)
-	inputNameMap = kwargs.get('input_map',bokutil.IdentityNameMap)
+	inputNameMap = kwargs.get('input_map',IdentityNameMap)
 	catalogFileNameMap = kwargs.get('catalog_map',
-	                                bokutil.FileNameMap(newSuffix='.cat1'))
+	                                FileNameMap(newSuffix='.cat1'))
 	withPsf = kwargs.get('with_psf',False)
 	objMaskFileMap = kwargs.get('object_mask_map',
-	                             bokutil.FileNameMap(newSuffix='.obj'))
+	                             FileNameMap(newSuffix='.obj'))
 	#bkgImgFileMap = FileNameMap(newSuffix='.back')
 	FNULL = open(os.devnull,'w')
 	for f in fileList:
