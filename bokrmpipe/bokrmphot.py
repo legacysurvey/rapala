@@ -88,6 +88,9 @@ def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 					m1,m2,s = srcor(xCat[ccd].data['ALPHA_J2000'],
 					                xCat[ccd].data['DELTA_J2000'],
 					                sdss['ra'][ref_ii],sdss['dec'][ref_ii],2.5)
+					if len(m1)==0:
+						print 'no catalog matches!!!'
+						continue
 					refMags = sdss[filt][ref_ii[m2]]
 					psfMags = xCat[ccd].data['MAG_PSF'][m1]
 					dMag = sigma_clip(refMags - psfMags)
