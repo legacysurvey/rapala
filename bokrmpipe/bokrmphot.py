@@ -70,6 +70,9 @@ def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 			for n,(f,i) in enumerate(zip(files,frames)):
 				expTime =  dataMap.obsDb['expTime'][i]
 				ii = np.where(aperCat['frameNum']==i)[0]
+				if len(ii)==0:
+					print 'no data for frame ',f
+					continue
 				xCat = fits.open(dataMap('cat')(f))
 				for ccd in range(1,5):
 					# first for the aperture photometry
