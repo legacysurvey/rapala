@@ -546,47 +546,6 @@ def make_catalogs(file_map,inputType='sky',**kwargs):
 		catFile = file_map('cat',output=True)(imFile)
 		bokphot.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
 
-def aperture_phot(file_map,inputType='sky',**kwargs):
-	from astropy.table import Table,vstack
-	redo = kwargs.get('redo',False)
-	aperRad = np.concatenate([np.arange(2,9.51,1.5),[15.,22.5]])
-	sdss = fitsio.read(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
-	bpMask = file_map('MasterBadPixMask4')
-	catDir = os.path.join(file_map.procDir,'catalogs')
-	if not os.path.exists(catDir):
-		os.mkdir(catDir)
-	catPfx = 'bokrm_sdss'
-	for filt in file_map.iterFilters():
-		for utd in file_map.iterUtDates():
-			fn = '.'.join([catPfx,utd,filt,'cat','fits'])
-			catFile = os.path.join(catDir,fn)
-			if os.path.exists(catFile):
-				if redo:
-					os.unlink(catFile)
-				else:
-					print catFile,' already exists, skipping'
-					continue
-			files,frames = file_map.getFiles(imType='object',
-			                                 with_frames=True)
-			if files is None:
-				continue
-			allPhot = []
-			for imFile,frame in zip(files,frames):
-				imageFile = file_map(inputType)(imFile)
-				aHeadFile = imageFile.replace('.fits','.ahead')
-				print 'processing ',imageFile
-				phot = bokphot.aper_phot_image(imageFile,
-				                               sdss['ra'],sdss['dec'],
-				                               aperRad,bpMask,
-				                               aHeadFile=aHeadFile,**kwargs)
-				phot['frameNum'] = np.int32(frame)
-				if phot is None:
-					print 'no apertures found!!!!'
-					continue
-				allPhot.append(phot)
-			allPhot = vstack(allPhot)
-			allPhot.write(catFile)
-
 def load_darksky_frames(filt):
 	darkSkyFrames = np.loadtxt(os.path.join('config',
 	                                        'bokrm_darksky_%s.txt'%filt),
@@ -744,8 +703,7 @@ def make_images(file_map,imtype='comb',msktype=None):
 		bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(ff))
 	plt.ion()
 
-if __name__=='__main__':
-	import sys
+def init_file_args():
 	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-b','--band',type=str,default=None,
@@ -756,26 +714,54 @@ if __name__=='__main__':
 	                help='file to process [default=all]')
 	parser.add_argument('--frames',type=str,default=None,
 	                help='frames to process (i1,i2) [default=all]')
-	parser.add_argument('-n','--newfiles',action='store_true',
-	                help='process to new files (not in-place)')
 	parser.add_argument('--obsdb',type=str,default=None,
 	                help='location of observations db')
 	parser.add_argument('-o','--output',type=str,default=None,
 	                help='output directory [default=$BOK90PRIMEOUTDIR]')
-	parser.add_argument('-p','--processes',type=int,default=1,
-	                help='number of processes to use [default=single]')
 	parser.add_argument('-r','--rawdir',type=str,default=None,
 	                help='raw data directory [default=$BOK90PRIMERAWDIR]')
 	parser.add_argument('-R','--redo',action='store_true',
 	                help='redo (overwrite existing files)')
-	parser.add_argument('-s','--steps',type=str,default=None,
-	                help='processing steps to execute [default=all]')
-	parser.add_argument('-S','--stepto',type=str,default=None,
-	                help='process until this step [default=last]')
 	parser.add_argument('-t','--imtype',type=str,default=None,
 	                help='specify image type to process')
 	parser.add_argument('-u','--utdate',type=str,default=None,
 	                help='UT date(s) to process [default=all]')
+	return parser
+
+def init_data_map(args):
+	if args.obsdb is None:
+		obsDb = Table.read(os.path.join('config','sdssrm-bok2014.fits'))
+	else:
+		obsDb = Table.read(args.obsdb)
+	if args.utdate is None:
+		utds = None
+	else:
+		utds = args.utdate.split(',')
+	# set up the data map
+	dataMap = create_file_map(obsDb,args.rawdir,args.output,
+	                          utds,args.band,args.newfiles,args.darkskyframes,
+	                          args.tmpdirin,args.tmpdirout)
+	if args.frames is not None:
+		dataMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
+	elif args.file is not None:
+		dataMap.setFile(args.file)
+	if args.imtype is not None:
+		dataMap.setImageType(args.imtype)
+	if args.caldir is not None:
+		dataMap.setCalDir(os.path.join(args.caldir,'cals'))
+		dataMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
+	return dataMap
+
+if __name__=='__main__':
+	parser = init_file_args()
+	parser.add_argument('-n','--newfiles',action='store_true',
+	                help='process to new files (not in-place)')
+	parser.add_argument('-p','--processes',type=int,default=1,
+	                help='number of processes to use [default=single]')
+	parser.add_argument('-s','--steps',type=str,default=None,
+	                help='processing steps to execute [default=all]')
+	parser.add_argument('-S','--stepto',type=str,default=None,
+	                help='process until this step [default=last]')
 	parser.add_argument('-v','--verbose',action='count',
 	                help='increase output verbosity')
 	parser.add_argument('--calccdims',action='store_true',
@@ -825,14 +811,7 @@ if __name__=='__main__':
 	parser.add_argument('--wcscheck',action='store_true',
 	                help='make astrometry diagnostic files')
 	args = parser.parse_args()
-	if args.obsdb is None:
-		obsDb = Table.read(os.path.join('config','sdssrm-bok2014.fits'))
-	else:
-		obsDb = Table.read(args.obsdb)
-	if args.utdate is None:
-		utds = None
-	else:
-		utds = args.utdate.split(',')
+	fileMap = init_data_map(args)
 	if args.steps is None:
 		if args.stepto is None:
 			steps = all_process_steps
@@ -845,19 +824,6 @@ if __name__=='__main__':
 	else:
 		steps = args.steps.split(',')
 	verbose = 0 if args.verbose is None else args.verbose
-	# set up the data map
-	fileMap = create_file_map(obsDb,args.rawdir,args.output,
-	                          utds,args.band,args.newfiles,args.darkskyframes,
-	                          args.tmpdirin,args.tmpdirout)
-	if args.frames is not None:
-		fileMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
-	elif args.file is not None:
-		fileMap.setFile(args.file)
-	if args.imtype is not None:
-		fileMap.setImageType(args.imtype)
-	if args.caldir is not None:
-		fileMap.setCalDir(os.path.join(args.caldir,'cals'))
-		fileMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
 	# convert command-line arguments into dictionary
 	opts = vars(args)
 	kwargs = { k : opts[k] for k in opts if opts[k] != None }
