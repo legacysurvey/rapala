@@ -9,18 +9,18 @@ from astropy.stats import sigma_clip
 import bokrmpipe
 from bokrmgnostic import srcor
 
-def aperture_phot(file_map,inputType='sky',**kwargs):
+def aperture_phot(dataMap,inputType='sky',**kwargs):
 	from astropy.table import Table,vstack
 	redo = kwargs.get('redo',False)
 	aperRad = np.concatenate([np.arange(2,9.51,1.5),[15.,22.5]])
 	sdss = fitsio.read(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
-	bpMask = file_map('MasterBadPixMask4')
-	catDir = os.path.join(file_map.procDir,'catalogs')
+	bpMask = dataMap('MasterBadPixMask4')
+	catDir = os.path.join(dataMap.procDir,'catalogs')
 	if not os.path.exists(catDir):
 		os.mkdir(catDir)
 	catPfx = 'bokrm_sdss'
-	for filt in file_map.iterFilters():
-		for utd in file_map.iterUtDates():
+	for filt in dataMap.iterFilters():
+		for utd in dataMap.iterUtDates():
 			fn = '.'.join([catPfx,utd,filt,'cat','fits'])
 			catFile = os.path.join(catDir,fn)
 			if os.path.exists(catFile):
@@ -29,13 +29,13 @@ def aperture_phot(file_map,inputType='sky',**kwargs):
 				else:
 					print catFile,' already exists, skipping'
 					continue
-			files,frames = file_map.getFiles(imType='object',
-			                                 with_frames=True)
+			files,frames = dataMap.getFiles(imType='object',
+			                                with_frames=True)
 			if files is None:
 				continue
 			allPhot = []
 			for imFile,frame in zip(files,frames):
-				imageFile = file_map(inputType)(imFile)
+				imageFile = dataMap(inputType)(imFile)
 				aHeadFile = imageFile.replace('.fits','.ahead')
 				print 'processing ',imageFile
 				phot = bokphot.aper_phot_image(imageFile,
@@ -50,7 +50,7 @@ def aperture_phot(file_map,inputType='sky',**kwargs):
 			allPhot = vstack(allPhot)
 			allPhot.write(catFile)
 
-def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
+def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 	pfx = 'bokrm_sdss'
 	aperCatDir = os.path.join(dataMap.procDir,'catalogs')
 	sdss = fits.getdata(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
@@ -65,6 +65,8 @@ def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 			if files is None:
 				continue
 			aperCat = fits.getdata(os.path.join(aperCatDir,aperCatFn))
+			nAper = aperCat['counts'].shape[-1]
+			aperCorrs = np.zeros((len(frames),nAper,4),dtype=np.float32)
 			aperZps = np.zeros((len(frames),4),dtype=np.float32)
 			psfZps = np.zeros_like(aperZps)
 			for n,(f,i) in enumerate(zip(files,frames)):
@@ -78,6 +80,7 @@ def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 					# first for the aperture photometry
 					c = np.where(aperCat['ccdNum'][ii]==ccd)[0]
 					mask = ( (aperCat['counts'][ii[c],aperNum]<=0) |
+					         (aperCat['flags'][ii[c],aperNum]>0) |
 					         ~is_mag[aperCat['idx'][ii[c]]] )
 					counts = np.ma.masked_array(
 					            aperCat['counts'][ii[c],aperNum],mask=mask)
@@ -101,16 +104,32 @@ def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 					# have to convert from the sextractor zeropoint
 					zp += 25.0 - 2.5*np.log10(expTime)
 					psfZps[n,ccd-1] = zp
-			tab = Table([np.repeat(utd,len(frames)),frames,aperZps,psfZps],
-			            names=('utDate','frameNum','aperZp','psfZp'),
-			            dtype=('S8','i4','f4','f4'))
+					# now aperture corrections
+					mask = ( (aperCat['counts'][ii[c]]<=0) |
+					         (aperCat['flags'][ii[c]]>0) |
+					         ~is_mag[aperCat['idx'][ii[c]]][:,np.newaxis] )
+					counts = np.ma.masked_array(
+					            aperCat['counts'][ii[c]],mask=mask)
+					refMags = sdss[filt][aperCat['idx'][ii[c]]]
+					fratio = counts / counts[:,-1][:,np.newaxis]
+					fratio = np.ma.masked_outside(fratio,0,1.5)
+					fratio = sigma_clip(fratio,axis=0)
+					aperCorrs[n,:,ccd-1] = (1/fratio).mean(axis=0).filled(0)
+			aperCorrs = np.clip(aperCorrs,0,1)
+			tab = Table([np.repeat(utd,len(frames)),frames,
+			             aperZps,psfZps,aperCorrs],
+			            names=('utDate','frameNum',
+			                   'aperZp','psfZp','aperCorr'),
+			            dtype=('S8','i4','f4','f4','f4'))
 			allTabs.append(tab)
 		tab = vstack(allTabs)
-		tab.write('zeropoints_%s.fits'%filt)
+		tab.write('zeropoints_%s.fits'%filt,overwrite=True)
 
 if __name__=='__main__':
 	parser = bokrmpipe.init_file_args()
-	parser.add_argument('-z','--zeropoint',action='store_true',
+	parser.add_argument('--aperphot',action='store_true',
+	                help='generate aperture photometry catalogs')
+	parser.add_argument('--zeropoint',action='store_true',
 	                help='do zero point calculation')
 	# XXX for now
 	parser.add_argument('-n','--newfiles',action='store_true',
@@ -123,6 +142,8 @@ if __name__=='__main__':
 	                help='write files to temporary directory')
 	args = parser.parse_args()
 	dataMap = bokrmpipe.init_data_map(args)
-	if args.zeropoint:
-		calc_zero_points(dataMap)
+	if args.aperphot:
+		aperture_phot(dataMap)
+	elif args.zeropoint:
+		zero_points(dataMap)
 
