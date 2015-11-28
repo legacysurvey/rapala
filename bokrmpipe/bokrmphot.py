@@ -61,10 +61,10 @@ def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 		for utd in dataMap.iterUtDates():
 			print 'calculating zero points for ',utd
 			aperCatFn = '.'.join([pfx,utd,filt,'cat','fits'])
-			aperCat = fits.getdata(os.path.join(aperCatDir,aperCatFn))
 			files,frames = dataMap.getFiles('object',with_frames=True)
 			if files is None:
 				continue
+			aperCat = fits.getdata(os.path.join(aperCatDir,aperCatFn))
 			aperZps = np.zeros((len(frames),4),dtype=np.float32)
 			psfZps = np.zeros_like(aperZps)
 			for n,(f,i) in enumerate(zip(files,frames)):
@@ -89,7 +89,7 @@ def calc_zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 					                xCat[ccd].data['DELTA_J2000'],
 					                sdss['ra'][ref_ii],sdss['dec'][ref_ii],2.5)
 					if len(m1)==0:
-						print 'no catalog matches!!!'
+						print f,' has no catalog matches!!!'
 						continue
 					refMags = sdss[filt][ref_ii[m2]]
 					psfMags = xCat[ccd].data['MAG_PSF'][m1]
