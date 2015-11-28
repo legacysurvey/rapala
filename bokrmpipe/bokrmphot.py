@@ -125,10 +125,28 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 		tab = vstack(allTabs)
 		tab.write('zeropoints_%s.fits'%filt,overwrite=True)
 
+def construct_lightcurves(dataMap):
+	pfx = 'bokrm_sdss'
+	aperCatDir = os.path.join(dataMap.procDir,'catalogs')
+	for filt in dataMap.iterFilters():
+		allTabs = []
+		for utd in dataMap.iterUtDates():
+			aperCatFn = '.'.join([pfx,utd,filt,'cat','fits'])
+			aperCatF = os.path.join(aperCatDir,aperCatFn)
+			if os.path.exists(aperCatF):
+				tab = Table.read(aperCatF)
+				allTabs.append(tab)
+		tab = vstack(allTabs)
+		# XXX need to convert frameNum to MJD
+		tab.sort(['idx','frameNum'])
+		tab.write('lightcurves_%s.fits'%filt,overwrite=True)
+
 if __name__=='__main__':
 	parser = bokrmpipe.init_file_args()
 	parser.add_argument('--aperphot',action='store_true',
 	                help='generate aperture photometry catalogs')
+	parser.add_argument('--lightcurves',action='store_true',
+	                help='construct lightcurves')
 	parser.add_argument('--zeropoint',action='store_true',
 	                help='do zero point calculation')
 	# XXX for now
@@ -144,6 +162,8 @@ if __name__=='__main__':
 	dataMap = bokrmpipe.init_data_map(args)
 	if args.aperphot:
 		aperture_phot(dataMap)
+	elif args.lightcurves:
+		construct_lightcurves(dataMap)
 	elif args.zeropoint:
 		zero_points(dataMap)
 
