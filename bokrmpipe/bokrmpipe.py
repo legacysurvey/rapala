@@ -548,6 +548,7 @@ def make_catalogs(file_map,inputType='sky',**kwargs):
 
 def aperture_phot(file_map,inputType='sky',**kwargs):
 	from astropy.table import Table,vstack
+	from astropy.wcs import InconsistentAxisTypesError
 	redo = kwargs.get('redo',False)
 	aperRad = np.concatenate([np.arange(2,9.51,1.5),[15.,22.5]])
 	sdss = fitsio.read(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
@@ -575,10 +576,15 @@ def aperture_phot(file_map,inputType='sky',**kwargs):
 				imageFile = file_map(inputType)(imFile)
 				aHeadFile = imageFile.replace('.fits','.ahead')
 				print 'processing ',imageFile
-				phot = bokphot.aper_phot_image(imageFile,
-				                               sdss['ra'],sdss['dec'],
-				                               aperRad,bpMask,
-				                               aHeadFile=aHeadFile,**kwargs)
+				try:
+					phot = bokphot.aper_phot_image(imageFile,
+					                               sdss['ra'],sdss['dec'],
+					                               aperRad,bpMask,
+					                               aHeadFile=aHeadFile,
+					                               **kwargs)
+				except InconsistentAxisTypesError:
+					print 'WCS FAILED!!!!'
+					continue
 				phot['frameNum'] = np.int32(frame)
 				if phot is None:
 					print 'no apertures found!!!!'
