@@ -125,6 +125,10 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 		tab = vstack(allTabs)
 		tab.write('zeropoints_%s.fits'%filt,overwrite=True)
 
+def match_to(ids1,ids2):
+	idx = { j:i for i,j in enumerate(ids2) }
+	return np.array([idx[i] for i in ids1])
+
 def construct_lightcurves(dataMap):
 	pfx = 'bokrm_sdss'
 	aperCatDir = os.path.join(dataMap.procDir,'catalogs')
@@ -137,8 +141,28 @@ def construct_lightcurves(dataMap):
 				tab = Table.read(aperCatF)
 				allTabs.append(tab)
 		tab = vstack(allTabs)
-		# XXX need to convert frameNum to MJD
 		tab.sort(['idx','frameNum'])
+		apDat = Table.read('zeropoints_%s.fits'%filt)
+		ii = match_to(tab['frameNum'],apDat['frameNum'])
+		nAper = tab['counts'].shape[-1]
+		apCorr = np.zeros((len(ii),nAper),dtype=np.float32)
+		# cannot for the life of me figure out how to do this with indexing
+		for apNum in range(nAper):
+			apCorr[np.arange(len(ii)),apNum] = \
+			            apDat['aperCorr'][ii,apNum,tab['ccdNum']-1]
+		zp = apDat['aperZp'][ii]
+		zp = zp[np.arange(len(ii)),tab['ccdNum']-1][:,np.newaxis]
+		magAB = zp - 2.5*np.ma.log10(np.ma.masked_array(tab['counts']*apCorr,
+		                                           mask=tab['counts']<=0))
+		tab['aperMag'] = magAB.filled(99.99)
+		tab['aperMagErr'] = 1.0856*tab['countsErr']/tab['counts']
+		# convert AB mag to nanomaggie
+		fluxConv = 10**(-0.4*(zp-22.5))
+		tab['aperFlux'] = tab['counts'] * apCorr * fluxConv
+		tab['aperFluxErr'] = tab['countsErr'] * apCorr * fluxConv
+		ii = match_to(tab['frameNum'],dataMap.obsDb['frameIndex'])
+		tab['airmass'] = dataMap.obsDb['airmass'][ii]
+		tab['mjd'] = dataMap.obsDb['mjd'][ii]
 		tab.write('lightcurves_%s.fits'%filt,overwrite=True)
 
 if __name__=='__main__':
