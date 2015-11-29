@@ -6,6 +6,7 @@ from astropy.io import fits
 from astropy.table import Table,vstack
 from astropy.stats import sigma_clip
 
+from bokpipe import bokphot
 import bokrmpipe
 from bokrmgnostic import srcor
 
@@ -13,7 +14,7 @@ def aperture_phot(dataMap,inputType='sky',**kwargs):
 	from astropy.table import Table,vstack
 	redo = kwargs.get('redo',False)
 	aperRad = np.concatenate([np.arange(2,9.51,1.5),[15.,22.5]])
-	sdss = fitsio.read(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
+	sdss = fits.getdata(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
 	bpMask = dataMap('MasterBadPixMask4')
 	catDir = os.path.join(dataMap.procDir,'catalogs')
 	if not os.path.exists(catDir):
@@ -42,7 +43,7 @@ def aperture_phot(dataMap,inputType='sky',**kwargs):
 				                               sdss['ra'],sdss['dec'],
 				                               aperRad,bpMask,
 				                               aHeadFile=aHeadFile,**kwargs)
-				phot['frameNum'] = np.int32(frame)
+				phot['frameNum'] = dataMap.obsDb['frameIndex'][frame]
 				if phot is None:
 					print 'no apertures found!!!!'
 					continue
@@ -141,6 +142,8 @@ def construct_lightcurves(dataMap):
 				tab = Table.read(aperCatF)
 				allTabs.append(tab)
 		tab = vstack(allTabs)
+		print 'stacked aperture phot catalogs into table with ',
+		print len(tab),' rows'
 		tab.sort(['idx','frameNum'])
 		apDat = Table.read('zeropoints_%s.fits'%filt)
 		ii = match_to(tab['frameNum'],apDat['frameNum'])
