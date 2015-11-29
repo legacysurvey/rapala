@@ -52,10 +52,9 @@ def aperture_phot(dataMap,inputType='sky',**kwargs):
 			allPhot.write(catFile)
 
 # XXX should have this in single location with better chunking
-def aperphot_poormp(dataMap,**kwargs):
+def aperphot_poormp(dataMap,nProc,**kwargs):
 	from copy import copy
 	import multiprocessing
-	nProc = kwargs.get('processes',1)
 	def chunks(l, n):
 		nstep = int(round(len(l)/float(n)))
 		for i in xrange(0, len(l), nstep):
@@ -212,7 +211,7 @@ if __name__=='__main__':
 		if args.processes == 1:
 			aperture_phot(dataMap)
 		else:
-			aperphot_poormp(dataMap)
+			aperphot_poormp(dataMap,args.processes)
 	elif args.lightcurves:
 		construct_lightcurves(dataMap)
 	elif args.zeropoint:
