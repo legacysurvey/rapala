@@ -51,6 +51,25 @@ def aperture_phot(dataMap,inputType='sky',**kwargs):
 			allPhot = vstack(allPhot)
 			allPhot.write(catFile)
 
+# XXX should have this in single location with better chunking
+def aperphot_poormp(dataMap,**kwargs):
+	from copy import copy
+	import multiprocessing
+	nProc = kwargs.get('processes',1)
+	def chunks(l, n):
+		nstep = int(round(len(l)/float(n)))
+		for i in xrange(0, len(l), nstep):
+			yield l[i:i+nstep]
+	utdSets = chunks(dataMap.getUtDates(),nProc)
+	jobs = []
+	for i,utds in enumerate(utdSets):
+		dmap = copy(dataMap)
+		dmap.setUtDates(utds)
+		p = multiprocessing.Process(target=aperture_phot,
+		                            args=(dmap,),kwargs=kwargs)
+		jobs.append(p)
+		p.start()
+
 def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 	pfx = 'bokrm_sdss'
 	aperCatDir = os.path.join(dataMap.procDir,'catalogs')
@@ -176,6 +195,8 @@ if __name__=='__main__':
 	                help='construct lightcurves')
 	parser.add_argument('--zeropoint',action='store_true',
 	                help='do zero point calculation')
+	parser.add_argument('-p','--processes',type=int,default=1,
+	                help='number of processes to use [default=single]')
 	# XXX for now
 	parser.add_argument('-n','--newfiles',action='store_true',
 	                help='process to new files (not in-place)')
@@ -188,7 +209,10 @@ if __name__=='__main__':
 	args = parser.parse_args()
 	dataMap = bokrmpipe.init_data_map(args)
 	if args.aperphot:
-		aperture_phot(dataMap)
+		if args.processes == 1:
+			aperture_phot(dataMap)
+		else:
+			aperphot_poormp(dataMap)
 	elif args.lightcurves:
 		construct_lightcurves(dataMap)
 	elif args.zeropoint:
