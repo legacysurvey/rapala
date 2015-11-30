@@ -10,12 +10,11 @@ from bokpipe import bokphot
 import bokrmpipe
 from bokrmgnostic import srcor
 
-def aperture_phot(dataMap,inputType='sky',**kwargs):
+def aperture_phot(dataMap,refCat,inputType='sky',**kwargs):
 	from astropy.table import Table,vstack
 	from astropy.wcs import InconsistentAxisTypesError
 	redo = kwargs.get('redo',False)
 	aperRad = np.concatenate([np.arange(2,9.51,1.5),[15.,22.5]])
-	sdss = fits.getdata(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
 	bpMask = dataMap('MasterBadPixMask4')
 	catDir = os.path.join(dataMap.procDir,'catalogs')
 	if not os.path.exists(catDir):
@@ -42,7 +41,7 @@ def aperture_phot(dataMap,inputType='sky',**kwargs):
 				print 'aperture photometering ',imageFile
 				try:
 					phot = bokphot.aper_phot_image(imageFile,
-					                               sdss['ra'],sdss['dec'],
+					                               refCat['ra'],refCat['dec'],
 					                               aperRad,bpMask,
 					                               aHeadFile=aHeadFile,
 					                               **kwargs)
@@ -58,7 +57,7 @@ def aperture_phot(dataMap,inputType='sky',**kwargs):
 			allPhot.write(catFile)
 
 # XXX should have this in single location with better chunking
-def aperphot_poormp(dataMap,nProc,**kwargs):
+def aperphot_poormp(dataMap,refCat,nProc,**kwargs):
 	from copy import copy
 	import multiprocessing
 	def chunks(l, n):
@@ -71,7 +70,7 @@ def aperphot_poormp(dataMap,nProc,**kwargs):
 		dmap = copy(dataMap)
 		dmap.setUtDates(utds)
 		p = multiprocessing.Process(target=aperture_phot,
-		                            args=(dmap,),kwargs=kwargs)
+		                            args=(dmap,refCat),kwargs=kwargs)
 		jobs.append(p)
 		p.start()
 
@@ -230,7 +229,11 @@ def phot_stats(lcs,refPhot):
 	apNum = 3
 	if len(lcs.groups)==1:
 		lcs = lcs.group_by('idx')
-	for mag1,mag2 in [(16.9,17.1),(17.9,18.1),(18.9,19.1),(19.9,20.1)]:
+	medges = np.arange(16.9,19.11,0.2)
+	mbins = medges[:-1] + np.diff(medges)/2
+	all_dmag = []
+	all_stds = []
+	for mag1,mag2 in zip(medges[:-1],medges[1:]):
 		ref_ii = np.where((refPhot[band]>mag1)&(refPhot[band]<mag2))[0]
 		jj = np.where(np.in1d(lcs.groups.keys['idx'],ref_ii))[0]
 		print 'found ',len(jj),' ref objs out of ',len(ref_ii)
@@ -247,11 +250,40 @@ def phot_stats(lcs,refPhot):
 			stds.append((mags-mags.mean()).std())
 		dmag = np.concatenate(dmag)
 		stds = np.array(stds)
-		print mag1,mag2,dmag.std(),scoreatpercentile(dmag,5),scoreatpercentile(dmag,95)
-		print '  ',np.median(stds),scoreatpercentile(stds,25),scoreatpercentile(stds,75)
+		print mag1,mag2,dmag.std(),np.median(stds)
+		all_dmag.append(dmag)
+		all_stds.append([scoreatpercentile(stds,_p) for _p in [25,50,75]])
+	all_stds = np.array(all_stds)
+	return all_dmag,all_stds
+
+def plot_compare_stds(stds,stds_old):
+	import matplotlib.pyplot as plt
+	medges = np.arange(16.9,19.11,0.2)
+	mbins = medges[:-1] + np.diff(medges)/2
+	def _append_arr(arr):
+		return arr
+		# used this for drawstyle=steps-post, but no equiv. for fill_between
+		#return np.concatenate([arr,[arr[-1]]])
+	plt.figure()
+	for s,c in zip([stds_old,stds],'gb'):
+		plt.fill_between(mbins,_append_arr(s[:,0]),_append_arr(s[:,2]),
+		                 edgecolor='none',color=c,alpha=0.5)
+		plt.plot(mbins,_append_arr(s[:,1]),color=c,lw=1.5)
+
+def load_catalog(catName):
+	dataDir = os.path.join(os.environ['SDSSRMDIR'],'data')
+	if catName == 'sdssrm':
+		cat = fits.getdata(os.path.join(dataDir,'target_fibermap.fits'),1)
+	elif catName == 'sdss':
+		cat = fits.getdata(os.path.join(dataDir,'sdss.fits'),1)
+	elif catName == 'cfht':
+		cat = fits.getdata(os.path.join(dataDir,'CFHTLSW3_starcat.fits'),1)
+	return cat
 
 if __name__=='__main__':
 	parser = bokrmpipe.init_file_args()
+	parser.add_argument('--catalog',type=str,default='sdssrm',
+	                help='reference catalog ([sdssrm]|sdss|cfht)')
 	parser.add_argument('--aperphot',action='store_true',
 	                help='generate aperture photometry catalogs')
 	parser.add_argument('--lightcurves',action='store_true',
@@ -272,10 +304,11 @@ if __name__=='__main__':
 	args = parser.parse_args()
 	dataMap = bokrmpipe.init_data_map(args)
 	if args.aperphot:
+		refCat = load_catalog(args.catalog)
 		if args.processes == 1:
-			aperture_phot(dataMap)
+			aperture_phot(dataMap,refCat)
 		else:
-			aperphot_poormp(dataMap,args.processes)
+			aperphot_poormp(dataMap,refCat,args.processes)
 	elif args.lightcurves:
 		construct_lightcurves(dataMap,old=True)
 	elif args.zeropoint:
