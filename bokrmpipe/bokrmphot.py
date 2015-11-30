@@ -171,6 +171,8 @@ def construct_lightcurves(dataMap):
 		print 'stacked aperture phot catalogs into table with ',
 		print len(tab),' rows'
 		tab.sort(['idx','frameNum'])
+		ii = match_to(tab['frameNum'],dataMap.obsDb['frameIndex'])
+		expTime = dataMap.obsDb['expTime'][ii][:,np.newaxis]
 		apDat = Table.read('zeropoints_%s.fits'%filt)
 		ii = match_to(tab['frameNum'],apDat['frameNum'])
 		nAper = tab['counts'].shape[-1]
@@ -181,14 +183,15 @@ def construct_lightcurves(dataMap):
 			            apDat['aperCorr'][ii,apNum,tab['ccdNum']-1]
 		zp = apDat['aperZp'][ii]
 		zp = zp[np.arange(len(ii)),tab['ccdNum']-1][:,np.newaxis]
-		magAB = zp - 2.5*np.ma.log10(np.ma.masked_array(tab['counts']*apCorr,
+		corrCps = tab['counts'] * apCorr / expTime
+		magAB = zp - 2.5*np.ma.log10(np.ma.masked_array(corrCps,
 		                                           mask=tab['counts']<=0))
 		tab['aperMag'] = magAB.filled(99.99)
 		tab['aperMagErr'] = 1.0856*tab['countsErr']/tab['counts']
 		# convert AB mag to nanomaggie
 		fluxConv = 10**(-0.4*(zp-22.5))
-		tab['aperFlux'] = tab['counts'] * apCorr * fluxConv
-		tab['aperFluxErr'] = tab['countsErr'] * apCorr * fluxConv
+		tab['aperFlux'] = corrCps * fluxConv
+		tab['aperFluxErr'] = (tab['countsErr']/expTime) * apCorr * fluxConv
 		ii = match_to(tab['frameNum'],dataMap.obsDb['frameIndex'])
 		tab['airmass'] = dataMap.obsDb['airmass'][ii]
 		tab['mjd'] = dataMap.obsDb['mjd'][ii]
