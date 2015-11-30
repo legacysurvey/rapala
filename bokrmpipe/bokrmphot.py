@@ -156,8 +156,27 @@ def match_to(ids1,ids2):
 	idx = { j:i for i,j in enumerate(ids2) }
 	return np.array([idx[i] for i in ids1])
 
-def construct_lightcurves(dataMap):
-	pfx = 'bokrm_sdss'
+def _read_old_catf(obsDb,catf):
+	dat1 = fits.getdata(catf,1)
+	dat2 = fits.getdata(catf,2)
+	idx = np.zeros(len(dat1),dtype=np.int32)
+	for i,i1,i2 in zip(dat2['TINDEX'],dat2['i1'],dat2['i2']):
+		idx[i1:i2] = i
+	fns = [ f[:f.find('_ccd')] for f in dat1['fileName'] ]
+	ii = match_to(fns,obsDb['fileName'])
+	frameNum = obsDb['frameIndex'][ii]
+	t = Table([dat1['x'],dat1['y'],idx,
+	           dat1['aperCounts'],dat1['aperCountsErr'],dat1['flags'],
+	           dat1['ccdNum'],frameNum],
+	          names=('x','y','idx','counts','countsErr','flags',
+	                 'ccdNum','frameNum'))
+	return t
+
+def construct_lightcurves(dataMap,old=False):
+	if old:
+		pfx = 'bokrm_sdss'
+	else:
+		pfx = 'sdssbright'
 	aperCatDir = os.path.join(dataMap.procDir,'catalogs')
 	for filt in dataMap.iterFilters():
 		allTabs = []
@@ -165,7 +184,10 @@ def construct_lightcurves(dataMap):
 			aperCatFn = '.'.join([pfx,utd,filt,'cat','fits'])
 			aperCatF = os.path.join(aperCatDir,aperCatFn)
 			if os.path.exists(aperCatF):
-				tab = Table.read(aperCatF)
+				if old:
+					tab = _read_old_catf(dataMap.obsDb,aperCatF)
+				else:
+					tab = Table.read(aperCatF)
 				allTabs.append(tab)
 		tab = vstack(allTabs)
 		print 'stacked aperture phot catalogs into table with ',
@@ -195,7 +217,36 @@ def construct_lightcurves(dataMap):
 		ii = match_to(tab['frameNum'],dataMap.obsDb['frameIndex'])
 		tab['airmass'] = dataMap.obsDb['airmass'][ii]
 		tab['mjd'] = dataMap.obsDb['mjd'][ii]
-		tab.write('lightcurves_%s.fits'%filt,overwrite=True)
+		if old:
+			tab.write('lightcurves_%s_old.fits'%filt,overwrite=True)
+		else:
+			tab.write('lightcurves_%s.fits'%filt,overwrite=True)
+
+def phot_stats(lcs,refPhot):
+	from scipy.stats import scoreatpercentile
+	band = 'g'
+	apNum = 3
+	if len(lcs.groups)==1:
+		lcs = lcs.group_by('idx')
+	for mag1,mag2 in [(16.9,17.1),(17.9,18.1),(18.9,19.1),(19.9,20.1)]:
+		ref_ii = np.where((refPhot[band]>mag1)&(refPhot[band]<mag2))[0]
+		jj = np.where(np.in1d(lcs.groups.keys['idx'],ref_ii))[0]
+		print 'found ',len(jj),' ref objs out of ',len(ref_ii)
+		dmag = []
+		stds = []
+		for j in jj:
+			mags = np.ma.masked_array(lcs.groups[j]['aperMag'][:,apNum],
+			              mask=( (lcs.groups[j]['flags'][:,apNum]>0) |
+			                     (lcs.groups[j]['aperMag'][:,apNum]>99) ) )
+			if mags.mask.all():
+				continue
+			mags = sigma_clip(mags,iters=1,sigma=5.0)
+			dmag.append((mags-mags.mean()).compressed())
+			stds.append((mags-mags.mean()).std())
+		dmag = np.concatenate(dmag)
+		stds = np.array(stds)
+		print mag1,mag2,dmag.std(),scoreatpercentile(dmag,5),scoreatpercentile(dmag,95)
+		print '  ',np.median(stds),scoreatpercentile(stds,25),scoreatpercentile(stds,75)
 
 if __name__=='__main__':
 	parser = bokrmpipe.init_file_args()
