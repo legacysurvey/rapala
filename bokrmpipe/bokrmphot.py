@@ -142,7 +142,8 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 					fratio = sigma_clip(fratio,axis=0)
 					aperCorrs[n,:,ccd-1] = (1/fratio).mean(axis=0).filled(0)
 			aperCorrs = np.clip(aperCorrs,1,np.inf)
-			tab = Table([np.repeat(utd,len(frames)),frames,
+			tab = Table([np.repeat(utd,len(frames)),
+			             dataMap.obsDb['frameIndex'][frames],
 			             aperZps,psfZps,aperCorrs],
 			            names=('utDate','frameNum',
 			                   'aperZp','psfZp','aperCorr'),
