@@ -12,6 +12,7 @@ from bokrmgnostic import srcor
 
 def aperture_phot(dataMap,inputType='sky',**kwargs):
 	from astropy.table import Table,vstack
+	from astropy.wcs import InconsistentAxisTypesError
 	redo = kwargs.get('redo',False)
 	aperRad = np.concatenate([np.arange(2,9.51,1.5),[15.,22.5]])
 	sdss = fits.getdata(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
@@ -38,11 +39,16 @@ def aperture_phot(dataMap,inputType='sky',**kwargs):
 			for imFile,frame in zip(files,frames):
 				imageFile = dataMap(inputType)(imFile)
 				aHeadFile = imageFile.replace('.fits','.ahead')
-				print 'processing ',imageFile
-				phot = bokphot.aper_phot_image(imageFile,
-				                               sdss['ra'],sdss['dec'],
-				                               aperRad,bpMask,
-				                               aHeadFile=aHeadFile,**kwargs)
+				print 'aperture photometering ',imageFile
+				try:
+					phot = bokphot.aper_phot_image(imageFile,
+					                               sdss['ra'],sdss['dec'],
+					                               aperRad,bpMask,
+					                               aHeadFile=aHeadFile,
+					                               **kwargs)
+				except InconsistentAxisTypesError:
+					print 'WCS FAILED!!!'
+					continue
 				phot['frameNum'] = dataMap.obsDb['frameIndex'][frame]
 				if phot is None:
 					print 'no apertures found!!!!'
