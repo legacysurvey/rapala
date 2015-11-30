@@ -96,7 +96,8 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 			psfZps = np.zeros_like(aperZps)
 			for n,(f,i) in enumerate(zip(files,frames)):
 				expTime =  dataMap.obsDb['expTime'][i]
-				ii = np.where(aperCat['frameNum']==i)[0]
+				frameNum =  dataMap.obsDb['frameIndex'][i]
+				ii = np.where(aperCat['frameNum']==frameNum)[0]
 				if len(ii)==0:
 					print 'no data for frame ',f
 					continue
