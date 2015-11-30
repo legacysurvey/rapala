@@ -170,13 +170,15 @@ def _read_old_catf(obsDb,catf):
 	                 'ccdNum','frameId'))
 	return t
 
-def construct_lightcurves(dataMap,old=False):
+def construct_lightcurves(dataMap,refCat,old=False):
 	if old:
-		pfx = 'sdssbright'
+		pfx = {'sdss':'sdssbright'}[refCat['filePrefix']]
 		aperCatDir = os.environ['HOME']+'/data/projects/SDSS-RM/rmreduce/catalogs_v2b/'
+		lcFn = lambda filt: 'lightcurves_%s_%s_old.fits' % (pfx,filt)
 	else:
-		pfx = 'bokrm_sdss'
+		pfx = refCat['filePrefix']
 		aperCatDir = os.path.join(dataMap.procDir,'catalogs')
+		lcFn = lambda filt: 'lightcurves_%s_%s.fits' % (pfx,filt)
 	for filt in dataMap.iterFilters():
 		allTabs = []
 		for utd in dataMap.iterUtDates():
@@ -216,10 +218,7 @@ def construct_lightcurves(dataMap,old=False):
 		ii = match_to(tab['frameId'],dataMap.obsDb['frameIndex'])
 		tab['airmass'] = dataMap.obsDb['airmass'][ii]
 		tab['mjd'] = dataMap.obsDb['mjd'][ii]
-		if old:
-			tab.write('lightcurves_%s_old.fits'%filt,overwrite=True)
-		else:
-			tab.write('lightcurves_%s.fits'%filt,overwrite=True)
+		tab.write(lcFn(filt),overwrite=True)
 
 def phot_stats(lcs,refPhot):
 	from scipy.stats import scoreatpercentile
@@ -306,14 +305,14 @@ if __name__=='__main__':
 	                help='write files to temporary directory')
 	args = parser.parse_args()
 	dataMap = bokrmpipe.init_data_map(args)
+	refCat = load_catalog(args.catalog)
 	if args.aperphot:
-		refCat = load_catalog(args.catalog)
 		if args.processes == 1:
 			aperture_phot(dataMap,refCat,redo=args.redo)
 		else:
 			aperphot_poormp(dataMap,refCat,args.processes,redo=args.redo)
 	elif args.lightcurves:
-		construct_lightcurves(dataMap,old=args.old)
+		construct_lightcurves(dataMap,refCat,old=args.old)
 	elif args.zeropoint:
 		zero_points(dataMap)
 
