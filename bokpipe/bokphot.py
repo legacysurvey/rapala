@@ -126,8 +126,8 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
 		# add ccd number
 		phot += (np.repeat(i+1,n),)
 		t = Table(phot,
-		          names=('x','y','idx','counts','countsErr','flags','ccdNum'),
-		          dtype=('f4','f4','i4','f4','f4','i4','i4'))
+		        names=('x','y','objId','counts','countsErr','flags','ccdNum'),
+		        dtype=('f4','f4','i4','f4','f4','i4','i4'))
 		tabs.append(t)
 	if len(tabs)==0:
 		return None

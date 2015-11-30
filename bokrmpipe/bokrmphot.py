@@ -48,7 +48,7 @@ def aperture_phot(dataMap,refCat,inputType='sky',**kwargs):
 				except InconsistentAxisTypesError:
 					print 'WCS FAILED!!!'
 					continue
-				phot['frameNum'] = dataMap.obsDb['frameIndex'][frame]
+				phot['frameId'] = dataMap.obsDb['frameIndex'][frame]
 				if phot is None:
 					print 'no apertures found!!!!'
 					continue
@@ -95,8 +95,8 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 			psfZps = np.zeros_like(aperZps)
 			for n,(f,i) in enumerate(zip(files,frames)):
 				expTime =  dataMap.obsDb['expTime'][i]
-				frameNum =  dataMap.obsDb['frameIndex'][i]
-				ii = np.where(aperCat['frameNum']==frameNum)[0]
+				frameId =  dataMap.obsDb['frameIndex'][i]
+				ii = np.where(aperCat['frameId']==frameId)[0]
 				if len(ii)==0:
 					print 'no data for frame ',f
 					continue
@@ -106,12 +106,12 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 					c = np.where(aperCat['ccdNum'][ii]==ccd)[0]
 					mask = ( (aperCat['counts'][ii[c],aperNum]<=0) |
 					         (aperCat['flags'][ii[c],aperNum]>0) |
-					         ~is_mag[aperCat['idx'][ii[c]]] )
+					         ~is_mag[aperCat['objId'][ii[c]]] )
 					counts = np.ma.masked_array(
 					            aperCat['counts'][ii[c],aperNum],mask=mask)
 					aperMags = -2.5*np.ma.log10(counts/expTime)
 					snr = counts / aperCat['countsErr'][ii[c],aperNum]
-					refMags = sdss[filt][aperCat['idx'][ii[c]]]
+					refMags = sdss[filt][aperCat['objId'][ii[c]]]
 					dMag = sigma_clip(refMags - aperMags)
 					zp = np.ma.average(dMag,weights=snr**2)
 					aperZps[n,ccd-1] = zp
@@ -132,10 +132,10 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 					# now aperture corrections
 					mask = ( (aperCat['counts'][ii[c]]<=0) |
 					         (aperCat['flags'][ii[c]]>0) |
-					         ~is_mag[aperCat['idx'][ii[c]]][:,np.newaxis] )
+					         ~is_mag[aperCat['objId'][ii[c]]][:,np.newaxis] )
 					counts = np.ma.masked_array(
 					            aperCat['counts'][ii[c]],mask=mask)
-					refMags = sdss[filt][aperCat['idx'][ii[c]]]
+					refMags = sdss[filt][aperCat['objId'][ii[c]]]
 					fratio = counts / counts[:,-1][:,np.newaxis]
 					fratio = np.ma.masked_outside(fratio,0,1.5)
 					fratio = sigma_clip(fratio,axis=0)
@@ -144,7 +144,7 @@ def zero_points(dataMap,magRange=(16.,19.5),aperNum=-2):
 			tab = Table([np.repeat(utd,len(frames)),
 			             dataMap.obsDb['frameIndex'][frames],
 			             aperZps,psfZps,aperCorrs],
-			            names=('utDate','frameNum',
+			            names=('utDate','frameId',
 			                   'aperZp','psfZp','aperCorr'),
 			            dtype=('S8','i4','f4','f4','f4'))
 			allTabs.append(tab)
@@ -164,12 +164,12 @@ def _read_old_catf(obsDb,catf):
 		idx[i1:i2] = i
 	fns = [ f[:f.find('_ccd')] for f in dat1['fileName'] ]
 	ii = match_to(fns,obsDb['fileName'])
-	frameNum = obsDb['frameIndex'][ii]
+	frameId = obsDb['frameIndex'][ii]
 	t = Table([dat1['x'],dat1['y'],idx,
 	           dat1['aperCounts'],dat1['aperCountsErr'],dat1['flags'],
-	           dat1['ccdNum'],frameNum],
-	          names=('x','y','idx','counts','countsErr','flags',
-	                 'ccdNum','frameNum'))
+	           dat1['ccdNum'],frameId],
+	          names=('x','y','objId','counts','countsErr','flags',
+	                 'ccdNum','frameId'))
 	return t
 
 def construct_lightcurves(dataMap,old=False):
@@ -193,11 +193,11 @@ def construct_lightcurves(dataMap,old=False):
 		tab = vstack(allTabs)
 		print 'stacked aperture phot catalogs into table with ',
 		print len(tab),' rows'
-		tab.sort(['idx','frameNum'])
-		ii = match_to(tab['frameNum'],dataMap.obsDb['frameIndex'])
+		tab.sort(['objId','frameId'])
+		ii = match_to(tab['frameId'],dataMap.obsDb['frameIndex'])
 		expTime = dataMap.obsDb['expTime'][ii][:,np.newaxis]
 		apDat = Table.read('zeropoints_%s.fits'%filt)
-		ii = match_to(tab['frameNum'],apDat['frameNum'])
+		ii = match_to(tab['frameId'],apDat['frameId'])
 		nAper = tab['counts'].shape[-1]
 		apCorr = np.zeros((len(ii),nAper),dtype=np.float32)
 		# cannot for the life of me figure out how to do this with indexing
@@ -215,7 +215,7 @@ def construct_lightcurves(dataMap,old=False):
 		fluxConv = 10**(-0.4*(zp-22.5))
 		tab['aperFlux'] = corrCps * fluxConv
 		tab['aperFluxErr'] = (tab['countsErr']/expTime) * apCorr * fluxConv
-		ii = match_to(tab['frameNum'],dataMap.obsDb['frameIndex'])
+		ii = match_to(tab['frameId'],dataMap.obsDb['frameIndex'])
 		tab['airmass'] = dataMap.obsDb['airmass'][ii]
 		tab['mjd'] = dataMap.obsDb['mjd'][ii]
 		if old:
@@ -228,14 +228,14 @@ def phot_stats(lcs,refPhot):
 	band = 'g'
 	apNum = 3
 	if len(lcs.groups)==1:
-		lcs = lcs.group_by('idx')
+		lcs = lcs.group_by('objId')
 	medges = np.arange(16.9,19.11,0.2)
 	mbins = medges[:-1] + np.diff(medges)/2
 	all_dmag = []
 	all_stds = []
 	for mag1,mag2 in zip(medges[:-1],medges[1:]):
 		ref_ii = np.where((refPhot[band]>mag1)&(refPhot[band]<mag2))[0]
-		jj = np.where(np.in1d(lcs.groups.keys['idx'],ref_ii))[0]
+		jj = np.where(np.in1d(lcs.groups.keys['objId'],ref_ii))[0]
 		print 'found ',len(jj),' ref objs out of ',len(ref_ii)
 		dmag = []
 		stds = []
@@ -306,9 +306,9 @@ if __name__=='__main__':
 	if args.aperphot:
 		refCat = load_catalog(args.catalog)
 		if args.processes == 1:
-			aperture_phot(dataMap,refCat)
+			aperture_phot(dataMap,refCat,redo=args.redo)
 		else:
-			aperphot_poormp(dataMap,refCat,args.processes)
+			aperphot_poormp(dataMap,refCat,args.processes,redo=args.redo)
 	elif args.lightcurves:
 		construct_lightcurves(dataMap,old=True)
 	elif args.zeropoint:
