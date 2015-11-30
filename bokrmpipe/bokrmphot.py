@@ -19,17 +19,15 @@ def aperture_phot(dataMap,refCat,inputType='sky',**kwargs):
 	catDir = os.path.join(dataMap.procDir,'catalogs')
 	if not os.path.exists(catDir):
 		os.mkdir(catDir)
-	catPfx = 'bokrm_sdss'
+	catPfx = refCat['filePrefix']
+	refCat = refCat['catalog']
 	for filt in dataMap.iterFilters():
 		for utd in dataMap.iterUtDates():
 			fn = '.'.join([catPfx,utd,filt,'cat','fits'])
 			catFile = os.path.join(catDir,fn)
-			if os.path.exists(catFile):
-				if redo:
-					os.unlink(catFile)
-				else:
-					print catFile,' already exists, skipping'
-					continue
+			if os.path.exists(catFile) and not redo:
+				print catFile,' already exists, skipping'
+				continue
 			files,frames = dataMap.getFiles(imType='object',
 			                                with_frames=True)
 			if files is None:
@@ -54,7 +52,7 @@ def aperture_phot(dataMap,refCat,inputType='sky',**kwargs):
 					continue
 				allPhot.append(phot)
 			allPhot = vstack(allPhot)
-			allPhot.write(catFile)
+			allPhot.write(catFile,overwrite=True)
 
 # XXX should have this in single location with better chunking
 def aperphot_poormp(dataMap,refCat,nProc,**kwargs):
@@ -274,11 +272,14 @@ def load_catalog(catName):
 	dataDir = os.path.join(os.environ['SDSSRMDIR'],'data')
 	if catName == 'sdssrm':
 		cat = fits.getdata(os.path.join(dataDir,'target_fibermap.fits'),1)
+		catPfx = 'bokrm'
 	elif catName == 'sdss':
 		cat = fits.getdata(os.path.join(dataDir,'sdss.fits'),1)
+		catPfx = 'bokrm_sdss'
 	elif catName == 'cfht':
 		cat = fits.getdata(os.path.join(dataDir,'CFHTLSW3_starcat.fits'),1)
-	return cat
+		catPfx = 'bokrm_cfht'
+	return dict(catalog=cat,filePrefix=catPfx)
 
 if __name__=='__main__':
 	parser = bokrmpipe.init_file_args()
@@ -292,6 +293,8 @@ if __name__=='__main__':
 	                help='do zero point calculation')
 	parser.add_argument('-p','--processes',type=int,default=1,
 	                help='number of processes to use [default=single]')
+	parser.add_argument('--old',action='store_true',
+	                help='use 2014 catalogs for comparison')
 	# XXX for now
 	parser.add_argument('-n','--newfiles',action='store_true',
 	                help='process to new files (not in-place)')
@@ -310,7 +313,7 @@ if __name__=='__main__':
 		else:
 			aperphot_poormp(dataMap,refCat,args.processes,redo=args.redo)
 	elif args.lightcurves:
-		construct_lightcurves(dataMap,old=True)
+		construct_lightcurves(dataMap,old=args.old)
 	elif args.zeropoint:
 		zero_points(dataMap)
 
