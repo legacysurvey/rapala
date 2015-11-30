@@ -157,6 +157,7 @@ def match_to(ids1,ids2):
 	return np.array([idx[i] for i in ids1])
 
 def _read_old_catf(obsDb,catf):
+	print 'loading ',catf
 	dat1 = fits.getdata(catf,1)
 	dat2 = fits.getdata(catf,2)
 	idx = np.zeros(len(dat1),dtype=np.int32)
@@ -174,10 +175,11 @@ def _read_old_catf(obsDb,catf):
 
 def construct_lightcurves(dataMap,old=False):
 	if old:
-		pfx = 'bokrm_sdss'
-	else:
 		pfx = 'sdssbright'
-	aperCatDir = os.path.join(dataMap.procDir,'catalogs')
+		aperCatDir = os.environ['HOME']+'/data/projects/SDSS-RM/rmreduce/catalogs_v2b/'
+	else:
+		pfx = 'bokrm_sdss'
+		aperCatDir = os.path.join(dataMap.procDir,'catalogs')
 	for filt in dataMap.iterFilters():
 		allTabs = []
 		for utd in dataMap.iterUtDates():
@@ -275,7 +277,7 @@ if __name__=='__main__':
 		else:
 			aperphot_poormp(dataMap,args.processes)
 	elif args.lightcurves:
-		construct_lightcurves(dataMap)
+		construct_lightcurves(dataMap,old=True)
 	elif args.zeropoint:
 		zero_points(dataMap)
 
