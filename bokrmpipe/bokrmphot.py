@@ -220,13 +220,17 @@ def construct_lightcurves(dataMap,refCat,old=False):
 		tab['mjd'] = dataMap.obsDb['mjd'][ii]
 		tab.write(lcFn(filt),overwrite=True)
 
-def nightly_lightcurves(catName,lcs=None):
+def nightly_lightcurves(catName,lcs=None,redo=False):
 	from collections import defaultdict
 	filt = 'g'
 	if lcs is None:
 		lcs = Table.read('lightcurves_%s_%s.fits'%(catName,filt))
 	else:
 		lcs = lcs.copy()
+	lcFn = 'nightly_lcs_%s_%s.fits' % (catName,filt)
+	if os.path.exists(lcFn) and not redo:
+		print lcFn,' already exists, exiting'
+		return
 	# mjd-0.5 gives a nightly UT date, but pad with 0.1 because 
 	# ~6am MT is >noon UT
 	lcs['mjdInt'] = np.int32(np.floor(lcs['mjd']-0.6))
@@ -236,24 +240,37 @@ def nightly_lightcurves(catName,lcs=None):
 	for obj_night in lcs.groups:
 		objId = obj_night['objId'][0]
 		fluxes = np.ma.masked_array(obj_night['aperFlux'],
-		                            mask=(obj_night['flags']>4))
-		fluxes = sigma_clip(fluxes,iters=2,sigma=4.0)
-		ivars = obj_night['aperFluxErr']**-2
-		flux,ivar = np.ma.average(fluxes,weights=ivars,
-		                          axis=0,returned=True)
+		                       mask=((obj_night['flags']>4) |
+		                             ~np.isfinite(obj_night['aperFlux'])))
+		# sigma_clip barfs even when nan's are masked...
+		fluxes.data[np.isnan(fluxes.data)] = 0
+		fluxes = sigma_clip(fluxes,iters=2,sigma=4.0,axis=0)
+		errs = np.ma.masked_array(obj_night['aperFluxErr'],
+		                          mask=~np.isfinite(obj_night['aperFluxErr']))
+		# see above
+		errs.data[np.isnan(errs.data)] = 0
+		ivars = errs**-2
+		flux,ivar = np.ma.average(fluxes,weights=ivars,axis=0,returned=True)
 		mjd = obj_night['mjd'].mean()
-		err = 1/np.sqrt(ivar)
+		err = np.ma.sqrt(ivar)**-1
+		df = fluxes - flux
+		wsd = np.sqrt(np.sum(ivars*df**2,axis=0)/np.sum(ivars,axis=0))
 		cols['objId'].append(objId)
 		cols['aperFlux'].append(flux.filled(0))
 		cols['aperFluxErr'].append(err.filled(0))
+		cols['aperFluxWsd'].append(wsd.filled(0))
 		cols['mean_mjd'].append(mjd)
 		cols['nObs'].append(fluxes.shape[0])
 		cols['nGood'].append((~fluxes[:,3].mask).sum())
-	tab = Table(cols,names=('objId','mean_mjd','aperFlux','aperFluxErr',
+	tab = Table(cols,names=('objId','mean_mjd',
+	                        'aperFlux','aperFluxErr','aperFluxWsd',
 	                        'nObs','nGood'))
-	tab['aperMag'] = 22.5 - 2.5*np.log10(tab['aperFlux'])
-	tab['aperMagErr'] = 1.0856*tab['aperFluxErr']/tab['aperFlux']
-	tab.write('nightly_lcs_%s_%s.fits'%(catName,filt),overwrite=True)
+	flux = np.ma.masked_array(tab['aperFlux'],mask=tab['aperFlux']<=0)
+	mag = 22.5 - 2.5*np.ma.log10(flux)
+	tab['aperMag'] = mag.filled(99.99)
+	err = 1.0856*np.ma.divide(tab['aperFluxErr'],flux)
+	tab['aperMagErr'] = err.filled(99.99)
+	tab.write(lcFn,overwrite=redo)
 
 def phot_stats(lcs,refPhot):
 	from scipy.stats import scoreatpercentile
@@ -351,7 +368,7 @@ if __name__=='__main__':
 	elif args.lightcurves:
 		construct_lightcurves(dataMap,refCat,old=args.old)
 	elif args.nightly:
-		nightly_lightcurves(refCat['filePrefix'])
+		nightly_lightcurves(refCat['filePrefix'],redo=args.redo)
 	elif args.zeropoint:
 		zero_points(dataMap)
 
