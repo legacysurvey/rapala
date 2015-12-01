@@ -220,6 +220,44 @@ def construct_lightcurves(dataMap,refCat,old=False):
 		tab['mjd'] = dataMap.obsDb['mjd'][ii]
 		tab.write(lcFn(filt),overwrite=True)
 
+def nightly_lightcurves(obsDb,catName,lcs=None):
+	from collections import defaultdict
+	filt = 'g'
+	if lcs is None:
+		lcs = Table.read('lightcurves_%s_%s.fits'%(catName,filt))
+	else:
+		lcs = lcs.copy()
+	# XXX could also do this by convert MJD to integer?
+	ii = match_to(lcs['frameId'],obsDb['frameIndex'])
+	lcs['utDate'] = obsDb['utDate'][ii]
+	lcs = lcs.group_by('objId')
+	cols = defaultdict(list)
+	for lc_obj in lcs.groups:
+		lc_nightly = lc_obj.group_by('utDate')
+		objId = lc_obj['objId'][0]
+		print objId
+		for night in lc_nightly.groups:
+			fluxes = np.ma.masked_array(night['aperFlux'],
+			                            mask=(night['flags']>4))
+			fluxes = sigma_clip(fluxes,iters=2,sigma=4.0)
+			ivars = night['aperFluxErr']**-2
+			flux,ivar = np.ma.average(fluxes,weights=ivars,
+			                          axis=0,returned=True)
+			mjd = night['mjd'].mean()
+			err = 1/np.sqrt(ivar)
+			cols['objId'].append(objId)
+			cols['aperFlux'].append(flux.filled(0))
+			cols['aperFluxErr'].append(err.filled(0))
+			cols['mean_mjd'].append(mjd)
+			cols['nObs'].append(fluxes.shape[0])
+			cols['nGood'].append((~fluxes[:,3].mask).sum())
+	tab = Table(cols,names=('objId','mean_mjd','aperFlux','aperFluxErr',
+	                        'nObs','nGood'))
+	tab['aperMag'] = 22.5 - 2.5*np.log10(tab['aperFlux'])
+	tab['aperMagErr'] = 1.0856*tab['aperFluxErr']/tab['aperFlux']
+	tab.write('nightly_lcs_%s_%s.fits'%(catName,filt),overwrite=True)
+	return tab
+
 def phot_stats(lcs,refPhot):
 	from scipy.stats import scoreatpercentile
 	band = 'g'
