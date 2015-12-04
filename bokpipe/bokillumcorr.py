@@ -5,7 +5,7 @@ import numpy as np
 from scipy.interpolate import LSQBivariateSpline
 from astropy.modeling import models,fitting
 
-from bokpipe import *
+from . import bokutil
 
 def make_skyflat(dataMap,skyFlatFile):
 	'''Make a dark sky flat template for the illumination correction'''

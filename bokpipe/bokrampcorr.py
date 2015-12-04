@@ -5,7 +5,7 @@ import shutil
 import numpy as np
 import fitsio
 
-from bokpipe import *
+from . import bokutil
 
 def smooth_correction_im(gradientFile,outputFile):
 	from scipy.interpolate import LSQBivariateSpline
