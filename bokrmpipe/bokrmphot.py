@@ -6,7 +6,7 @@ from astropy.io import fits
 from astropy.table import Table,vstack
 from astropy.stats import sigma_clip
 
-from bokpipe import bokphot
+from bokpipe import bokphot,bokpl
 import bokrmpipe
 from bokrmgnostic import srcor
 
@@ -333,7 +333,9 @@ def load_catalog(catName):
 	return dict(catalog=cat,filePrefix=catPfx)
 
 if __name__=='__main__':
-	parser = bokrmpipe.init_file_args()
+	import argparse
+	parser = argparse.ArgumentParser()
+	parser = bokpl.init_file_args(parser)
 	parser.add_argument('--catalog',type=str,default='sdssrm',
 	                help='reference catalog ([sdssrm]|sdss|cfht)')
 	parser.add_argument('--aperphot',action='store_true',
@@ -348,17 +350,10 @@ if __name__=='__main__':
 	                help='number of processes to use [default=single]')
 	parser.add_argument('--old',action='store_true',
 	                help='use 2014 catalogs for comparison')
-	# XXX for now
-	parser.add_argument('-n','--newfiles',action='store_true',
-	                help='process to new files (not in-place)')
-	parser.add_argument('--darkskyframes',action='store_true',
-	                help='load only the dark sky frames')
-	parser.add_argument('--tmpdirin',action='store_true',
-	                help='read files from temporary directory')
-	parser.add_argument('--tmpdirout',action='store_true',
-	                help='write files to temporary directory')
 	args = parser.parse_args()
-	dataMap = bokrmpipe.init_data_map(args)
+	args = bokrmpipe.set_rm_defaults(args)
+	dataMap = bokpl.init_data_map(args)
+	dataMap = bokpl.set_master_cals(dataMap)
 	refCat = load_catalog(args.catalog)
 	if args.aperphot:
 		if args.processes == 1:

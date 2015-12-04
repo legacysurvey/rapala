@@ -21,6 +21,16 @@ def load_darksky_frames(filt):
 	# a quick pruning of the repeat images
 	return darkSkyFrames[::2]
 
+def set_rm_defaults(args):
+	if args.rawdir is None:
+		args.rawdir = os.environ['BOK90PRIMERAWDIR']
+	if args.output is None:
+		args.output = os.path.join(os.environ['BOK90PRIMEOUTDIR'],
+		                           pipeVersion)
+	if args.obsdb is None:
+		args.obsdb = os.path.join('config','sdssrm-bok2014.fits')
+	return args
+
 if __name__=='__main__':
 	import argparse
 	parser = argparse.ArgumentParser()
@@ -29,13 +39,7 @@ if __name__=='__main__':
 	parser.add_argument('--darkskyframes',action='store_true',
 	                help='load only the dark sky frames')
 	args = parser.parse_args()
-	if args.rawdir is None:
-		args.rawdir = os.environ['BOK90PRIMERAWDIR']
-	if args.output is None:
-		args.output = os.path.join(os.environ['BOK90PRIMEOUTDIR'],
-		                           pipeVersion)
-	if args.obsdb is None:
-		args.obsdb = os.path.join('config','sdssrm-bok2014.fits')
+	args = set_rm_defaults(args)
 	dataMap = bokpl.init_data_map(args)
 	dataMap = bokpl.set_master_cals(dataMap)
 	if args.darkskyframes:
