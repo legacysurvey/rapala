@@ -585,7 +585,6 @@ def rmpipe(fileMap,**kwargs):
 		timerLog('wcs')
 	if 'cat' in steps:
 		make_catalogs(fileMap,**pipekwargs)
-		aperture_phot(fileMap,**pipekwargs)
 		timerLog('catalog')
 	timerLog.dump()
 
