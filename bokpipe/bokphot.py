@@ -93,11 +93,14 @@ def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5,**kwargs):
 	cts = np.empty((nObj,nAper),dtype=np.float32)
 	ctserr = np.empty((nObj,nAper),dtype=np.float32)
 	flags = np.empty((nObj,nAper),dtype=np.int32)
+	# only data type sep appears to accept
+	_mask = badPixMask.astype(np.int32)
 	for j,aper in enumerate(aperRad):
-		# XXX why is mask crashing on bad type?
-		rv = sep.sum_circle(image,x,y,aper,#mask=badPixMask,
-		                    gain=1.0,bkgann=(25.,32.))
-		cts[:,j],ctserr[:,j],flags[:,j] = rv
+		c,cvar,f = sep.sum_circle(image,x,y,aper,mask=_mask,
+		                          gain=1.0,bkgann=(25.,35.))
+		cts[:,j] = c
+		ctserr[:,j] = np.sqrt(cvar)
+		flags[:,j] = f
 	return x,y,ii,cts,ctserr,flags
 
 def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
@@ -123,8 +126,8 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
 		# add ccd number
 		phot += (np.repeat(i+1,n),)
 		t = Table(phot,
-		          names=('x','y','idx','counts','countsErr','flags','ccdNum'),
-		          dtype=('f4','f4','i4','f4','f4','i4','i4'))
+		        names=('x','y','objId','counts','countsErr','flags','ccdNum'),
+		        dtype=('f4','f4','i4','f4','f4','i4','i4'))
 		tabs.append(t)
 	if len(tabs)==0:
 		return None

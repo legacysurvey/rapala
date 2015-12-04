@@ -6,8 +6,9 @@ from datetime import datetime
 from collections import OrderedDict
 import fitsio
 import numpy as np
-
 from astropy.stats import sigma_clip
+
+from bokio import *
 
 # just translates the kwargs
 def array_clip(arr,axis=None,**kwargs):
@@ -329,26 +330,6 @@ class BokMefImage(object):
 		for fits in self.closeFiles:
 			fits.close()
 
-IdentityNameMap = lambda f: f
-NullNameMap = lambda f: None
-
-class FileNameMap(object):
-	def __init__(self,newDir=None,newSuffix=None,strip_gz=True):
-		self.newDir = newDir
-		self.newSuffix = newSuffix
-		self.strip_gz = strip_gz
-	def __call__(self,fileName):
-		if self.newDir is None:
-			newDir = os.path.dirname(fileName)
-		else:
-			newDir = self.newDir
-		fn = os.path.basename(fileName)
-		if self.strip_gz and fn.endswith('.gz'):
-			fn = fn[:-3]
-		if self.newSuffix is not None:
-			fn = fn.replace('.fits',self.newSuffix+'.fits')
-		return os.path.join(newDir,fn)
-
 class BokProcess(object):
 	def __init__(self,**kwargs):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
@@ -410,19 +391,6 @@ class BokProcess(object):
 			self._postprocess(fits,f)
 			fits.close()
 		self._finish()
-
-class BokImArith(BokProcess):
-	def __init__(self,op,operand,**kwargs):
-		super(BokImArith,self).__init__(**kwargs)
-		ops = {'+':np.add,'-':np.subtract,'*':np.multiply,'/':np.divide}
-		try:
-			self.op = ops[op]
-		except:
-			raise ValueError("operation %s not supported" % op)
-		self.operand = operand
-		self.operandFits = fitsio.FITS(self.operand)
-	def process_hdu(self,extName,data,hdr):
-		return self.op(data,self.operandFits[extName][:,:]),hdr
 
 class BokMefImageCube(object):
 	def __init__(self,**kwargs):
