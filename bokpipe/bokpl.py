@@ -297,8 +297,11 @@ def get_flat_map(dataMap):
 				flatMap[f] = flatFile
 	return flatMap
 
-def makeccd4image(dataMap,inputFile,**kwargs):
-	ccd4map = bokio.FileNameMap(dataMap.getCalDir(),'_4ccd')
+def makeccd4image(dataMap,inputFile,outputFile=None,**kwargs):
+	if outputFile is None:
+		ccd4map = bokio.FileNameMap(dataMap.getCalDir(),'_4ccd')
+	else:
+		ccd4map = lambda f: outputFile
 	bokproc.combine_ccds([inputFile,],output_map=ccd4map,**kwargs)
 
 def overscan_subtract(dataMap,**kwargs):
@@ -366,14 +369,21 @@ def make_dome_flats(dataMap,bias_map,
 					makeccd4image(dataMap,flatFile,**kwargs)
 
 def make_bad_pixel_masks(dataMap,**kwargs):
-	# XXX hardcoded
-	utd,filt,flatNum = '20140425','g',1
-	flatFn = os.path.join(dataMap.getCalDir(),
-	                      'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
-	bpMaskFile = os.path.join(dataMap.getCalDir(),
-	                          dataMap('MasterBadPixMask'))
-	build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
-	makeccd4image(dataMap,bpMaskFile,**kwargs)
+	for utd in dataMap.iterUtDates():
+		for filt in dataMap.iterFilters():
+			files = dataMap.getFiles(imType='object')
+			if files is None:
+				continue
+			flatNum = 1
+			flatFn = os.path.join(dataMap.getCalDir(),
+			                      'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
+			bpMaskFile = os.path.join(dataMap.getCalDir(),
+			                       dataMap.getMaster('BadPixMask',name=True))
+			bpMask4File = os.path.join(dataMap.getCalDir(),
+			                       dataMap.getMaster('BadPixMask4',name=True))
+			build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
+			makeccd4image(dataMap,bpMaskFile,outputFile=bpMask4File,**kwargs)
+			break
 
 def balance_gains(dataMap,**kwargs):
 	# need bright star mask here?
