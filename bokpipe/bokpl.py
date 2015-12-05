@@ -333,9 +333,9 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 def make_dome_flats(dataMap,bias_map,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
 	                usepixflat=True,**kwargs):
-	bias2Dsub = bokproc.BokCCDProcess(bias_map,
-	                                  input_map=dataMap('oscan'),
+	bias2Dsub = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
 	                                  output_map=dataMap('bias'),
+	                                  bias=bias_map,
 	                                  header_key='BIAS2D',
 	                                  **kwargs)
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
@@ -524,7 +524,7 @@ def make_catalogs(dataMap,inputType='sky',**kwargs):
 		catFile = dataMap('cat')(imFile)
 		bokphot.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
 
-def rmpipe(fileMap,**kwargs):
+def rmpipe(dataMap,**kwargs):
 	redo = kwargs.get('redo',False)
 	steps = kwargs.get('steps')
 	verbose = kwargs.get('verbose',0)
@@ -535,30 +535,30 @@ def rmpipe(fileMap,**kwargs):
 	timerLog = bokutil.TimerLog()
 	biasMap = None
 	if 'oscan' in steps:
-		overscan_subtract(fileMap,**pipekwargs)
+		overscan_subtract(dataMap,**pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
-		make_2d_biases(fileMap,writeccdim=writeccdims,**pipekwargs)
+		make_2d_biases(dataMap,writeccdim=writeccdims,**pipekwargs)
 		timerLog('2d biases')
 	if 'flat2d' in steps:
-		biasMap = get_bias_map(fileMap)
-		make_dome_flats(fileMap,biasMap,writeccdim=writeccdims,
+		biasMap = get_bias_map(dataMap)
+		make_dome_flats(dataMap,biasMap,writeccdim=writeccdims,
 		                usepixflat=not kwargs.get('nousepixflat',False),
 		                **pipekwargs)
 		timerLog('dome flats')
 	if 'bpmask' in steps:
-		make_bad_pixel_masks(fileMap)
+		make_bad_pixel_masks(dataMap)
 		timerLog('bad pixel masks')
 	if 'proc1' in steps:
 		if kwargs.get('nobiascorr',False):
 			biasMap = None
 		elif biasMap is None:
-			biasMap = get_bias_map(fileMap)
+			biasMap = get_bias_map(dataMap)
 		if kwargs.get('noflatcorr',False):
 			flatMap = None
 		else:
-			flatMap = get_flat_map(fileMap)
-		process_all(fileMap,biasMap,flatMap,
+			flatMap = get_flat_map(dataMap)
+		process_all(dataMap,biasMap,flatMap,
 		            fixpix=fixpix,
 		            norampcorr=kwargs.get('norampcorr'),
 		            nocombine=kwargs.get('nocombine'),
@@ -568,12 +568,12 @@ def rmpipe(fileMap,**kwargs):
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'skyflat' in steps:
-		make_supersky_flats(fileMap,**pipekwargs)
+		make_supersky_flats(dataMap,**pipekwargs)
 		timerLog('supersky flats')
 	if 'proc2' in steps:
 		skyArgs = { k.lstrip('sky'):kwargs[k] 
 		                 for k in ['skymethod','skyorder']}
-		process_all2(fileMap,skyArgs,
+		process_all2(dataMap,skyArgs,
 		             noillumcorr=kwargs.get('noillumcorr'),
 		             nodarkskycorr=kwargs.get('nodarkskycorr'),
 		             prockey=kwargs.get('prockey','CCDPRO2'),
@@ -581,23 +581,23 @@ def rmpipe(fileMap,**kwargs):
 		             **pipekwargs)
 		timerLog('process2')
 	if 'wcs' in steps:
-		set_wcs(fileMap,**pipekwargs)
+		set_wcs(dataMap,**pipekwargs)
 		timerLog('wcs')
 	if 'cat' in steps:
-		make_catalogs(fileMap,**pipekwargs)
+		make_catalogs(dataMap,**pipekwargs)
 		timerLog('catalog')
 	timerLog.dump()
 
-def rmpipe_poormp(fileMap,**kwargs):
+def rmpipe_poormp(dataMap,**kwargs):
 	nProc = kwargs.get('processes',1)
 	def chunks(l, n):
 		nstep = int(round(len(l)/float(n)))
 		for i in xrange(0, len(l), nstep):
 			yield l[i:i+nstep]
-	utdSets = chunks(fileMap.getUtDates(),nProc)
+	utdSets = chunks(dataMap.getUtDates(),nProc)
 	jobs = []
 	for i,utds in enumerate(utdSets):
-		fmap = copy(fileMap)
+		fmap = copy(dataMap)
 		fmap.setUtDates(utds)
 		p = multiprocessing.Process(target=rmpipe,
 		                            args=(fmap,),kwargs=kwargs)

@@ -224,8 +224,8 @@ class NormalizeFlat(bokutil.BokProcess):
 			# this one has a long bad strip
 			im.mask[:,:50] = True
 		binnedIm = bokutil.rebin(im,self.nbin)
-		binnedIm = sigma_clip(binnedIm,axis=-1,iters=3,sig=2.2,
-		                      cenfunc=np.ma.mean).mean(axis=-1).filled(1)
+		binnedIm = bokutil.array_clip(binnedIm,axis=-1,
+		                    clip_iters=3,clip_sig=2.2).mean(axis=-1).filled(1)
 		x = np.arange(self.nbin/2,nx,self.nbin)
 		y = np.arange(self.nbin/2,ny,self.nbin)
 		spfit = RectBivariateSpline(x,y,binnedIm.T,s=1)
