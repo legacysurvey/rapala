@@ -25,7 +25,7 @@ all_process_steps = ['oscan','bias2d','flat2d','bpmask',
                      'proc1','skyflat','proc2','wcs','cat']
 
 default_filenames = {
-  'oscan':'','bias':'_b','proc':'_p','comb':'_c',
+  'oscan':'','bias':'_b','proc1':'_p','comb':'_c',
   'pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
   'sky':'_s','proc2':'_q','wcscat':'.wcscat',
   'cat':'.cat','psf':'.psf'
@@ -162,13 +162,14 @@ class BokDataManager(object):
 			self.filesToMap = self.fileSuffixes.keys()
 	def __call__(self,t):
 		procDir = self.procDir
-		if self.firstStep is None:
-			self.firstStep = t
-			if self._tmpInput:
-				procDir = self._tmpDir
-		elif t != self.firstStep:
-			if self._tmpOutput:
-				procDir = self._tmpDir
+		if t in all_process_steps:
+			if self.firstStep is None:
+				self.firstStep = t
+				if self._tmpInput:
+					procDir = self._tmpDir
+			elif t != self.firstStep:
+				if self._tmpOutput:
+					procDir = self._tmpDir
 		if t.startswith('Master'):
 			_t = t.lstrip('Master')
 			if self.master[_t]['fits'] is None:
@@ -388,7 +389,7 @@ def make_bad_pixel_masks(dataMap,**kwargs):
 def balance_gains(dataMap,**kwargs):
 	# need bright star mask here?
 	gainBalance = bokproc.BokCalcGainBalanceFactors(
-	                                     input_map=dataMap('proc'),
+	                                     input_map=dataMap('proc1'),
 	                                     mask_map=dataMap('MasterBadPixMask'),
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
@@ -423,7 +424,7 @@ def process_all(dataMap,bias_map,flat_map,
 	#    nominal gain correction
 	ramp = None if norampcorr else dataMap('MasterBiasRamp')
 	proc = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
-	                             output_map=dataMap('proc'),
+	                             output_map=dataMap('proc1'),
 	                             mask_map=dataMap('MasterBadPixMask'),
 	                             header_key=prockey,
 	                             bias=bias_map,flat=flat_map,
@@ -439,7 +440,7 @@ def process_all(dataMap,bias_map,flat_map,
 	gainMap = balance_gains(dataMap,**kwargs)
 	# 3. combine per-amp images (16) into CCD images (4)
 	bokproc.combine_ccds(files,
-	                     input_map=dataMap('proc'), 
+	                     input_map=dataMap('proc1'), 
 	                     output_map=dataMap('comb'),
 	                     gain_map=gainMap,
 	                     **kwargs)
