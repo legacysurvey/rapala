@@ -6,6 +6,7 @@ import numpy as np
 import fitsio
 
 from . import bokutil
+from .bokproc import BokImArith
 
 def smooth_correction_im(gradientFile,outputFile):
 	from scipy.interpolate import LSQBivariateSpline
@@ -44,12 +45,13 @@ def smooth_correction_im(gradientFile,outputFile):
 def make_rampcorr_image(dataMap,**kwargs):
 	imNum = 1
 	tmpDir = os.path.join(dataMap._tmpDir,'biasramps')
-	inputMap = dataMap('oscan',False)
+	inputMap = dataMap('oscan')
 	if not os.path.exists(tmpDir):
-		os.mkdir(tmpDir)
+		os.makedirs(tmpDir)
 	rampFiles = []
 	tmpRampFile = os.path.join(dataMap._tmpDir,'tmpbiasramp.fits')
-	rampFile = os.path.join(dataMap.calDir,dataMap.masterRampCorrFn)
+	rampFile = os.path.join(dataMap.calDir,
+	                        dataMap.getMaster('BiasRamp',name=True))
 	for utd in dataMap.iterUtDates():
 		files,frames = dataMap.getFiles(imType='zero',with_frames=True)
 		if files is None:
@@ -67,8 +69,8 @@ def make_rampcorr_image(dataMap,**kwargs):
 			rampFiles.append(outFile)
 			if os.path.exists(outFile):
 				continue
-			imsub = bokutil.BokImArith('-',inputMap(files[1]),
-			                           output_map=lambda f: outFile)
+			imsub = BokImArith('-',inputMap(files[1]),
+			                   output_map=lambda f: outFile)
 			imsub.process_files([inputMap(files[0])])
 	stackFun = bokutil.ClippedMeanStack()
 	stackFun.stack(rampFiles,tmpRampFile)
