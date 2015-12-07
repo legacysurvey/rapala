@@ -21,7 +21,7 @@ def make_skyflat(dataMap,skyFlatFile):
 	files = dataMap.getFiles(exclude_objs=['rm10','rm11','rm12','rm13'])
 	# limit it to ~50 images
 	files = files[::len(files)//50]
-	inputFiles = [dataMap('proc1',False)(f) for f in files]
+	inputFiles = [dataMap('proc1')(f) for f in files]
 	stackFun.stack(inputFiles,skyFlatFile)
 
 # argh. spline requires monotonically increasing coordinates

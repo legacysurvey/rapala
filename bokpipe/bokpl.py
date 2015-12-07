@@ -22,7 +22,7 @@ from . import bokphot
 from . import bokgnostic
 
 all_process_steps = ['oscan','bias2d','flat2d','bpmask',
-                     'proc1','skyflat','proc2','wcs','cat']
+                     'proc1','comb','skyflat','proc2','wcs','cat']
 
 default_filenames = {
   'oscan':'','bias':'_b','proc1':'_p','comb':'_c',
@@ -560,7 +560,7 @@ def rmpipe(dataMap,**kwargs):
 	if 'bpmask' in steps:
 		make_bad_pixel_masks(dataMap)
 		timerLog('bad pixel masks')
-	if 'proc1' in steps:
+	if 'proc1' in steps or 'comb' in steps:
 		if kwargs.get('nobiascorr',False):
 			biasMap = None
 		elif biasMap is None:
