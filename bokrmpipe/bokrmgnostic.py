@@ -8,7 +8,9 @@ from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord,match_coordinates_sky
 from astropy import units as u
 
-from bokpipe import *
+from bokpipe import bokphot,bokpl,bokgnostic
+import bokrmpipe
+import bokrmphot
 
 def plot_gain_vals(diagfile):
 	g = np.load(diagfile)#,gains=gainCorV,skys=skyV,gainCor=gainCor)
@@ -68,12 +70,58 @@ def check_img_astrom(imgFile,refCat,catFile=None,mlim=19.5,band='g'):
 		               sep=sep))
 	return rv
 
-def check_astrom(files):
+def check_processed_data(dataMap):
+	import fitsio
 	sdss = fits.getdata(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
-	for f in files:
-		m = check_img_astrom(f,sdss)
-		print os.path.basename(f),
+	tabf = open(os.path.join('proc_diag.html'),'w')
+	tabf.write(bokgnostic.html_diag_head)
+	rowstr = ''
+	files_and_frames = dataMap.getFiles(with_frames=True)
+	for f,i in zip(*files_and_frames):
+		rowstr = ''
+		# XXX what to map here
+		procf = dataMap('comb')(f)
+		print procf
+		try:
+			hdr0 = fitsio.read_header(procf,ext=0)
+			for k in ['OSCNSUB','CCDPROC','CCDJOIN','CCDPRO2','SKYSUB']:
+				status = 'nominal' if k in hdr0 else 'missing'
+				rowstr += bokgnostic.html_table_entry('',status)
+		except:
+			print procf,' does not exist'
+			for k in ['OSCNSUB','CCDPROC','CCDJOIN','CCDPRO2','SKYSUB']:
+				rowstr += bokgnostic.html_table_entry('','missing')
+		catf = dataMap('cat')(f)
+		m = check_img_astrom(procf,sdss,catFile=catf)
 		for c in m:
-			print '%7.3f' % np.median(c['sep']),
-		print
+			sep = np.median(c['sep'])
+			if sep < 0:
+				status = 'weird'
+			elif sep > 0.4:
+				status = 'bad'
+			elif sep > 0.2:
+				status = 'warning'
+			else:
+				status = 'nominal'
+			rowstr += bokgnostic.html_table_entry('%.3f'%sep,status)
+		tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
+		break
+	tabf.write(bokgnostic.html_diag_foot)
+	tabf.close()
+
+if __name__=='__main__':
+	import argparse
+	parser = argparse.ArgumentParser()
+	parser = bokpl.init_file_args(parser)
+	parser.add_argument('--catalog',type=str,default='sdssrm',
+	                help='reference catalog ([sdssrm]|sdss|cfht)')
+	parser.add_argument('--checkproc',action='store_true',
+	                help='check processing status of individual files')
+	args = parser.parse_args()
+	args = bokrmpipe.set_rm_defaults(args)
+	dataMap = bokpl.init_data_map(args)
+	dataMap = bokpl.set_master_cals(dataMap)
+	refCat = bokrmphot.load_catalog(args.catalog)
+	if args.checkproc:
+		check_processed_data(dataMap)
 
