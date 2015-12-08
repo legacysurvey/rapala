@@ -7,24 +7,21 @@ import fitsio
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 from matplotlib.backends.backend_pdf import PdfPages
+from astropy.table import Table
 
-try:
-	import bokutil
-except:
-	import sys
-	sys.path.append('../bokpipe')
-	import bokutil
+from bokpipe import *
+from bokpipe.bokoscan import _convertfitsreg
 
-from bokoscan import BokOverscanSubtract,_convertfitsreg
-import bokproc
-
-def init_data_map(datadir,outdir,expTimes=None):
+def init_data_map(datadir,outdir,expTimes=None,files=None):
 	dataMap = {}
 	if not os.path.exists(outdir):
 		os.mkdir(outdir)
 	dataMap['outdir'] = outdir
-	dataMap['files'] = sorted(glob.glob(datadir+'*.fits') + 
-	                          glob.glob(datadir+'*.fits.gz'))
+	if files is None:
+		dataMap['files'] = sorted(glob.glob(datadir+'*.fits') + 
+		                          glob.glob(datadir+'*.fits.gz'))
+	else:
+		dataMap['files'] = files
 	dataMap['oscan'] = bokutil.FileNameMap(outdir)
 	dataMap['proc'] = bokutil.FileNameMap(outdir,'_p')
 	if expTimes is None:
@@ -273,7 +270,7 @@ def init_sep09bss_data_map():
 	print exptimes
 	dataMap = init_data_map(datadir,
 	                        os.environ.get('GSCRATCH')+'/bss_sep09/',
-	                        expTimes=exptimes)
+	                        expTimes=exptimes,files=files)
 	dataMap['files'] = dataMap['files'][50:]
 	dataMap['biasFiles'] = dataMap['files'][-5:]
 	#dataMap['flatSequence'] = range(50,68)
@@ -318,6 +315,22 @@ def init_oct20_data_map():
 	dataMap['refExpTime'] = 3.0
 	return dataMap
 
+def init_nov_data_map():
+	datadir = os.environ.get('BASSDATA')+'/Nov2015/'
+	log = Table.read(datadir+'bassLog_Nov2015.fits')
+	exptimes = log['expTime']
+	files = [ datadir+f['utDir']+'/'+f['fileName']+'i.fits.fz'
+	              for f in log[95:130] ]
+	dataMap = init_data_map(datadir,'tmp_nov',
+	                        expTimes=exptimes,files=files)
+	dataMap['rawFiles'] = dataMap['files']
+	dataMap['files'] = [ dataMap['oscan'](f) for f in dataMap['files'] ]
+	dataMap['biasFiles'] = dataMap['files'][120:130]
+	dataMap['flatSequence'] = np.arange(95,120)
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	dataMap['refExpTime'] = 30.0
+	return dataMap
+
 if __name__=='__main__':
 	import sys
 	dataset = sys.argv[1] 
@@ -327,6 +340,8 @@ if __name__=='__main__':
 		dataMap = init_oct02ptc_data_map()
 	elif dataset == 'oct20':
 		dataMap = init_oct20_data_map()
+	elif dataset == 'nov':
+		dataMap = init_nov_data_map()
 	else:
 		raise ValueError
 	print 'processing ',dataset
