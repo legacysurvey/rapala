@@ -21,7 +21,7 @@ def make_skyflat(dataMap,skyFlatFile):
 	files = dataMap.getFiles(exclude_objs=['rm10','rm11','rm12','rm13'])
 	# limit it to ~50 images
 	files = files[::len(files)//50]
-	inputFiles = [dataMap('proc1')(f) for f in files]
+	inputFiles = [dataMap('comb')(f) for f in files]
 	stackFun.stack(inputFiles,skyFlatFile)
 
 # argh. spline requires monotonically increasing coordinates
@@ -75,7 +75,8 @@ def make_illumcorr_image(dataMap,**kwargs):
 	inputFile = os.path.join(dataMap._tmpDir,'tmpillum.fits')
 	make_skyflat(dataMap,inputFile)
 	illum = fit_illumination(inputFile,dataMap,**kwargs)
-	outFn = os.path.join(dataMap.calDir,dataMap.illumCorrFn)
+	outFn = dataMap.getMaster('Illumination',name=True)
+	outFn = os.path.join(dataMap.getCalDir(),outFn)
 	fits = bokutil.BokMefImage(inputFile,output_file=outFn,clobber=True)
 	for extName,im,hdr in fits:
 		xx,yy = fits.get_xy(extName,'sky')

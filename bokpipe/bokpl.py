@@ -170,6 +170,9 @@ class BokDataManager(object):
 			elif t != self.firstStep:
 				if self._tmpOutput:
 					procDir = self._tmpDir
+			else:
+				if self._tmpInput:
+					procDir = self._tmpDir
 		if t.startswith('Master'):
 			_t = t.lstrip('Master')
 			if self.master[_t]['fits'] is None:
