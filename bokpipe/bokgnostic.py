@@ -16,14 +16,14 @@ def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
 	files_and_frames = dataMap.getFiles(with_frames=True)
 	cols = defaultdict(list)
 	for f,i in zip(*files_and_frames):
+		frameId,expTime = dataMap.obsDb['frameIndex','expTime'][i]
 		procf = dataMap('proc2')(f)
 		catf = dataMap('cat')(f)
 		try:
 			imFits = fitsio.FITS(procf)
 		except:
-			print i,procf,' does not exist'
+			print frameId,procf,' does not exist'
 			continue
-		frameId,expTime = dataMap.obsDb['frameIndex','expTime'][i]
 		cols['frameId'].append(frameId)
 		hdrs = [ imFits[extName].read_header()
 		                 for extName in ['CCD1','CCD2','CCD3','CCD4'] ]

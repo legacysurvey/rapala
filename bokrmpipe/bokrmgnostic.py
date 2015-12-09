@@ -76,6 +76,7 @@ def rmobs_meta_data(dataMap):
 def check_processed_data(dataMap):
 	import fitsio
 	sdss = fits.getdata(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
+	zeropoints = fits.getdata('zeropoints_g.fits')
 	tabf = open(os.path.join('proc_diag.html'),'w')
 	tabf.write(bokgnostic.html_diag_head)
 	rowstr = ''
@@ -84,6 +85,8 @@ def check_processed_data(dataMap):
 		rowstr = ''
 		# XXX what to map here
 		procf = dataMap('comb')(f)
+		rowstr += bokgnostic.html_table_entry('%d'%i,'nominal')
+		rowstr += bokgnostic.html_table_entry(f,'nominal')
 		print procf
 		try:
 			hdr0 = fitsio.read_header(procf,ext=0)
@@ -94,6 +97,19 @@ def check_processed_data(dataMap):
 			print procf,' does not exist'
 			for k in ['OSCNSUB','CCDPROC','CCDJOIN','CCDPRO2','SKYSUB']:
 				rowstr += bokgnostic.html_table_entry('','missing')
+		zpi = np.where(dataMap.obsDb['frameIndex'][i] ==
+		                                       zeropoints['frameId'])[0][0]
+		for ccdi in range(4):
+			zp = zeropoints['aperZp'][zpi,ccdi]
+			if zp > 25.85:
+				status = 'nominal'
+			elif zp > 25.70:
+				status = 'warning'
+			elif zp > 25.50:
+				status = 'bad'
+			else:
+				status = 'weird'
+			rowstr += bokgnostic.html_table_entry('%.2f'%zp,status)
 		catf = dataMap('cat')(f)
 		m = check_img_astrom(procf,sdss,catFile=catf)
 		for c in m:
@@ -108,7 +124,7 @@ def check_processed_data(dataMap):
 				status = 'nominal'
 			rowstr += bokgnostic.html_table_entry('%.3f'%sep,status)
 		tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
-		break
+		tabf.flush()
 	tabf.write(bokgnostic.html_diag_foot)
 	tabf.close()
 
