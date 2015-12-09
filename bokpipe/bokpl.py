@@ -190,8 +190,12 @@ class BokDataManager(object):
 			return SimpleFileNameMap(self.rawDir,procDir)
 	def getFiles(self,imType=None,utd=None,filt=None,
 	             im_range=None,exclude_objs=None,
-	             with_objnames=False,with_frames=False):
-		file_sel = np.zeros(len(self.obsDb),dtype=bool)
+	             with_objnames=False,with_frames=False,as_sequences=False):
+		try:
+			# if the observations database has a good flag use it
+			file_sel = self.obsDb['good']
+		except:
+			file_sel = np.zeros(len(self.obsDb),dtype=bool)
 		# select on UT date(s)
 		if utd is not None:
 			utds = [utd] if type(utd) is str else utd
@@ -203,13 +207,15 @@ class BokDataManager(object):
 			# all utds are valid
 			file_sel[:] = True
 		else:
+			isUtd = np.zeros_like(file_sel)
 			for utd in utds:
-				file_sel |= self.obsDb['utDate'] == utd
+				isUtd |= ( self.obsDb['utDate'] == utd )
+			file_sel &= isUtd
 		# restrict on image type
 		if imType is not None:
-			file_sel &= self.obsDb['imType'] == imType
+			file_sel &= ( self.obsDb['imType'] == imType )
 		elif self.imType is not None:
-			file_sel &= self.obsDb['imType'] == self.imType
+			file_sel &= ( self.obsDb['imType'] == self.imType )
 		# restrict on filter
 		if filt is not None:
 			f = filt
@@ -246,6 +252,21 @@ class BokDataManager(object):
 			# XXX os.path.join for arrays?
 			files = char_add(char_add(self.obsDb['utDir'][ii],'/'),
 			                 self.obsDb['fileName'][ii])
+			if as_sequences:
+				splits = np.where(np.diff(ii)>1)[0]
+				if len(splits)==0:
+					return [ files ]
+				else:
+					# look for instances where the sequence is broken simply
+					# because of a few bad images
+					_splits = []
+					for s in splits:
+						if not np.all(~self.obsDb['good'][ii[s]+1:ii[s+1]]):
+							_splits.append(s)
+					if len(_splits)==0:
+						return [ files ]
+					else:
+						return np.split(files,np.array(_splits)+1)
 			rv = [files]
 			if with_objnames:
 				rv.append(self.obsDb['objName'][ii])
@@ -321,14 +342,7 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 	                                 reject=reject,
                                      **kwargs)
 	for utd in dataMap.iterUtDates():
-		files,frames = dataMap.getFiles(imType='zero',with_frames=True)
-		if files is None:
-			continue
-		splits = np.where(np.diff(frames)>1)[0]
-		if len(splits)==0:
-			bias_seqs = [ files ]
-		else:
-			bias_seqs = np.split(files,splits+1)
+		bias_seqs = dataMap.getFiles(imType='zero',as_sequences=True)
 		for biasNum,biasFiles in enumerate(bias_seqs,start=1):
 			if len(biasFiles) < 5: # XXX hardcoded
 				continue
@@ -353,14 +367,7 @@ def make_dome_flats(dataMap,bias_map,
 		normFlat = bokproc.NormalizeFlat(**kwargs)
 	for utd in dataMap.iterUtDates():
 		for filt in dataMap.iterFilters():
-			files,frames = dataMap.getFiles(imType='flat',with_frames=True)
-			if files is None:
-				continue
-			splits = np.where(np.diff(frames)>1)[0]
-			if len(splits)==0:
-				flat_seqs = [ files ]
-			else:
-				flat_seqs = np.split(files,splits+1)
+			flat_seqs = dataMap.getFiles(imType='flat',as_sequences=True)
 			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
 				if len(flatFiles) < 5: # XXX hardcoded
 					continue
