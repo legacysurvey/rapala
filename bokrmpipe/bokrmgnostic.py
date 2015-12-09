@@ -102,32 +102,43 @@ def check_processed_data(dataMap):
 			print procf,' does not exist'
 			for k in ['OSCNSUB','CCDPROC','CCDJOIN','CCDPRO2','SKYSUB']:
 				rowstr += bokgnostic.html_table_entry('','missing')
-		zpi = np.where(dataMap.obsDb['frameIndex'][i] ==
-		                                       zeropoints['frameId'])[0][0]
+		try:
+			zpi = np.where(dataMap.obsDb['frameIndex'][i] ==
+			                                  zeropoints['frameId'])[0][0]
+		except IndexError:
+			zpi = None
 		for ccdi in range(4):
-			zp = zeropoints['aperZp'][zpi,ccdi]
-			if zp > 25.85:
-				status = 'nominal'
-			elif zp > 25.70:
-				status = 'warning'
-			elif zp > 25.50:
-				status = 'bad'
+			if zpi is not None:
+				zp = zeropoints['aperZp'][zpi,ccdi]
+				if zp > 25.90:
+					status = 'nominal'
+				elif zp > 25.70:
+					status = 'warning'
+				elif zp > 25.40:
+					status = 'bad'
+				else:
+					status = 'weird'
 			else:
-				status = 'weird'
+				zp = 0.0
+				status = 'missing'
 			rowstr += bokgnostic.html_table_entry('%.2f'%zp,status)
 		catf = dataMap('cat')(f)
-		m = check_img_astrom(procf,sdss,catFile=catf)
-		for c in m:
-			sep = np.median(c['sep'])
-			if sep > 0.4:
-				status = 'bad'
-			elif sep > 0.2:
-				status = 'warning'
-			elif sep > 0.0:
-				status = 'nominal'
-			else:
-				status = 'weird'
-			rowstr += bokgnostic.html_table_entry('%.3f'%sep,status)
+		try:
+			m = check_img_astrom(procf,sdss,catFile=catf)
+			for c in m:
+				sep = np.median(c['sep'])
+				if sep > 0.4:
+					status = 'bad'
+				elif sep > 0.2:
+					status = 'warning'
+				elif sep > 0.0:
+					status = 'nominal'
+				else:
+					status = 'weird'
+				rowstr += bokgnostic.html_table_entry('%.3f'%sep,status)
+		except IOError:
+			for i in range(4):
+				rowstr += bokgnostic.html_table_entry('','missing')
 		tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
 		tabf.flush()
 	tabf.write(bokgnostic.html_diag_foot)
