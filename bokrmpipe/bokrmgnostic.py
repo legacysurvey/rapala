@@ -82,17 +82,22 @@ def check_processed_data(dataMap):
 	rowstr = ''
 	files_and_frames = dataMap.getFiles(with_frames=True)
 	for f,i in zip(*files_and_frames):
+		frameId = dataMap.obsDb['frameIndex'][i]
 		rowstr = ''
-		# XXX what to map here
-		procf = dataMap('comb')(f)
-		rowstr += bokgnostic.html_table_entry('%d'%i,'nominal')
+		procf = dataMap('proc2')(f)
+		rowstr += bokgnostic.html_table_entry('%d'%frameId,'nominal')
 		rowstr += bokgnostic.html_table_entry(f,'nominal')
 		print procf
 		try:
 			hdr0 = fitsio.read_header(procf,ext=0)
 			for k in ['OSCNSUB','CCDPROC','CCDJOIN','CCDPRO2','SKYSUB']:
+				if k in hdr0:
+					rowstr += bokgnostic.html_table_entry(r'&#10004;',
+					                                      'nominal')
+				else:
+					rowstr += bokgnostic.html_table_entry(r'&#9747;',
+					                                      'bad')
 				status = 'nominal' if k in hdr0 else 'missing'
-				rowstr += bokgnostic.html_table_entry('',status)
 		except:
 			print procf,' does not exist'
 			for k in ['OSCNSUB','CCDPROC','CCDJOIN','CCDPRO2','SKYSUB']:
@@ -114,14 +119,14 @@ def check_processed_data(dataMap):
 		m = check_img_astrom(procf,sdss,catFile=catf)
 		for c in m:
 			sep = np.median(c['sep'])
-			if sep < 0:
-				status = 'weird'
-			elif sep > 0.4:
+			if sep > 0.4:
 				status = 'bad'
 			elif sep > 0.2:
 				status = 'warning'
-			else:
+			elif sep > 0.0:
 				status = 'nominal'
+			else:
+				status = 'weird'
 			rowstr += bokgnostic.html_table_entry('%.3f'%sep,status)
 		tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
 		tabf.flush()

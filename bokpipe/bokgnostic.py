@@ -134,7 +134,7 @@ def html_table_entry(val,status):
 	  'bad':'red',
 	  'weird':'grey',
 	}
-	clr = clrs.get('val','white')
+	clr = clrs.get(status,'white')
 	return r'<td bgcolor=%s>%s</td>' % (clr,val)
 
 def run_scamp_diag(imageFiles,ncols=4,**kwargs):
