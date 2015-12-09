@@ -40,7 +40,7 @@ def conditions_strip_charts(byFrame=False):
 		ax1.plot(xval,0.455*metaDat['fwhmPix'].mean(axis=-1))
 		ax2 = plt.subplot(2,1,2,sharex=ax1)
 		ax2.plot(xval,26.0-2.5*np.log10(metaDat['skyElPerSec']*0.455**-2))
-		for ax,ypos in zip([ax1,ax2],[2.5,21.1]):
+		for ax,ypos in zip([ax1,ax2],[2.5,20.5]):
 			ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
 			ax.yaxis.set_major_locator(ticker.MultipleLocator(0.5))
 			ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.1))
@@ -50,7 +50,7 @@ def conditions_strip_charts(byFrame=False):
 				        ha='left',rotation='vertical',size=9)
 	ax1.set_xlim(xval[0]-20,xval[-1]+20)
 	ax1.set_ylim(0,3.0)
-	ax2.set_ylim(18.0,22.5)
+	ax2.set_ylim(22.6,18.5)
 
 def plot_lightcurve(targetNum,targetSource='RM',shownightly=False):
 	pfx = 'bokrm_sdss'
