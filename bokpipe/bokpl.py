@@ -61,7 +61,8 @@ class BokDataManager(object):
 		self.obsDb = obsDb
 		self.allUtDates = np.unique(self.obsDb['utDate'])
 		self.utDates = self.allUtDates
-		self.filt = np.unique(obsDb['filter'][obsDb['imType']=='object'])
+		self.allFilt = np.unique(obsDb['filter'][obsDb['imType']=='object'])
+		self.filt = self.allFilt
 		self.frames = None
 		self.frameList = None
 		self.imType = None
@@ -216,7 +217,7 @@ class BokDataManager(object):
 			f = self._curFilt
 		else:
 			f = self.filt
-		if not np.all(np.in1d(self.filt,f)):
+		if not np.all(np.in1d(self.allFilt,f)):
 			isFilt = np.in1d(self.obsDb['filter'],f)
 			if imType is None:
 				# special case to include bias frames regardless of 
