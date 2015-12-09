@@ -46,8 +46,14 @@ def make_obs_db(args):
 		bad = [ 'a%04d' % _i for _i in [1] ]
 		good[(obsDb['utDate']=='20140114') &
 		     np.in1d(obsDb['fileName'],bad)] = False
+		#       #173 telescope was moving
+		bad = [ 'bokrm.20140312.%04d' % _i for _i in [173] ]
+		good[np.in1d(obsDb['fileName'],bad)] = False
 		#       #26 flat is truncated
 		bad = [ 'bokrm.20140319.%04d' % _i for _i in [26] ]
+		good[np.in1d(obsDb['fileName'],bad)] = False
+		#       #181 telescope was moving
+		bad = [ 'bokrm.20140609.%04d' % _i for _i in [181] ]
 		good[np.in1d(obsDb['fileName'],bad)] = False
 		# write the edited table
 		obsDb['good'] = good
