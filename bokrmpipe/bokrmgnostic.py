@@ -70,6 +70,9 @@ def check_img_astrom(imgFile,refCat,catFile=None,mlim=19.5,band='g'):
 		               sep=sep))
 	return rv
 
+def rmobs_meta_data(dataMap):
+	bokgnostic.obs_meta_data(dataMap,outFile='bokrmMetaData.fits')
+
 def check_processed_data(dataMap):
 	import fitsio
 	sdss = fits.getdata(os.environ['BOK90PRIMEDIR']+'/../data/sdss.fits',1)
@@ -115,6 +118,8 @@ if __name__=='__main__':
 	parser = bokpl.init_file_args(parser)
 	parser.add_argument('--catalog',type=str,default='sdssrm',
 	                help='reference catalog ([sdssrm]|sdss|cfht)')
+	parser.add_argument('--metadata',action='store_true',
+	                help='construct observations meta data table')
 	parser.add_argument('--checkproc',action='store_true',
 	                help='check processing status of individual files')
 	args = parser.parse_args()
@@ -124,4 +129,6 @@ if __name__=='__main__':
 	refCat = bokrmphot.load_catalog(args.catalog)
 	if args.checkproc:
 		check_processed_data(dataMap)
+	elif args.metadata:
+		rmobs_meta_data(dataMap)
 

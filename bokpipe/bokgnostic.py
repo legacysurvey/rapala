@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 import os
+from collections import defaultdict
 import numpy as np
+from astropy.table import Table
 import fitsio
 
 import matplotlib.pyplot as plt
@@ -9,6 +11,42 @@ import matplotlib.pyplot as plt
 from . import bokutil
 from . import bokproc
 from . import bokastrom
+
+def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
+	files_and_frames = dataMap.getFiles(with_frames=True)
+	cols = defaultdict(list)
+	for f,i in zip(*files_and_frames):
+		procf = dataMap('proc2')(f)
+		catf = dataMap('cat')(f)
+		try:
+			imFits = fitsio.FITS(procf)
+		except:
+			print i,procf,' does not exist'
+			continue
+		frameId,expTime = dataMap.obsDb['frameIndex','expTime'][i]
+		cols['frameId'].append(frameId)
+		hdrs = [ imFits[extName].read_header()
+		                 for extName in ['CCD1','CCD2','CCD3','CCD4'] ]
+		cols['biasDN'].append([ h['OSCANMED'] for h in hdrs ])
+		cols['skyElPerSec'].append(hdrs[0]['SKYVAL']/expTime)
+		try:
+			catFits = fitsio.FITS(catf)
+			fwhm = []
+			for extNum in range(1,5):
+				objs = catFits[extNum].read()
+				ii = np.where((objs['FLAGS']==0) &
+				              (objs['CLASS_STAR'] > 0.5))[0]
+				if len(ii) > 5:
+					fwhm.append(np.median(objs['FWHM_IMAGE'][ii]))
+				else:
+					fwhm.append(-1)
+		except:
+			print i,catf,' does not exist'
+			fwhm = [-1,-1,-1,-1]
+		cols['fwhmPix'].append(fwhm)
+	cols = dict(cols)
+	tab = Table(cols)
+	tab.write(outFile,overwrite=True)
 
 def check_gain_bal(fileName,badPixMaskFile=None,
                    showMean=True,showMode=True,**kwargs):
