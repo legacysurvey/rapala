@@ -26,6 +26,32 @@ def zp_strip_chart(kind='aper',byFrame=False):
 	plt.xlim(xval[0]-20,xval[-1]+20)
 	plt.ylim(25.2,26.15)
 
+def conditions_strip_charts(byFrame=False):
+	from bokrmphot import match_to # move this
+	metaDat = Table.read('bokrmMetaData.fits')
+	obsDb = Table.read('config/sdssrm-bok2014.fits')
+	ff = match_to(metaDat['frameId'],obsDb['frameIndex'])
+	plt.figure(figsize=(14,7))
+	plt.subplots_adjust(0.04,0.04,0.98,0.98)
+	for pNum,filt in enumerate('g',start=1):
+		utds,ii = np.unique(obsDb['utDate'][ff],return_index=True)
+		xval = metaDat['frameId'] if byFrame else np.arange(len(metaDat))
+		ax1 = plt.subplot(2,1,1)
+		ax1.plot(xval,0.455*metaDat['fwhmPix'].mean(axis=-1))
+		ax2 = plt.subplot(2,1,2,sharex=ax1)
+		ax2.plot(xval,26.0-2.5*np.log10(metaDat['skyElPerSec']*0.455**-2))
+		for ax,ypos in zip([ax1,ax2],[2.5,21.1]):
+			ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
+			ax.yaxis.set_major_locator(ticker.MultipleLocator(0.5))
+			ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.1))
+			for i,utd in zip(ii,utds):
+				ax.axvline(xval[i],c='gray')
+				ax.text(xval[i]+1,ypos,utd,
+				        ha='left',rotation='vertical',size=9)
+	ax1.set_xlim(xval[0]-20,xval[-1]+20)
+	ax1.set_ylim(0,3.0)
+	ax2.set_ylim(18.0,22.5)
+
 def plot_lightcurve(targetNum,targetSource='RM',shownightly=False):
 	pfx = 'bokrm_sdss'
 	gcat = Table.read('lightcurves_bokrm_g.fits')
