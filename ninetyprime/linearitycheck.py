@@ -22,8 +22,8 @@ def init_data_map(datadir,outdir,expTimes=None,files=None):
 		                          glob.glob(datadir+'*.fits.gz'))
 	else:
 		dataMap['files'] = files
-	dataMap['oscan'] = bokutil.FileNameMap(outdir)
-	dataMap['proc'] = bokutil.FileNameMap(outdir,'_p')
+	dataMap['oscan'] = bokio.FileNameMap(outdir)
+	dataMap['proc'] = bokio.FileNameMap(outdir,'_p')
 	if expTimes is None:
 		dataMap['expTime'] = np.array([fitsio.read_header(f)['EXPTIME']
 		                                  for f in dataMap['files']])
@@ -42,6 +42,8 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 		                    oscan_cols_file=dataMap['outdir']+'oscan_cols',
 		                    oscan_rows_file=dataMap['outdir']+'oscan_rows',
 		                                verbose=10)#method='median_value')
+	import pdb
+	pdb.set_trace()
 	oscanSubtract.process_files(dataMap['rawFiles'])
 	if bias2d:
 		biasname = 'bias'
@@ -320,15 +322,15 @@ def init_nov_data_map():
 	log = Table.read(datadir+'bassLog_Nov2015.fits')
 	exptimes = log['expTime']
 	files = [ datadir+f['utDir']+'/'+f['fileName']+'i.fits.fz'
-	              for f in log[95:130] ]
+	              for f in log[111:150] ]
 	dataMap = init_data_map(datadir,'tmp_nov',
 	                        expTimes=exptimes,files=files)
 	dataMap['rawFiles'] = dataMap['files']
 	dataMap['files'] = [ dataMap['oscan'](f) for f in dataMap['files'] ]
-	dataMap['biasFiles'] = dataMap['files'][120:130]
-	dataMap['flatSequence'] = np.arange(95,120)
+	dataMap['biasFiles'] = dataMap['files'][140:150]
+	dataMap['flatSequence'] = np.arange(111,140)
 	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
-	dataMap['refExpTime'] = 30.0
+	dataMap['refExpTime'] = 3.0
 	return dataMap
 
 if __name__=='__main__':

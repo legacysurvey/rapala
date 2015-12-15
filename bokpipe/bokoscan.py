@@ -177,6 +177,7 @@ class BokOverscanSubtract(BokProcess):
 		self.curFileName = fits.fileName
 		print 'overscan subtracting ',self.curFileName
 	def process_hdu(self,extName,data,hdr):
+		print extName,data
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
 		colbias = fit_overscan(oscan_cols,**self.fit_kwargs)
 		data[:] -= colbias[:,np.newaxis]
