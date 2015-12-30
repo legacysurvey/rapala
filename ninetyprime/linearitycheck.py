@@ -19,7 +19,8 @@ def init_data_map(datadir,outdir,expTimes=None,files=None):
 	dataMap['outdir'] = outdir
 	if files is None:
 		dataMap['files'] = sorted(glob.glob(datadir+'*.fits') + 
-		                          glob.glob(datadir+'*.fits.gz'))
+		                          glob.glob(datadir+'*.fits.gz') +
+		                          glob.glob(datadir+'*.fits.fz'))
 	else:
 		dataMap['files'] = files
 	dataMap['oscan'] = bokio.FileNameMap(outdir)
@@ -29,10 +30,13 @@ def init_data_map(datadir,outdir,expTimes=None,files=None):
 		                                  for f in dataMap['files']])
 	else:
 		dataMap['expTime'] = expTimes
-	# assume they are all the same
-	dataMap['dataSec'] = \
-	         _convertfitsreg(fitsio.read_header(
-	                                  dataMap['files'][0],'IM4')['DATASEC'])
+	try:
+		# assume they are all the same
+		dataMap['dataSec'] = \
+		         _convertfitsreg(fitsio.read_header(
+		                             dataMap['files'][0],'IM4')['DATASEC'])
+	except IOError:
+		pass
 	return dataMap
 
 def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
@@ -179,7 +183,8 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 	if isPTC:
 		# for PTCs skip every other image since they are done in pairs
 		ii = ii[::2]
-	#
+	# only fit to unsaturated frames
+	firstsat = np.where(np.any(st[which][ii,:] > 55000,axis=1))[0][0]
 	pdf = PdfPages(outfn+'.pdf')
 	for imNum in range(1,17):
 		j = imNum - 1
@@ -195,11 +200,6 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 			fscl = fscl_fit(seqno)
 		else:
 			fscl = np.ones_like(seqno)
-		# only fit to unsaturated frames
-		try:
-			firstsat = np.where(st[which][ii,j] > 55000)[0][0]
-		except IndexError:
-			firstsat = -1
 		fit = np.polyfit(t[ii[:firstsat]],
 		                 fscl[ii[:firstsat]]*st[which][ii[:firstsat],j],1)
 		fitv = np.polyval(fit,t)
