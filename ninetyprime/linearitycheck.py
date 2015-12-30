@@ -42,15 +42,13 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 		                    oscan_cols_file=dataMap['outdir']+'oscan_cols',
 		                    oscan_rows_file=dataMap['outdir']+'oscan_rows',
 		                                verbose=10)#method='median_value')
-	import pdb
-	pdb.set_trace()
 	oscanSubtract.process_files(dataMap['rawFiles'])
 	if bias2d:
 		biasname = 'bias'
 		biasStack = bokproc.BokBiasStack(#reject=None,
 		                                 overwrite=redo,
 		                                 with_variance=withvar)
-		bias2dFile = dataMap['outdir']+biasname+'.fits'
+		bias2dFile = os.path.join(dataMap['outdir'],biasname+'.fits')
 		biasStack.stack(dataMap['biasFiles'],bias2dFile)
 		#imProcess = bokproc.BokCCDProcess(bias2dFile,
 		#                                  output_map=dataMap['proc'])
@@ -59,6 +57,7 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 def imstat(dataMap,outfn='stats'):
 	from astropy.stats import sigma_clip
 	from scipy.stats import mode,scoreatpercentile
+	array_stats = bokutil.array_stats
 	fnlen = len(os.path.basename(dataMap['files'][0]))
 	st = np.zeros(len(dataMap['flatSequence']),
 	              dtype=[('file','S%d'%fnlen),
@@ -78,8 +77,8 @@ def imstat(dataMap,outfn='stats'):
 		st['file'][_i] = fn
 		st['expTime'][_i] = expTime
 		for j,extn in enumerate(['IM%d' % n for n in range(1,17)]):
-			pix = sigma_clip(fits[extn].read()[dataMap['statsPix']])
-			modeVal,npix = mode(pix,axis=None)
+			modeVal,pix = array_stats(fits[extn].read()[dataMap['statsPix']],
+			                          method='mode',retArray=True)
 			st['mode'][_i,j] = modeVal
 			st['mean'][_i,j] = pix.mean()
 			st['median'][_i,j] = np.ma.median(pix)
@@ -320,15 +319,15 @@ def init_oct20_data_map():
 def init_nov_data_map():
 	datadir = os.environ.get('BASSDATA')+'/Nov2015/'
 	log = Table.read(datadir+'bassLog_Nov2015.fits')
-	exptimes = log['expTime']
-	files = [ datadir+f['utDir']+'/'+f['fileName']+'i.fits.fz'
+	exptimes = log['expTime'][111:150]
+	files = [ datadir+f['utDir']+'/'+f['fileName']+'i.fits'
 	              for f in log[111:150] ]
 	dataMap = init_data_map(datadir,'tmp_nov',
 	                        expTimes=exptimes,files=files)
 	dataMap['rawFiles'] = dataMap['files']
 	dataMap['files'] = [ dataMap['oscan'](f) for f in dataMap['files'] ]
-	dataMap['biasFiles'] = dataMap['files'][140:150]
-	dataMap['flatSequence'] = np.arange(111,140)
+	dataMap['biasFiles'] = dataMap['files'][-10:]
+	dataMap['flatSequence'] = np.arange(len(dataMap['files'])-10)
 	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
 	dataMap['refExpTime'] = 3.0
 	return dataMap
