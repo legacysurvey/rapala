@@ -57,7 +57,8 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 			print 'ERROR: failed to open file: ',f
 			continue
 		row = []
-		fn = os.path.basename(f).rstrip('.gz').rstrip('.fits')
+		fn = os.path.basename(f)
+		fn = fn[:fn.find('.fits')]
 		utDir = os.path.split(os.path.split(f)[0])[1]
 		imageType = h['IMAGETYP'].strip()
 		filt = h['FILTER'].strip()
