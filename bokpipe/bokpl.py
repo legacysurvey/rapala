@@ -193,9 +193,10 @@ class BokDataManager(object):
 	             with_objnames=False,with_frames=False,as_sequences=False):
 		try:
 			# if the observations database has a good flag use it
-			file_sel = self.obsDb['good']
+			good_ims = self.obsDb['good']
 		except:
-			file_sel = np.zeros(len(self.obsDb),dtype=bool)
+			good_ims = np.ones(len(self.obsDb),dtype=bool)
+		file_sel = good_ims.copy()
 		# select on UT date(s)
 		if utd is not None:
 			utds = [utd] if type(utd) is str else utd
@@ -203,10 +204,7 @@ class BokDataManager(object):
 			utds = [self._curUtDate]
 		else:
 			utds = self.getUtDates() 
-		if np.array_equal(utds,self.allUtDates):
-			# all utds are valid
-			file_sel[:] = True
-		else:
+		if not np.array_equal(utds,self.allUtDates):
 			isUtd = np.zeros_like(file_sel)
 			for utd in utds:
 				isUtd |= ( self.obsDb['utDate'] == utd )
@@ -261,7 +259,7 @@ class BokDataManager(object):
 					# because of a few bad images
 					_splits = []
 					for s in splits:
-						if not np.all(~self.obsDb['good'][ii[s]+1:ii[s+1]]):
+						if not np.all(~good_ims[ii[s]+1:ii[s+1]]):
 							_splits.append(s)
 					if len(_splits)==0:
 						return [ files ]
@@ -301,7 +299,7 @@ def get_bias_map(dataMap):
 
 def get_flat_map(dataMap):
 	flatMap = {}
-	flatPattern = os.path.join(dataMap.getCalDir(),'flat_????????_?_?.fits')
+	flatPattern = os.path.join(dataMap.getCalDir(),'flat_????????_*.fits')
 	flatFiles = sorted(glob.glob(flatPattern))
 	flat2utdfilt = ".*flat_(\d+)_(\w+)_.*"
 	utdfilt = [ re.match(flat2utdfilt,fn).groups() for fn in flatFiles]
@@ -316,7 +314,7 @@ def get_flat_map(dataMap):
 			try:
 				j = np.argmin(np.abs(int(utd)-flatUtds[jj]))
 			except ValueError:
-				raise ValueError('no match for %s:%s in %s:s' % 
+				raise ValueError('no match for %s:%s in %s:%s' % 
 				                 (utd,filt,flatUtds,flatFilt))
 			flatFile = flatFiles[jj[j]]
 			for f in files:
@@ -343,12 +341,17 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
                                      **kwargs)
 	for utd in dataMap.iterUtDates():
 		bias_seqs = dataMap.getFiles(imType='zero',as_sequences=True)
+		if bias_seqs is None:
+			continue
 		for biasNum,biasFiles in enumerate(bias_seqs,start=1):
 			if len(biasFiles) < 5: # XXX hardcoded
 				continue
 			biasFile = os.path.join(dataMap.getCalDir(),
 			                        'bias_%s_%d.fits' % (utd,biasNum))
 			biasStack.stack(biasFiles[nSkip:],biasFile)
+			if kwargs.get('verbose',0) >= 1:
+				print '2DBIAS: ',biasFile
+				print '\n'.join(biasFiles[nSkip:])
 			if writeccdim:
 				makeccd4image(dataMap,biasFile,**kwargs)
 
@@ -368,6 +371,8 @@ def make_dome_flats(dataMap,bias_map,
 	for utd in dataMap.iterUtDates():
 		for filt in dataMap.iterFilters():
 			flat_seqs = dataMap.getFiles(imType='flat',as_sequences=True)
+			if flat_seqs is None:
+				continue
 			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
 				if len(flatFiles) < 5: # XXX hardcoded
 					continue
@@ -377,22 +382,27 @@ def make_dome_flats(dataMap,bias_map,
 				flatStack.stack(flatFiles[nSkip:],flatFile)
 				if usepixflat:
 					normFlat.process_files([flatFile])
+				if kwargs.get('verbose',0) >= 1:
+					print 'DOMEFLAT: ',flatFile
+					print '\n'.join(flatFiles[nSkip:])
 				if writeccdim:
 					makeccd4image(dataMap,flatFile,**kwargs)
 
 def make_bad_pixel_masks(dataMap,**kwargs):
 	for utd in dataMap.iterUtDates():
 		for filt in dataMap.iterFilters():
-			files = dataMap.getFiles(imType='object')
-			if files is None:
-				continue
 			flatNum = 1
 			flatFn = os.path.join(dataMap.getCalDir(),
 			                      'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
+			if not os.path.exists(flatFn):
+				continue
 			bpMaskFile = os.path.join(dataMap.getCalDir(),
 			                       dataMap.getMaster('BadPixMask',name=True))
 			bpMask4File = os.path.join(dataMap.getCalDir(),
 			                       dataMap.getMaster('BadPixMask4',name=True))
+			if kwargs.get('verbose',0) >= 1:
+				print 'generating bad pixel mask ',bpMaskFile,
+				print ' from ',flatFn
 			build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
 			makeccd4image(dataMap,bpMaskFile,outputFile=bpMask4File,**kwargs)
 			break
@@ -676,9 +686,17 @@ def init_file_args(parser):
 	                help='UT date(s) to process [default=all]')
 	return parser
 
+def _load_obsdb(obsdb):
+	obsDb = Table.read(obsdb)
+	# found that when topcat writes FITS tables it adds whitespace to str
+	# columns, strip them here (makes a copy but oh well)
+	for k in ['utDate','utDir','fileName','imType','filter','objName']:
+		obsDb[k] = np.char.rstrip(obsDb[k])
+	return obsDb
+
 def init_data_map(args,create_dirs=True):
 	#
-	obsDb = Table.read(args.obsdb)
+	obsDb = _load_obsdb(args.obsdb)
 	# set up the data map
 	dataMap = BokDataManager(obsDb,args.rawdir,args.output)
 	#
@@ -712,9 +730,8 @@ def set_master_cals(dataMap):
 	dataMap.setMaster('BadPixMask')
 	dataMap.setMaster('BadPixMask4')
 	dataMap.setMaster('BiasRamp')
-	# XXX
-	dataMap.setMaster('Illumination')#,byFilter=True)
-	dataMap.setMaster('SkyFlat')#,byFilter=True)
+	dataMap.setMaster('Illumination',byFilter=True)
+	dataMap.setMaster('SkyFlat',byFilter=True)
 	return dataMap
 
 def init_pipeline_args(parser):
