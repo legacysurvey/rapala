@@ -268,18 +268,24 @@ class BokCCDProcess(bokutil.BokProcess):
 	def _preprocess(self,fits,f):
 		print 'ccdproc ',fits.fileName,fits.outFileName
 		for imType in self.imTypes:
+			calFn = None
 			if not self.procIms[imType]['master']:
 				inFile = self.procIms[imType]['map'][f]
-				if self.procIms[imType]['file'] != inFile:
+				if type(inFile) is fitsio.fitslib.FITS:
+					self.procIms[imType]['fits'] = inFile
+					calFn = inFile._filename
+				elif self.procIms[imType]['file'] != inFile:
 					if self.procIms[imType]['fits'] is not None:
 						self.procIms[imType]['fits'].close()
 					self.procIms[imType]['file'] = inFile
 					self.procIms[imType]['fits'] = fitsio.FITS(inFile)
+			if calFn is None:
+				calFn = self.procIms[imType]['file']
 			hdrCards = {}
-			if self.procIms[imType]['file'] is not None:
+			if calFn is not None:
 				# e.g., hdr['BIASFILE'] = <filename>
 				hdrKey = str(imType.upper()+'FILE')[:8]
-				curPath = self.procIms[imType]['file'].rstrip('.fits')
+				curPath = calFn.rstrip('.fits')
 				if len(curPath) > 65:
 					# trim the file path if it is long
 					fn = ''

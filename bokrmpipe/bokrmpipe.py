@@ -1,13 +1,8 @@
 #!/usr/bin/env python
 
 import os
-import re
 import glob
-from copy import copy
-import multiprocessing
 import numpy as np
-from numpy.core.defchararray import add as char_add
-import fitsio
 from astropy.table import Table
 
 from bokpipe import bokpl,bokobsdb

@@ -22,7 +22,7 @@ from . import bokphot
 from . import bokgnostic
 
 all_process_steps = ['oscan','bias2d','flat2d','bpmask',
-                     'proc1','comb','skyflat','proc2','wcs','cat']
+                     'proc1','comb','skyflat','proc2','sky','wcs','cat']
 
 default_filenames = {
   'oscan':'','bias':'_b','proc1':'_p','comb':'_c',
@@ -143,17 +143,17 @@ class BokDataManager(object):
 				                     'fileName':'%s_%s.fits'%(calType,filt)}
 		else:
 			self.master[calType] = {'fits':fits,'fileName':calType+'.fits'}
-	def getMaster(self,calType,filt=None,name=False):
-		if filt is None:
-			if name:
-				return self.master[calType]['fileName']
-			else:
-				return self.master[calType]['fits']
+	def getMaster(self,calType,filt=None,name=False,load=True):
+		master = self.master[calType]
+		if filt is not None:
+			master = master[filt]
+		if name:
+			return master['fileName']
 		else:
-			if name:
-				return self.master[calType][filt]['fileName']
-			else:
-				return self.master[calType][filt]['fits']
+			if load and master['fits'] is None:
+				master['fits'] = fitsio.FITS(os.path.join(self.calDir,
+				                                      master['fileName']))
+			return master['fits']
 	def setInPlace(self,inPlace):
 		self.inPlace = inPlace
 		if self.inPlace:
@@ -468,6 +468,7 @@ def process_all(dataMap,bias_map,flat_map,
 
 def make_supersky_flats(dataMap,**kwargs):
 	caldir = dataMap.getCalDir()
+	stackin = dataMap('sky') # XXX
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=dataMap('skymask'),
 	                    exposure_time_map=bokio.FileNameMap(caldir,'.exp'),
@@ -497,19 +498,32 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	#
 	# Second round flat-field corrections
 	#
-	# XXX need to do by-filter
-	illum = None if noillumcorr else dataMap('MasterIllumination')
-	darksky = None if nodarkskycorr else dataMap('MasterSkyFlat')
+	files,ii = dataMap.getFiles(imType='object',with_frames=True)
+	if files is None:
+		return
+	if noillumcorr:
+		illum_map = None
+	else:
+		illum_map = {}
+		for i,f in zip(ii,files):
+			illum_map[f] = dataMap.getMaster('Illumination',
+			                                 dataMap.obsDb['filter'][i])
+	if nodarkskycorr:
+		darksky_map = None
+	else:
+		darksky_map[f] = {}
+		for i,f in zip(ii,files):
+			darksky_map[f] = dataMap.getMaster('SkyFlat',
+			                                   dataMap.obsDb['filter'][i])
+	#
 	proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
 	                             output_map=dataMap('proc2'),
 	                             mask_map=dataMap('MasterBadPixMask4'),
 	                             header_key=prockey,
 	                             gain_multiply=False,bias=None,flat=None,
-	                             ramp=None,illum=illum,darksky=darksky,
-	                             fixpix=False,**kwargs)
-	files = dataMap.getFiles(imType='object')
-	if files is None:
-		return
+	                             ramp=None,fixpix=False,
+	                             illum=illum_map,darksky=darksky_map,
+	                             **kwargs)
 	proc.process_files(files)
 	if noskysub:
 		return
@@ -529,7 +543,6 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	                                mask_map=dataMap('skymask'),
 	                                skyfit_map=skyfitmap,**skyArgs)
 	skySub.add_mask(dataMap('MasterBadPixMask4'))
-	stackin = dataMap('sky',False)
 	skySub.process_files(files)
 
 def set_wcs(dataMap,inputType='sky',keepwcscat=True,**kwargs):
