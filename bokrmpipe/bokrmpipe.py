@@ -99,6 +99,6 @@ if __name__=='__main__':
 		if args.band is None or args.band not in ['g','i']:
 			raise ValueError("Must select a band for dark sky frames (-b)")
 		frames = load_darksky_frames(args.band)
-		dataMap.setFrameList(frames['utDate'],frames['fileName'])
+		dataMap.setFileList(frames['utDate'],frames['fileName'])
 	bokpl.run_pipe(dataMap,args)
 
