@@ -71,6 +71,7 @@ class BokDataManager(object):
 		self._tmpInput = False
 		self._tmpOutput = False
 		self._tmpDir = os.path.join(self.procDir,'tmp')
+		self.refCatDir = None
 		self.fileSuffixes = default_filenames
 		self.setInPlace(True)
 		self.firstStep = None
@@ -121,10 +122,12 @@ class BokDataManager(object):
 		isUtd = True if utDate is None else self.obsDb['utDate']==utDate
 		self.frameList = np.where( isUtd & 
 		                           (self.obsDb['fileName']==fileName) )[0]
-	def setFrameList(self,utDates,fileNames):
+	def setFileList(self,utDates,fileNames):
 		frames = [ np.where( (self.obsDb['utDate']==utd) &
 		                     (self.obsDb['fileName']==f) )[0][0]
 		             for utd,f in zip(utDates,fileNames) ]
+		self.setFrameList(frames)
+	def setFrameList(self,frames):
 		self.frameList = np.array(frames)
 	def setImageType(self,imType):
 		self.imType = imType
@@ -133,6 +136,8 @@ class BokDataManager(object):
 		if not os.path.exists(self.refCatDir):
 			os.mkdir(self.refCatDir)
 	def getScampRefCat(self,fieldName):
+		if self.refCatDir is None:
+			return None
 		refCatFn = 'scampref_%s.cat' % fieldName
 		return os.path.join(self.refCatDir,refCatFn)
 	def setMaster(self,calType,fits=None,byFilter=False):
@@ -724,7 +729,14 @@ def init_data_map(args,create_dirs=True):
 		dataMap.setDiagDir(os.path.join(args.caldir,'diagnostics'))
 	#
 	if args.frames is not None:
-		dataMap.setFrames(tuple([int(_f) for _f in args.frames.split(',')]))
+		_frames = []
+		for _f in args.frames.split(','):
+			if '-' in _f:
+				i1,i2 = _f.split('-')
+				_frames.extend(range(int(i1),int(i2)+1))
+			else:
+				_frames.append(int(_f))
+		dataMap.setFrameList(_frames)
 	elif args.file is not None:
 		dataMap.setFile(args.file)
 	if args.imtype is not None:
