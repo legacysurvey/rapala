@@ -50,3 +50,7 @@ nov15final:
 	                    --frames $(NOV14FRAMES) \
 	                    -s wcs,cat -vv
 
+nov15finish:
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) --finish
+

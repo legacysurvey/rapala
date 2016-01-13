@@ -23,8 +23,10 @@ def init_data_map(datadir,outdir,expTimes=None,files=None):
 		                          glob.glob(datadir+'*.fits.fz'))
 	else:
 		dataMap['files'] = files
+	dataMap['rawFiles'] = dataMap['files']
 	dataMap['oscan'] = bokio.FileNameMap(outdir)
 	dataMap['proc'] = bokio.FileNameMap(outdir,'_p')
+	dataMap['files'] = [ dataMap['oscan'](f) for f in dataMap['files'] ]
 	if expTimes is None:
 		dataMap['expTime'] = np.array([fitsio.read_header(f)['EXPTIME']
 		                                  for f in dataMap['files']])
@@ -120,20 +122,20 @@ def scaled_histograms(dataMap,nims=None,outfn='pixhist'):
 		plt.close(fig)
 	pdf.close()
 
-def plot_sequence(dataMap,st,imNum):
+def plot_sequence(dataMap,st,imNum,which='median'):
 	expScale = dataMap['refExpTime']/st['expTime']
 	seqno = 1 + np.arange(len(st))
 	ref = np.isclose(expScale,1.0)
 	j = imNum - 1
 	plt.figure(figsize=(8,6))
 	plt.subplots_adjust(0.11,0.08,0.96,0.95)
-	plt.errorbar(seqno[ref],expScale[ref]*st['median'][ref,j],
-	                   [expScale[ref]*(st['median']-st['iqr10'])[ref,j],
-	                    expScale[ref]*(st['iqr90']-st['median'])[ref,j]],
+	plt.errorbar(seqno[ref],expScale[ref]*st[which][ref,j],
+	                   [expScale[ref]*(st[which]-st['iqr10'])[ref,j],
+	                    expScale[ref]*(st['iqr90']-st[which])[ref,j]],
 	             fmt='bs-')
-	plt.errorbar(seqno[~ref],expScale[~ref]*st['median'][~ref,j],
-	                   [expScale[~ref]*(st['median']-st['iqr10'])[~ref,j],
-	                    expScale[~ref]*(st['iqr90']-st['median'])[~ref,j]],
+	plt.errorbar(seqno[~ref],expScale[~ref]*st[which][~ref,j],
+	                   [expScale[~ref]*(st[which]-st['iqr10'])[~ref,j],
+	                    expScale[~ref]*(st['iqr90']-st[which])[~ref,j]],
 	             fmt='cs-')
 	#plt.scatter(seqno,expScale*st['mode'][:,j],marker='+',c='r')
 	#plt.scatter(seqno,expScale*st['mean'][:,j],marker='x',c='g')
@@ -269,9 +271,12 @@ def init_sep09bss_data_map():
 	exptimes = np.loadtxt(datadir+'../bss.20150909.log',usecols=(3,))
 	exptimes = exptimes[50:]
 	print exptimes
-	dataMap = init_data_map(datadir,
-	                        os.environ.get('GSCRATCH')+'/bss_sep09/',
-	                        expTimes=exptimes,files=files)
+	rdxdir = os.environ.get('GSCRATCH','tmp_sep')+'/bss_sep09/'
+	if not os.path.exists(rdxdir):
+		os.makedirs(rdxdir)
+	dataMap = init_data_map(datadir,rdxdir,
+	                        expTimes=exptimes,files=None)
+	dataMap['rawFiles'] = dataMap['rawFiles'][50:]
 	dataMap['files'] = dataMap['files'][50:]
 	dataMap['biasFiles'] = dataMap['files'][-5:]
 	#dataMap['flatSequence'] = range(50,68)
@@ -324,8 +329,6 @@ def init_nov_data_map():
 	              for f in log[111:150] ]
 	dataMap = init_data_map(datadir,'tmp_nov',
 	                        expTimes=exptimes,files=files)
-	dataMap['rawFiles'] = dataMap['files']
-	dataMap['files'] = [ dataMap['oscan'](f) for f in dataMap['files'] ]
 	dataMap['biasFiles'] = dataMap['files'][-10:]
 	dataMap['flatSequence'] = np.arange(len(dataMap['files'])-10)
 	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')

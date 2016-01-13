@@ -38,7 +38,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 	                 'mirrorCellTemp','primaryTemp','strutTemp','primeTemp',
 	                 'windSpeed','windDir','airTemp','relHumid','barom'),
 	          dtype=('i4','S15','S35','S8',
-	                 'S8','S8','S15','f4',
+	                 'S8','S8','S35','f4',
 	                 'i4','i4','f4','f4','f4',
 	                 'f4','f4',
 	                 'f4','f4','S10','S10',
