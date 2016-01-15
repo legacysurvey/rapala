@@ -13,6 +13,8 @@ parser.add_argument("-o","--output",type=str,
                     help="output FITS image")
 parser.add_argument("--split",action="store_true",
                     help="split into per-ccd files (instead of join)")
+parser.add_argument("--flatnorm",action="store_true",
+                    help="normalize to unity at CCD centers for flats")
 parser.add_argument('-v','--verbose',action='count',
                     help='increase output verbosity')
 args = parser.parse_args()
@@ -36,7 +38,7 @@ else:
 	else:
 		outputFile = args.output
 	
-	kwargs = {'clobber':True}
+	kwargs = {'clobber':True,'apply_flat_norm':args.flatnorm}
 	
 	combine_ccds([args.input,],output_map=lambda s: outputFile,**kwargs)
 
