@@ -171,7 +171,8 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		kwargs.setdefault('scale','normalize_mode')
 		super(BokDomeFlatStack,self).__init__(**kwargs)
 		self.headerKey = 'FLAT'
-		self.normPix = kwargs.get('norm_region','amp_corner_ccdcenter_256')
+		self.normPix = kwargs.get('norm_region',
+		                    bokutil.stats_region('amp_corner_ccdcenter_256'))
 	def _postprocess(self,extName,stack,hdr):
 		flatNorm = bokutil.array_stats(stack[self.normPix])
 		stack /= flatNorm
