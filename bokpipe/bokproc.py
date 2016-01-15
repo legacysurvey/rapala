@@ -167,12 +167,13 @@ class BokBiasStack(bokutil.ClippedMeanStack):
 
 class BokDomeFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
-		kwargs.setdefault('stats_region','amp_corner_ccdcenter_small')
+		kwargs.setdefault('stats_region','amp_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
 		super(BokDomeFlatStack,self).__init__(**kwargs)
 		self.headerKey = 'FLAT'
+		self.normPix = kwargs.get('norm_region','amp_corner_ccdcenter_256')
 	def _postprocess(self,extName,stack,hdr):
-		flatNorm = bokutil.array_stats(stack[self.statsPix])
+		flatNorm = bokutil.array_stats(stack[self.normPix])
 		stack /= flatNorm
 		try:
 			stack = stack.filled(1.0)
