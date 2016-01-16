@@ -680,14 +680,15 @@ def rmpipe_poormp(dataMap,**kwargs):
 
 def make_images(dataMap,imtype='comb',msktype=None):
 	import matplotlib.pyplot as plt
+	from . import bokmkimage
 	files = dataMap.getFiles(imType='object')
-	_fmap = dataMap(imtype,False)
+	_fmap = dataMap(imtype)
 	if msktype=='badpix':
 		msktype = 'MasterBadPixMask4'
 	if msktype==None:
 		maskmap = lambda f: None
 	else:
-		maskmap = dataMap(msktype,False)
+		maskmap = dataMap(msktype)
 	imdir = os.path.join(dataMap.getProcDir(),'images')
 	if not os.path.exists(imdir):
 		os.mkdir(imdir)
