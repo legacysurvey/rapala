@@ -12,7 +12,8 @@ def set_bass_defaults(args):
 	if args.rawdir is None:
 		args.rawdir = os.environ['BASSDATA']
 	if args.output is None:
-		args.output = os.path.join('reduced',pipeVersion)
+		outdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',pipeVersion)
+		args.output = outdir
 	if args.obsdb is None:
 		args.obsdb = os.path.join('config','basslog.fits')
 	return args

@@ -13,7 +13,9 @@ nov15db:
 
 nov15proc:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    -s oscan,bias2d,flat2d -vvv #-p 4 
+	                    -s oscan,bias2d -vvv -p 4 
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    -s flat2d -vvv --nousepixflat
 
 nov15badpix:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
@@ -22,16 +24,18 @@ nov15badpix:
 nov15flats:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s proc1 --prockey TMPPROC \
-	                    --norampcorr --nosavegain --tmpdirout #-p 4
+	                    --norampcorr --nobiascorr --nosavegain \
+	                    --tmpdirout -p 4
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --tmpdirin --makeillumcorr -vvv
+	                    --makeillumcorr \
+	                    --tmpdirin -vvv
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s proc2 \
 	                    --nodarkskycorr --skymethod polynomial --skyorder 1 \
-	                    --tmpdirin --tmpdirout -vvv #-p 4
+	                    --tmpdirin --tmpdirout -vvv -p 4
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s skyflat \
-	                    --tmpdirin --tmpdirout -vvv #-p 4
+	                    --tmpdirin --tmpdirout -vvv 
 
 # Just the science frames in validation fields
 NOV14FRAMES := "33-69,98-110"
@@ -39,13 +43,10 @@ NOV14FRAMES := "33-69,98-110"
 nov15final:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
-	                    -s proc1 --norampcorr
+	                    -s proc1 --norampcorr --nobiascorr
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
-	                    -s proc2 -b g --nodarkskycorr
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --frames $(NOV14FRAMES) \
-	                    -s proc2 -b bokr --nodarkskycorr
+	                    -s proc2 
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
 	                    -s wcs,cat -vv
