@@ -537,7 +537,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	if nodarkskycorr:
 		darksky_map = None
 	else:
-		darksky_map[f] = {}
+		darksky_map = {}
 		for i,f in zip(ii,files):
 			darksky_map[f] = dataMap.getMaster('SkyFlat',
 			                                   dataMap.obsDb['filter'][i])
