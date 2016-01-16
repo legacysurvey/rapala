@@ -190,21 +190,19 @@ class NormalizeFlat(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','NORMFLT')
 		super(NormalizeFlat,self).__init__(**kwargs)
-		self.nbin = kwargs.get('nbin',32)
-		self.flatFitName = kwargs.get('normed_flat_fit_file')
-		self.binnedFlatName = kwargs.get('binned_flat_file')
+		self.nbin = kwargs.get('nbin',16)
+		self.nKnots = kwargs.get('nknots',2)
+		self.splineOrder = kwargs.get('spline_order',3)
+		self.flatFitMap = kwargs.get('_normed_flat_fit_map')
+		self.binnedFlatMap = kwargs.get('_binned_flat_map')
 		self.normedFlatFit = None
 		self.binnedFlat = None
 	def _preprocess(self,fits,f):
-		if self.flatFitName is not None:
-			if os.path.exists(self.flatFitName):
-				os.unlink(self.flatFitName)
-			self.normedFlatFit = fitsio.FITS(self.flatFitName,'rw')
+		if self.flatFitMap is not None:
+			self.normedFlatFit = fitsio.FITS(self.flatFitMap(f),'rw')
 			self.normedFlatFit.write(None,header=fits.get_header(0))
-		if self.binnedFlatName is not None:
-			if os.path.exists(self.binnedFlatName):
-				os.unlink(self.binnedFlatName)
-			self.binnedFlat = fitsio.FITS(self.binnedFlatName,'rw')
+		if self.binnedFlatMap is not None:
+			self.binnedFlat = fitsio.FITS(self.binnedFlatMap(f),'rw')
 			self.binnedFlat.write(None,header=fits.get_header(0))
 	def _finish(self):
 		if self.normedFlatFit is not None:
@@ -227,11 +225,16 @@ class NormalizeFlat(bokutil.BokProcess):
 			im.mask[:,:50] = True
 		binnedIm = bokutil.rebin(im,self.nbin)
 		binnedIm = bokutil.array_clip(binnedIm,axis=-1,
-		                    clip_iters=3,clip_sig=2.2).mean(axis=-1).filled(1)
-		x = np.arange(self.nbin/2,nx,self.nbin)
-		y = np.arange(self.nbin/2,ny,self.nbin)
-		spfit = RectBivariateSpline(x,y,binnedIm.T,s=1)
-		gradientIm = spfit(np.arange(nx),np.arange(ny)).T
+		                    clip_iters=3,clip_sig=2.2).mean(axis=-1)#.filled(1)
+		x = np.arange(self.nbin/2,nx,self.nbin,dtype=np.float32)
+		y = np.arange(self.nbin/2,ny,self.nbin,dtype=np.float32)
+		xx,yy = np.meshgrid(x,y)
+		tx = np.linspace(0,nx,self.nKnots)
+		ty = np.linspace(0,ny,self.nKnots)
+		spFit = LSQBivariateSpline(xx[~binnedIm.mask],yy[~binnedIm.mask],
+		                           binnedIm.data[~binnedIm.mask],tx,ty,
+		                           kx=self.splineOrder,ky=self.splineOrder)
+		gradientIm = spFit(np.arange(nx),np.arange(ny)).T
 		normedIm = im.data / gradientIm
 		if self.normedFlatFit is not None:
 			self.normedFlatFit.write(gradientIm.astype(np.float32),
@@ -531,6 +534,9 @@ def combine_ccds(fileList,**kwargs):
 	gainMap = kwargs.get('gain_map')
 	origin = kwargs.get('origin','center')
 	clobber = kwargs.get('clobber')
+	# a hacked entry point for flat fields that normalizes the corners
+	# of each channel at the CCD centers to be unity
+	flatNorm = kwargs.get('apply_flat_norm',False)
 	ignoreExisting = kwargs.get('ignore_existing',True)
 	# fitsio doesn't accept file descriptors, but tempfile opens files...
 	tmpFile = tempfile.NamedTemporaryFile()
@@ -591,6 +597,10 @@ def combine_ccds(fileList,**kwargs):
 					if j==0:
 						hdr['CCDGAIN'] = gc2
 					im *= gc1 * gc2
+				if flatNorm:
+					_s = bokutil.stats_region('amp_corner_ccdcenter_128')
+					_a = bokutil.array_stats(im[_s],method='mode')
+					im /= _a
 				ccdIms.append(im)
 			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords

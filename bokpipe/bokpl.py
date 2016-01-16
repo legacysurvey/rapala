@@ -3,6 +3,7 @@
 import os
 import re
 import glob
+import shutil
 from copy import copy
 import multiprocessing
 import numpy as np
@@ -362,7 +363,7 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 
 def make_dome_flats(dataMap,bias_map,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
-	                usepixflat=True,**kwargs):
+	                usepixflat=True,debug=False,**kwargs):
 	bias2Dsub = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
 	                                  output_map=dataMap('bias'),
 	                                  bias=bias_map,
@@ -372,7 +373,13 @@ def make_dome_flats(dataMap,bias_map,
 	                                     input_map=dataMap('bias'),
 	                                     **kwargs)
 	if usepixflat:
-		normFlat = bokproc.NormalizeFlat(**kwargs)
+		if debug:
+			ffmap = SimpleFileNameMap(None,dataMap.procDir,'_fit')
+			bfmap = SimpleFileNameMap(None,dataMap.procDir,'_binned')
+		else:
+			ffmap,bfmap = None,None
+		normFlat = bokproc.NormalizeFlat(_normed_flat_fit_map=ffmap,
+		                                 _binned_flat_map=bfmap,**kwargs)
 	for utd in dataMap.iterUtDates():
 		for filt in dataMap.iterFilters():
 			flat_seqs = dataMap.getFiles(imType='flat',as_sequences=True)
@@ -386,6 +393,9 @@ def make_dome_flats(dataMap,bias_map,
 				bias2Dsub.process_files(flatFiles)
 				flatStack.stack(flatFiles[nSkip:],flatFile)
 				if usepixflat:
+					if debug:
+						shutil.copy(flatFile,
+						            flatFile.replace('.fits','_raw.fits'))
 					normFlat.process_files([flatFile])
 				if kwargs.get('verbose',0) >= 1:
 					print 'DOMEFLAT: ',flatFile
@@ -397,18 +407,29 @@ def make_bad_pixel_masks(dataMap,**kwargs):
 	for utd in dataMap.iterUtDates():
 		for filt in dataMap.iterFilters():
 			flatNum = 1
-			flatFn = os.path.join(dataMap.getCalDir(),
+			flatFile = os.path.join(dataMap.getCalDir(),
 			                      'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
-			if not os.path.exists(flatFn):
+			if not os.path.exists(flatFile):
 				continue
+			hdr = fitsio.read_header(flatFile,0)
+			if 'NORMFLT' not in hdr:
+				# need to normalize the flat before making mask
+				_map = SimpleFileNameMap(None,dataMap.procDir,'_normed')
+				ffmap = SimpleFileNameMap(None,dataMap.procDir,'_fit')
+				bfmap = SimpleFileNameMap(None,dataMap.procDir,'_binned')
+				normFlat = bokproc.NormalizeFlat(output_map=_map,
+				                            _normed_flat_fit_map=ffmap,
+				                            _binned_flat_map=bfmap,**kwargs)
+				normFlat.process_files([flatFile])
+				flatFile = _map(flatFile)
 			bpMaskFile = os.path.join(dataMap.getCalDir(),
 			                       dataMap.getMaster('BadPixMask',name=True))
 			bpMask4File = os.path.join(dataMap.getCalDir(),
 			                       dataMap.getMaster('BadPixMask4',name=True))
 			if kwargs.get('verbose',0) >= 1:
 				print 'generating bad pixel mask ',bpMaskFile,
-				print ' from ',flatFn
-			build_mask_from_flat(flatFn,bpMaskFile)#,**kwargs)
+				print ' from ',flatFile
+			build_mask_from_flat(flatFile,bpMaskFile)#,**kwargs)
 			makeccd4image(dataMap,bpMaskFile,outputFile=bpMask4File,**kwargs)
 			break
 
@@ -577,6 +598,7 @@ def make_catalogs(dataMap,inputType='sky',**kwargs):
 def rmpipe(dataMap,**kwargs):
 	redo = kwargs.get('redo',False)
 	steps = kwargs.get('steps')
+	debug = kwargs.get('debug',False)
 	verbose = kwargs.get('verbose',0)
 	pipekwargs = {'clobber':redo,'verbose':verbose}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
@@ -592,9 +614,11 @@ def rmpipe(dataMap,**kwargs):
 		timerLog('2d biases')
 	if 'flat2d' in steps:
 		biasMap = get_bias_map(dataMap)
+		if debug:
+			pass
 		make_dome_flats(dataMap,biasMap,writeccdim=writeccdims,
 		                usepixflat=not kwargs.get('nousepixflat',False),
-		                **pipekwargs)
+		                debug=debug,**pipekwargs)
 		timerLog('dome flats')
 	if 'bpmask' in steps:
 		make_bad_pixel_masks(dataMap)
@@ -760,6 +784,8 @@ def set_master_cals(dataMap):
 	return dataMap
 
 def init_pipeline_args(parser):
+	parser.add_argument('--debug',action='store_true',
+	                help='save additional debugging files')
 	parser.add_argument('-n','--newfiles',action='store_true',
 	                help='process to new files (not in-place)')
 	parser.add_argument('-p','--processes',type=int,default=1,
