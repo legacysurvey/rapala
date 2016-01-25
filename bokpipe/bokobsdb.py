@@ -25,7 +25,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 			files.extend(glob(os.path.join(d,filePattern)))
 	files.sort()
 	# create the storage table
-	t = Table(names=('frameIndex','utDir','fileName','utDate',
+	t = Table(names=('frameIndex','utDir','fileName','utDate','date_obs',
 	                 'imType','filter','objName','expTime',
 	                 'ccdbin1','ccdbin2','focusA','focusB','focusC',
 	                 'hdrAirmass','airmass',
@@ -37,7 +37,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 	                 'insideTemp','insideHumidity',
 	                 'mirrorCellTemp','primaryTemp','strutTemp','primeTemp',
 	                 'windSpeed','windDir','airTemp','relHumid','barom'),
-	          dtype=('i4','S15','S35','S8',
+	          dtype=('i4','S15','S35','S8','S10',
 	                 'S8','S8','S35','f4',
 	                 'i4','i4','f4','f4','f4',
 	                 'f4','f4',
@@ -175,7 +175,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 		except:
 			barom = badfloat
 		#
-		row.extend([i,utDir,fn,utDate])
+		row.extend([i,utDir,fn,utDate,h['DATE-OBS']])
 		row.extend([imageType,filt,objName,h['EXPTIME']])
 		row.extend([h['CCDBIN1'],h['CCDBIN2'],focA,focB,focC])
 		row.extend([hdrAirmass,airmass])
