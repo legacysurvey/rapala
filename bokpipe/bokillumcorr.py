@@ -5,7 +5,7 @@ import numpy as np
 from scipy.interpolate import LSQBivariateSpline
 from astropy.modeling import models,fitting
 
-from bokpipe import *
+from . import bokutil
 
 def make_skyflat(dataMap,skyFlatFile):
 	'''Make a dark sky flat template for the illumination correction'''
@@ -18,10 +18,13 @@ def make_skyflat(dataMap,skyFlatFile):
 	# center so is reasonable
 	stackFun = bokutil.ClippedMeanStack(**stackPars)
 	# excluding fields with bright stars
-	files = dataMap.getFiles(exclude_objs=['rm10','rm11','rm12','rm13'])
+	# XXX remove this hack for RM data
+	files = dataMap.getFiles(imType='object',
+	                         exclude_objs=['rm10','rm11','rm12','rm13'])
 	# limit it to ~50 images
-	files = files[::len(files)//50]
-	inputFiles = [dataMap('proc1',False)(f) for f in files]
+	if len(files) > 100:
+		files = files[::len(files)//50]
+	inputFiles = [dataMap('comb')(f) for f in files]
 	stackFun.stack(inputFiles,skyFlatFile)
 
 # argh. spline requires monotonically increasing coordinates
@@ -72,20 +75,23 @@ def fit_illumination(inputFile,dataMap,nbin=16,asPoly=False,order=3,nKnots=3):
 	return illum
 
 def make_illumcorr_image(dataMap,**kwargs):
-	inputFile = os.path.join(dataMap._tmpDir,'tmpillum.fits')
-	make_skyflat(dataMap,inputFile)
-	illum = fit_illumination(inputFile,dataMap,**kwargs)
-	outFn = os.path.join(dataMap.calDir,dataMap.illumCorrFn)
-	fits = bokutil.BokMefImage(inputFile,output_file=outFn,clobber=True)
-	for extName,im,hdr in fits:
-		xx,yy = fits.get_xy(extName,'sky')
-		if kwargs.get('asPoly',False):
-			ccdim = illum(xx,yy)
-		else:
-			ccdim = form_spline_im(extName,illum,xx,yy)
-		ccdim /= float(illum(0,0))
-		fits.update(ccdim,hdr)
-	fits.close()
+	# XXX also have iterUtds option
+	for filt in dataMap.iterFilters():
+		inputFile = os.path.join(dataMap._tmpDir,'tmpillum_%s.fits'%filt)
+		make_skyflat(dataMap,inputFile)
+		illum = fit_illumination(inputFile,dataMap,**kwargs)
+		outFn = dataMap.getMaster('Illumination',filt=filt,name=True)
+		outFn = os.path.join(dataMap.getCalDir(),outFn)
+		fits = bokutil.BokMefImage(inputFile,output_file=outFn,clobber=True)
+		for extName,im,hdr in fits:
+			xx,yy = fits.get_xy(extName,'sky')
+			if kwargs.get('asPoly',False):
+				ccdim = illum(xx,yy)
+			else:
+				ccdim = form_spline_im(extName,illum,xx,yy)
+			ccdim /= float(illum(0,0))
+			fits.update(ccdim,hdr)
+		fits.close()
 
 def test(skyflatf,bpmaskf,asPoly=False,nbin=16):
 	'''Generate an illumination correction image from a sky flat and a

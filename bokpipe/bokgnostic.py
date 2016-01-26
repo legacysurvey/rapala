@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 import os
+from collections import defaultdict
 import numpy as np
+from astropy.table import Table
 import fitsio
 
 import matplotlib.pyplot as plt
@@ -9,6 +11,42 @@ import matplotlib.pyplot as plt
 from . import bokutil
 from . import bokproc
 from . import bokastrom
+
+def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
+	files_and_frames = dataMap.getFiles(with_frames=True)
+	cols = defaultdict(list)
+	for f,i in zip(*files_and_frames):
+		frameId,expTime = dataMap.obsDb['frameIndex','expTime'][i]
+		procf = dataMap('proc2')(f)
+		catf = dataMap('cat')(f)
+		try:
+			imFits = fitsio.FITS(procf)
+		except:
+			print frameId,procf,' does not exist'
+			continue
+		cols['frameId'].append(frameId)
+		hdrs = [ imFits[extName].read_header()
+		                 for extName in ['CCD1','CCD2','CCD3','CCD4'] ]
+		cols['biasDN'].append([ h['OSCANMED'] for h in hdrs ])
+		cols['skyElPerSec'].append(hdrs[0]['SKYVAL']/expTime)
+		try:
+			catFits = fitsio.FITS(catf)
+			fwhm = []
+			for extNum in range(1,5):
+				objs = catFits[extNum].read()
+				ii = np.where((objs['FLAGS']==0) &
+				              (objs['CLASS_STAR'] > 0.5))[0]
+				if len(ii) > 5:
+					fwhm.append(np.median(objs['FWHM_IMAGE'][ii]))
+				else:
+					fwhm.append(-1)
+		except:
+			print i,catf,' does not exist'
+			fwhm = [-1,-1,-1,-1]
+		cols['fwhmPix'].append(fwhm)
+	cols = dict(cols)
+	tab = Table(cols)
+	tab.write(outFile,overwrite=True)
 
 def check_gain_bal(fileName,badPixMaskFile=None,
                    showMean=True,showMode=True,**kwargs):
@@ -73,7 +111,7 @@ def check_sky_level(fileName,maskFile=None,statreg='ccd_central_quadrant',
 		         pix.std(),pix.min(),pix.max())
 
 
-_scamp_diag_head = '''<html>
+html_diag_head = '''<html>
 <head>
  <style type="text/css">
   body {font-family: monospace}
@@ -82,42 +120,48 @@ _scamp_diag_head = '''<html>
  </style>
 <body><table border=1>
 '''
-_scamp_diag_foot = '''
+
+html_diag_foot = '''
 </table>
 </body></html>
 '''
 
+def html_table_entry(val,status):
+	clrs = {
+	  'missing':'black',
+	  'nominal':'white',
+	  'warning':'yellow',
+	  'bad':'red',
+	  'weird':'grey',
+	}
+	clr = clrs.get(status,'white')
+	return r'<td bgcolor=%s>%s</td>' % (clr,val)
+
 def run_scamp_diag(imageFiles,ncols=4,**kwargs):
 	tabf = open(os.path.join('scamp_diag.html'),'w')
-	tabf.write(_scamp_diag_head)
-	#tabkeys = ['frame']+['ccd%drms'%n for n in range(1,5)]
-	#rowstr = ''.join([r'<th>%s</th>' % k for k in tabkeys])
-	#tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
+	tabf.write(html_diag_head)
 	rowstr = ''
 	for n,imFile in enumerate(imageFiles):
 		aheadfn = imFile.replace('.fits','.ahead')
 		rowstr += r'<td>%s</td>' % os.path.basename(imFile)
 		if not os.path.exists(aheadfn):
 			print imFile,' missing'
-			rowstr += r'<td bgcolor=black></td>'
+			rowstr += html_table_entry('','missing')
 		else:
 			hdr = bokastrom.read_headers(aheadfn)[0]
 			rms = 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS1']**2)
 			if rms < 0:
-				rowstr += r'<td bgcolor=gray>%.2f</td>' % rms
-				#nmissing += 1
+				status = 'weird'
 			elif rms > 0.4:
-				rowstr += r'<td bgcolor=red>%.2f</td>' % rms
-				#nbad += 1
-			elif rms > 0.25:
-				rowstr += r'<td bgcolor=yellow>%.2f</td>' % rms
-				#nmarginal += 1
+				status = 'bad'
+			elif rms > 0.2:
+				status = 'warning'
 			else:
-				rowstr += r'<td>%.2f</td>' % rms
-				#ngood += 1
+				status = 'nominal'
+			rowstr += html_table_entry('%.2f'%rms,status)
 		if (n%ncols)==ncols-1:
 			tabf.write(r'<tr>'+rowstr+r'</tr>'+'\n')
 			rowstr = ''
-	tabf.write(_scamp_diag_foot)
+	tabf.write(html_diag_foot)
 	tabf.close()
 

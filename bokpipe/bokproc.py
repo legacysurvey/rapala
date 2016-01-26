@@ -167,12 +167,14 @@ class BokBiasStack(bokutil.ClippedMeanStack):
 
 class BokDomeFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
-		kwargs.setdefault('stats_region','amp_corner_ccdcenter_small')
+		kwargs.setdefault('stats_region','amp_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
 		super(BokDomeFlatStack,self).__init__(**kwargs)
 		self.headerKey = 'FLAT'
+		self.normPix = kwargs.get('norm_region',
+		                    bokutil.stats_region('amp_corner_ccdcenter_256'))
 	def _postprocess(self,extName,stack,hdr):
-		flatNorm = bokutil.array_stats(stack[self.statsPix])
+		flatNorm = bokutil.array_stats(stack[self.normPix])
 		stack /= flatNorm
 		try:
 			stack = stack.filled(1.0)
@@ -188,21 +190,19 @@ class NormalizeFlat(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','NORMFLT')
 		super(NormalizeFlat,self).__init__(**kwargs)
-		self.nbin = kwargs.get('nbin',32)
-		self.flatFitName = kwargs.get('normed_flat_fit_file')
-		self.binnedFlatName = kwargs.get('binned_flat_file')
+		self.nbin = kwargs.get('nbin',16)
+		self.nKnots = kwargs.get('nknots',2)
+		self.splineOrder = kwargs.get('spline_order',3)
+		self.flatFitMap = kwargs.get('_normed_flat_fit_map')
+		self.binnedFlatMap = kwargs.get('_binned_flat_map')
 		self.normedFlatFit = None
 		self.binnedFlat = None
 	def _preprocess(self,fits,f):
-		if self.flatFitName is not None:
-			if os.path.exists(self.flatFitName):
-				os.unlink(self.flatFitName)
-			self.normedFlatFit = fitsio.FITS(self.flatFitName,'rw')
+		if self.flatFitMap is not None:
+			self.normedFlatFit = fitsio.FITS(self.flatFitMap(f),'rw')
 			self.normedFlatFit.write(None,header=fits.get_header(0))
-		if self.binnedFlatName is not None:
-			if os.path.exists(self.binnedFlatName):
-				os.unlink(self.binnedFlatName)
-			self.binnedFlat = fitsio.FITS(self.binnedFlatName,'rw')
+		if self.binnedFlatMap is not None:
+			self.binnedFlat = fitsio.FITS(self.binnedFlatMap(f),'rw')
 			self.binnedFlat.write(None,header=fits.get_header(0))
 	def _finish(self):
 		if self.normedFlatFit is not None:
@@ -224,12 +224,17 @@ class NormalizeFlat(bokutil.BokProcess):
 			# this one has a long bad strip
 			im.mask[:,:50] = True
 		binnedIm = bokutil.rebin(im,self.nbin)
-		binnedIm = sigma_clip(binnedIm,axis=-1,iters=3,sig=2.2,
-		                      cenfunc=np.ma.mean).mean(axis=-1).filled(1)
-		x = np.arange(self.nbin/2,nx,self.nbin)
-		y = np.arange(self.nbin/2,ny,self.nbin)
-		spfit = RectBivariateSpline(x,y,binnedIm.T,s=1)
-		gradientIm = spfit(np.arange(nx),np.arange(ny)).T
+		binnedIm = bokutil.array_clip(binnedIm,axis=-1,
+		                    clip_iters=3,clip_sig=2.2).mean(axis=-1)#.filled(1)
+		x = np.arange(self.nbin/2,nx,self.nbin,dtype=np.float32)
+		y = np.arange(self.nbin/2,ny,self.nbin,dtype=np.float32)
+		xx,yy = np.meshgrid(x,y)
+		tx = np.linspace(0,nx,self.nKnots)
+		ty = np.linspace(0,ny,self.nKnots)
+		spFit = LSQBivariateSpline(xx[~binnedIm.mask],yy[~binnedIm.mask],
+		                           binnedIm.data[~binnedIm.mask],tx,ty,
+		                           kx=self.splineOrder,ky=self.splineOrder)
+		gradientIm = spFit(np.arange(nx),np.arange(ny)).T
 		normedIm = im.data / gradientIm
 		if self.normedFlatFit is not None:
 			self.normedFlatFit.write(gradientIm.astype(np.float32),
@@ -268,18 +273,24 @@ class BokCCDProcess(bokutil.BokProcess):
 	def _preprocess(self,fits,f):
 		print 'ccdproc ',fits.fileName,fits.outFileName
 		for imType in self.imTypes:
+			calFn = None
 			if not self.procIms[imType]['master']:
 				inFile = self.procIms[imType]['map'][f]
-				if self.procIms[imType]['file'] != inFile:
+				if type(inFile) is fitsio.fitslib.FITS:
+					self.procIms[imType]['fits'] = inFile
+					calFn = inFile._filename
+				elif self.procIms[imType]['file'] != inFile:
 					if self.procIms[imType]['fits'] is not None:
 						self.procIms[imType]['fits'].close()
 					self.procIms[imType]['file'] = inFile
 					self.procIms[imType]['fits'] = fitsio.FITS(inFile)
+			if calFn is None:
+				calFn = self.procIms[imType]['file']
 			hdrCards = {}
-			if self.procIms[imType]['file'] is not None:
+			if calFn is not None:
 				# e.g., hdr['BIASFILE'] = <filename>
 				hdrKey = str(imType.upper()+'FILE')[:8]
-				curPath = self.procIms[imType]['file'].rstrip('.fits')
+				curPath = calFn.rstrip('.fits')
 				if len(curPath) > 65:
 					# trim the file path if it is long
 					fn = ''
@@ -523,6 +534,9 @@ def combine_ccds(fileList,**kwargs):
 	gainMap = kwargs.get('gain_map')
 	origin = kwargs.get('origin','center')
 	clobber = kwargs.get('clobber')
+	# a hacked entry point for flat fields that normalizes the corners
+	# of each channel at the CCD centers to be unity
+	flatNorm = kwargs.get('apply_flat_norm',False)
 	ignoreExisting = kwargs.get('ignore_existing',True)
 	# fitsio doesn't accept file descriptors, but tempfile opens files...
 	tmpFile = tempfile.NamedTemporaryFile()
@@ -583,6 +597,10 @@ def combine_ccds(fileList,**kwargs):
 					if j==0:
 						hdr['CCDGAIN'] = gc2
 					im *= gc1 * gc2
+				if flatNorm:
+					_s = bokutil.stats_region('amp_corner_ccdcenter_128')
+					_a = bokutil.array_stats(im[_s],method='mode')
+					im /= _a
 				ccdIms.append(im)
 			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords
@@ -652,11 +670,11 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		super(BokGenerateSkyFlatMasks,self).__init__(**kwargs)
 		self.hiThresh = kwargs.get('high_thresh',5.0)
 		self.loThresh = kwargs.get('low_thresh',5.0)
-		self.growThresh = kwargs.get('grow_thresh',1.5)
+		self.growThresh = kwargs.get('grow_thresh',3.0)
 		self.binGrowSize = kwargs.get('mask_grow_size',3)
 		self.nSample = kwargs.get('num_sample',4)
-		self.nKnots = kwargs.get('num_spline_knots',2)
-		self.splineOrder = kwargs.get('spline_order',2)
+		self.nKnots = kwargs.get('num_spline_knots',3)
+		self.splineOrder = kwargs.get('spline_order',3)
 		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'))
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
@@ -705,75 +723,6 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		# construct the output array
 		maskIm = bokutil.magnify(mask,self.nBin) | bsmask
 		return maskIm.astype(np.uint8),hdr
-
-def grow_obj_mask(im,objsIm,**kwargs):
-	statsPix = bokutil.stats_region(kwargs.get('stats_region',
-	                                           'ccd_central_quadrant'))
-	growThresh = kwargs.get('grow_thresh',1.0)
-	kernelSize = kwargs.get('kernel_size',1.25)
-	# XXX missing badpix mask here
-	maskedIm = np.ma.masked_array(im,objsIm>0)
-	# determine the sky background level and rms
-	skym,skys = bokutil.array_stats(maskedIm[statsPix],rms=True)
-	# make a pixel-level SNR image
-	snrIm = (im - skym) / skys
-	# convolve the SNR image to smooth it and slighly grow object footprints
-	snrIm = convolve(snrIm,Gaussian2DKernel(kernelSize))
-	snrIm[np.isnan(snrIm)] = np.inf
-	# grow object mask until pixels reach a threshold in SNR
-	mask = binary_dilation(objsIm>0,mask=(snrIm>growThresh),iterations=0)
-	# fill holes in the mask
-	mask = binary_closing(mask)
-	# fix the corners: pre-illumination-correction images have a gradient
-	# at the corners, if it is positive (which it is for the upper two CCDs)
-	# then objects in those corners are grown until the whole corner is 
-	# filled. This simply reverts the corners to the original mask.
-	Y,X = np.indices(im.shape)
-	corner = Y > ( 2950 + ((2950-4032.)/(4096.-2800))*(X-4096.) )
-	mask[corner] = objsIm[corner]
-	return mask
-
-def sextract_pass1(fileList,**kwargs):
-	clobber = kwargs.get('clobber',False)
-	inputNameMap = kwargs.get('input_map',IdentityNameMap)
-	catalogFileNameMap = kwargs.get('catalog_map',
-	                                FileNameMap(newSuffix='.cat1'))
-	withPsf = kwargs.get('with_psf',False)
-	objMaskFileMap = kwargs.get('object_mask_map',
-	                             FileNameMap(newSuffix='.obj'))
-	#bkgImgFileMap = FileNameMap(newSuffix='.back')
-	FNULL = open(os.devnull,'w')
-	for f in fileList:
-		inputFile = inputNameMap(f)
-		catalogFile = catalogFileNameMap(f)
-		print 'generating ',inputFile,catalogFile
-		if os.path.exists(catalogFile) and not clobber:
-			continue
-		cmd = ['sex','-c',os.path.join(configdir,'bok_pass1.sex'),
-		       '-CATALOG_NAME',catalogFile]
-		if objMaskFileMap is not None:
-			#cmd.extend(['-CHECKIMAGE_TYPE','SEGMENTATION,MINIBACKGROUND',
-			#            '-CHECKIMAGE_NAME',
-			#                objMaskFileMap(f)+','+bkgImgFileMap(f)])
-			cmd.extend(['-CHECKIMAGE_TYPE','SEGMENTATION',
-			            '-CHECKIMAGE_NAME','tmpobj.fits'])
-#			            '-CHECKIMAGE_NAME',objMaskFileMap(f)])
-		cmd.append(inputFile)
-		rv = subprocess.call(cmd,stdout=FNULL,stderr=FNULL)
-		fits = fitsio.FITS(inputFile,'rw')
-		# have to remake the mask file in order to change its data type
-		tmpMaskFits = fitsio.FITS('tmpobj.fits')
-		if os.path.exists(objMaskFileMap(f)):
-			os.unlink(objMaskFileMap(f))
-		maskFits = fitsio.FITS(objMaskFileMap(f),'rw')
-		maskFits.write(None,header=tmpMaskFits[0].read_header())
-		for ccd in ['CCD%d'%i for i in range(1,5)]:
-			mask = grow_obj_mask(fits[ccd][:,:],tmpMaskFits[ccd][:,:])
-			maskFits.write(mask.astype(np.uint8),extname=ccd,
-			               header=tmpMaskFits[ccd].read_header())
-		maskFits.close()
-		tmpMaskFits.close()
-		os.unlink('tmpobj.fits')
 
 class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):

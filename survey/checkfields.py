@@ -45,14 +45,17 @@ def check_fields_list():
 	with open('checkfields_tiles.txt','w') as f:
 		f.write('\n'.join(sorted(files)))
 
-def srcor(ra1,dec1,ra2,dec2,sep):
+def srcor(ra1,dec1,ra2,dec2,sep,return_sep=False):
 	from astropy.coordinates import SkyCoord,match_coordinates_sky
 	from astropy import units as u
 	c1 = SkyCoord(ra1,dec1,unit=(u.degree,u.degree))
 	c2 = SkyCoord(ra2,dec2,unit=(u.degree,u.degree))
 	idx,d2d,d3c = match_coordinates_sky(c1,c2)
 	ii = np.where(d2d.arcsec < sep)[0]
-	return ii,idx[ii]
+	if return_sep:
+		return ii,idx[ii],d2d.arcsec[ii]
+	else:
+		return ii,idx[ii]
 
 def srcorXY(x1,y1,x2,y2,maxrad):
 	sep = np.sqrt( (x1[:,np.newaxis]-x2[np.newaxis,:])**2 + 

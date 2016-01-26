@@ -95,10 +95,14 @@ def stats_region(statreg):
 		x1,x2,y1,y2 = statreg
 	elif statreg == 'amp_central_quadrant':
 		x1,x2,y1,y2 = (512,-512,512,-512)
-	elif statreg == 'amp_corner_ccdcenter_small':
-		x1,x2,y1,y2 = (-512,-50,-512,-50)
-	elif statreg == 'amp_corner_ccdcenter':
-		x1,x2,y1,y2 = (-1024,-1,-1024,-1)
+	elif statreg.startswith('amp_corner_ccdcenter'):
+		margin = 5
+		sfx = statreg.lstrip('amp_corner_ccdcenter')
+		if len(sfx)==0:
+			npix = 1024
+		else:
+			npix = int({'small':512}.get(sfx,sfx))
+		x1,x2,y1,y2 = (-npix,-margin,-npix,-margin)
 	elif statreg == 'centeramp_corner_fovcenter':
 		# for the 4 central amps, this is the corner towards the field center
 		x1,x2,y1,y2 = (50,1024,50,1024)

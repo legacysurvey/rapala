@@ -7,35 +7,38 @@ import fitsio
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 from matplotlib.backends.backend_pdf import PdfPages
+from astropy.table import Table
 
-try:
-	import bokutil
-except:
-	import sys
-	sys.path.append('../bokpipe')
-	import bokutil
+from bokpipe import *
+from bokpipe.bokoscan import _convertfitsreg
 
-from bokoscan import BokOverscanSubtract,_convertfitsreg
-import bokproc
-
-def init_data_map(datadir,outdir,expTimes=None):
+def init_data_map(datadir,outdir,expTimes=None,files=None):
 	dataMap = {}
 	if not os.path.exists(outdir):
 		os.mkdir(outdir)
 	dataMap['outdir'] = outdir
-	dataMap['files'] = sorted(glob.glob(datadir+'*.fits') + 
-	                          glob.glob(datadir+'*.fits.gz'))
-	dataMap['oscan'] = bokutil.FileNameMap(outdir)
-	dataMap['proc'] = bokutil.FileNameMap(outdir,'_p')
+	if files is None:
+		dataMap['files'] = sorted(glob.glob(datadir+'*.fits') + 
+		                          glob.glob(datadir+'*.fits.gz') +
+		                          glob.glob(datadir+'*.fits.fz'))
+	else:
+		dataMap['files'] = files
+	dataMap['rawFiles'] = dataMap['files']
+	dataMap['oscan'] = bokio.FileNameMap(outdir)
+	dataMap['proc'] = bokio.FileNameMap(outdir,'_p')
+	dataMap['files'] = [ dataMap['oscan'](f) for f in dataMap['files'] ]
 	if expTimes is None:
 		dataMap['expTime'] = np.array([fitsio.read_header(f)['EXPTIME']
 		                                  for f in dataMap['files']])
 	else:
 		dataMap['expTime'] = expTimes
-	# assume they are all the same
-	dataMap['dataSec'] = \
-	         _convertfitsreg(fitsio.read_header(
-	                                  dataMap['files'][0],'IM4')['DATASEC'])
+	try:
+		# assume they are all the same
+		dataMap['dataSec'] = \
+		         _convertfitsreg(fitsio.read_header(
+		                             dataMap['files'][0],'IM4')['DATASEC'])
+	except IOError:
+		pass
 	return dataMap
 
 def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
@@ -51,7 +54,7 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 		biasStack = bokproc.BokBiasStack(#reject=None,
 		                                 overwrite=redo,
 		                                 with_variance=withvar)
-		bias2dFile = dataMap['outdir']+biasname+'.fits'
+		bias2dFile = os.path.join(dataMap['outdir'],biasname+'.fits')
 		biasStack.stack(dataMap['biasFiles'],bias2dFile)
 		#imProcess = bokproc.BokCCDProcess(bias2dFile,
 		#                                  output_map=dataMap['proc'])
@@ -60,6 +63,7 @@ def process_data(dataMap,redo=True,withvar=True,oscanims=False,bias2d=False):
 def imstat(dataMap,outfn='stats'):
 	from astropy.stats import sigma_clip
 	from scipy.stats import mode,scoreatpercentile
+	array_stats = bokutil.array_stats
 	fnlen = len(os.path.basename(dataMap['files'][0]))
 	st = np.zeros(len(dataMap['flatSequence']),
 	              dtype=[('file','S%d'%fnlen),
@@ -79,8 +83,8 @@ def imstat(dataMap,outfn='stats'):
 		st['file'][_i] = fn
 		st['expTime'][_i] = expTime
 		for j,extn in enumerate(['IM%d' % n for n in range(1,17)]):
-			pix = sigma_clip(fits[extn].read()[dataMap['statsPix']])
-			modeVal,npix = mode(pix,axis=None)
+			modeVal,pix = array_stats(fits[extn].read()[dataMap['statsPix']],
+			                          method='mode',retArray=True)
 			st['mode'][_i,j] = modeVal
 			st['mean'][_i,j] = pix.mean()
 			st['median'][_i,j] = np.ma.median(pix)
@@ -118,20 +122,20 @@ def scaled_histograms(dataMap,nims=None,outfn='pixhist'):
 		plt.close(fig)
 	pdf.close()
 
-def plot_sequence(dataMap,st,imNum):
+def plot_sequence(dataMap,st,imNum,which='median'):
 	expScale = dataMap['refExpTime']/st['expTime']
 	seqno = 1 + np.arange(len(st))
 	ref = np.isclose(expScale,1.0)
 	j = imNum - 1
 	plt.figure(figsize=(8,6))
 	plt.subplots_adjust(0.11,0.08,0.96,0.95)
-	plt.errorbar(seqno[ref],expScale[ref]*st['median'][ref,j],
-	                   [expScale[ref]*(st['median']-st['iqr10'])[ref,j],
-	                    expScale[ref]*(st['iqr90']-st['median'])[ref,j]],
+	plt.errorbar(seqno[ref],expScale[ref]*st[which][ref,j],
+	                   [expScale[ref]*(st[which]-st['iqr10'])[ref,j],
+	                    expScale[ref]*(st['iqr90']-st[which])[ref,j]],
 	             fmt='bs-')
-	plt.errorbar(seqno[~ref],expScale[~ref]*st['median'][~ref,j],
-	                   [expScale[~ref]*(st['median']-st['iqr10'])[~ref,j],
-	                    expScale[~ref]*(st['iqr90']-st['median'])[~ref,j]],
+	plt.errorbar(seqno[~ref],expScale[~ref]*st[which][~ref,j],
+	                   [expScale[~ref]*(st[which]-st['iqr10'])[~ref,j],
+	                    expScale[~ref]*(st['iqr90']-st[which])[~ref,j]],
 	             fmt='cs-')
 	#plt.scatter(seqno,expScale*st['mode'][:,j],marker='+',c='r')
 	#plt.scatter(seqno,expScale*st['mean'][:,j],marker='x',c='g')
@@ -181,7 +185,8 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 	if isPTC:
 		# for PTCs skip every other image since they are done in pairs
 		ii = ii[::2]
-	#
+	# only fit to unsaturated frames
+	firstsat = np.where(np.any(st[which][ii,:] > 55000,axis=1))[0][0]
 	pdf = PdfPages(outfn+'.pdf')
 	for imNum in range(1,17):
 		j = imNum - 1
@@ -197,11 +202,6 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 			fscl = fscl_fit(seqno)
 		else:
 			fscl = np.ones_like(seqno)
-		# only fit to unsaturated frames
-		try:
-			firstsat = np.where(st[which][ii,j] > 55000)[0][0]
-		except IndexError:
-			firstsat = -1
 		fit = np.polyfit(t[ii[:firstsat]],
 		                 fscl[ii[:firstsat]]*st[which][ii[:firstsat],j],1)
 		fitv = np.polyval(fit,t)
@@ -271,9 +271,12 @@ def init_sep09bss_data_map():
 	exptimes = np.loadtxt(datadir+'../bss.20150909.log',usecols=(3,))
 	exptimes = exptimes[50:]
 	print exptimes
-	dataMap = init_data_map(datadir,
-	                        os.environ.get('GSCRATCH')+'/bss_sep09/',
-	                        expTimes=exptimes)
+	rdxdir = os.environ.get('GSCRATCH','tmp_sep')+'/bss_sep09/'
+	if not os.path.exists(rdxdir):
+		os.makedirs(rdxdir)
+	dataMap = init_data_map(datadir,rdxdir,
+	                        expTimes=exptimes,files=None)
+	dataMap['rawFiles'] = dataMap['rawFiles'][50:]
 	dataMap['files'] = dataMap['files'][50:]
 	dataMap['biasFiles'] = dataMap['files'][-5:]
 	#dataMap['flatSequence'] = range(50,68)
@@ -318,6 +321,20 @@ def init_oct20_data_map():
 	dataMap['refExpTime'] = 3.0
 	return dataMap
 
+def init_nov_data_map():
+	datadir = os.environ.get('BASSDATA')+'/Nov2015/'
+	log = Table.read(datadir+'bassLog_Nov2015.fits')
+	exptimes = log['expTime'][111:150]
+	files = [ datadir+f['utDir']+'/'+f['fileName']+'i.fits'
+	              for f in log[111:150] ]
+	dataMap = init_data_map(datadir,'tmp_nov',
+	                        expTimes=exptimes,files=files)
+	dataMap['biasFiles'] = dataMap['files'][-10:]
+	dataMap['flatSequence'] = np.arange(len(dataMap['files'])-10)
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	dataMap['refExpTime'] = 3.0
+	return dataMap
+
 if __name__=='__main__':
 	import sys
 	dataset = sys.argv[1] 
@@ -327,6 +344,8 @@ if __name__=='__main__':
 		dataMap = init_oct02ptc_data_map()
 	elif dataset == 'oct20':
 		dataMap = init_oct20_data_map()
+	elif dataset == 'nov':
+		dataMap = init_nov_data_map()
 	else:
 		raise ValueError
 	print 'processing ',dataset
