@@ -156,11 +156,41 @@ def obs_summary(doplot=False,saveplot=False):
 	return nobs,tileList
 
 def nersc_archive_list():
+	import fitsio
 	from glob import glob
 	dirs = sorted(glob(os.path.join(os.environ['BASSDATA'],'BOK_Raw','*')))
-	print dirs
+	logf = open('nersc_noaoarchive.log','w')
+#	errlogf = open('nersc_noaoarchive_errs.log','w')
+	for utdir in dirs:
+		if int(os.path.basename(utdir))<20150400: continue
+		files = sorted(glob(os.path.join(utdir,'*.fits.fz')))
+		print utdir,' %d files' % len(files)
+		for f in files:
+			h = fitsio.read_header(f,0)
+			nersc_path,fn = os.path.split(f)
+			nersc_path,nersc_dir = os.path.split(nersc_path)
+			try:
+				orig_path,orig_fn = os.path.split(h['DTACQNAM'])
+			except ValueError:
+				orig_path,orig_fn = os.path.split(h['FILENAME'])
+#				if not orig_fn.startswith('d7'):
+#					errlogf.write('%s missing DTACQNAM/FILENAME\n' % f)
+#					continue
+			orig_path,orig_dir = os.path.split(orig_path)
+			orig_fn = orig_fn.rstrip('.fz')
+			exptime = h['EXPTIME']
+			imtype = h['IMAGETYP']
+			objname = h['OBJECT'].strip()
+			if len(objname)==0:
+				objname = '<null>'
+			logf.write('%40s %25s %10s %6.1f %s\n' %
+			           ('%s/%s'%(nersc_dir,fn),'%s/%s'%(orig_dir,orig_fn),
+			            imtype,exptime,objname))
+	logf.close()
+#	errlogf.close()
 
 if __name__=='__main__':
-	build_obsdb()
+	#build_obsdb()
+	nersc_archive_list()
 
 
