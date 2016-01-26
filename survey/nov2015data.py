@@ -118,3 +118,31 @@ def dump_all_zeropoints():
 			dump_zeropoints(fieldcat,filt[-1])
 			print
 		print
+
+def check_scatter(tab,band):
+	from scipy.stats import scoreatpercentile
+	psfMag = flux2mag(tab,band,'PSF')
+	for j in range(tab['NUMBER'].shape[1]):
+		print 'image %2d: ' % (j+1)
+		for mag1 in np.arange(17,21.1,0.5):
+			is_mag = (tab['tMag']>(mag1-0.25)) & (tab['tMag']<(mag1+0.25))
+			ii = np.where(~psfMag.mask[:,j] & is_mag)[0]
+			dm = psfMag[ii,j] - tab['tMag'][ii]
+			dist = scoreatpercentile(np.abs(dm-np.median(dm)),
+			                         [25,50,75,90,95])
+			print '  ',mag1,dist
+
+def focalplanevar(tab,band):
+	apNum = 2
+	aperMag = flux2mag(tab,band,'APER')[:,:,apNum]
+	refMag = tab['tMag']
+	meanMag = sigma_clip(aperMag,axis=1).mean(axis=1)
+	deltaMag = aperMag - meanMag[:,np.newaxis]
+	return deltaMag
+
+# by image number
+# dmag.mean(axis=0)
+# by ccd
+# ii = np.where(tab['ccdNum']==ccdNum)[0]
+# dmag[ii].mean()
+
