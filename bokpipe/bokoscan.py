@@ -83,6 +83,26 @@ def fit_overscan(overscan,**kwargs):
 		oscan_fit = median_filter(oscan_fit,windowSize)
 	return oscan_fit
 
+def overscan_subtract(data,hdr,returnFull=False,**kwargs):
+	data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
+	colbias = fit_overscan(oscan_cols,**kwargs)
+	data[:] -= colbias[:,np.newaxis]
+	if oscan_rows is not None:
+		# first fit and then subtract the overscan columns at the
+		# end of the strip of overscan rows
+		# XXX hardcoded geometry
+		_colbias = fit_overscan(oscan_rows[:,-20:],**kwargs)
+		oscan_rows = oscan_rows[:,:-20] - _colbias[:,np.newaxis]
+		# now fit and subtract the overscan rows
+		rowbias = fit_overscan(oscan_rows,along='rows',**kwargs)
+		data[:] -= rowbias[np.newaxis,:data.shape[1]]
+	else:
+		rowbias = None
+	if returnFull:
+		return data,oscan_cols,oscan_rows,colbias,rowbias
+	else:
+		return data
+
 class OverscanCollection(object):
 	def __init__(self,oscanImgFile,along='columns'):
 		self.along = along
@@ -177,20 +197,8 @@ class BokOverscanSubtract(BokProcess):
 		self.curFileName = fits.fileName
 		print 'overscan subtracting ',self.curFileName
 	def process_hdu(self,extName,data,hdr):
-		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
-		colbias = fit_overscan(oscan_cols,**self.fit_kwargs)
-		data[:] -= colbias[:,np.newaxis]
-		if oscan_rows is not None:
-			# first fit and then subtract the overscan columns at the
-			# end of the strip of overscan rows
-			# XXX hardcoded geometry
-			_colbias = fit_overscan(oscan_rows[:,-20:],**self.fit_kwargs)
-			oscan_rows = oscan_rows[:,:-20] - _colbias[:,np.newaxis]
-			# now fit and subtract the overscan rows
-			rowbias = fit_overscan(oscan_rows,along='rows',**self.fit_kwargs)
-			data[:] -= rowbias[np.newaxis,:data.shape[1]]
-		else:
-			rowbias = None
+		data,oscan_cols,oscan_rows,colbias,rowbias = \
+		         overscan_subtract(data,hdr,returnFull=True,**self.fit_kwargs)
 		# write the output file
 		hdr['OSCANSUB'] = 'method=%s' % self.fit_kwargs.get('method','default')
 		# something changed about what median returns...

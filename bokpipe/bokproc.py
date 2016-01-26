@@ -538,6 +538,9 @@ def combine_ccds(fileList,**kwargs):
 	# of each channel at the CCD centers to be unity
 	flatNorm = kwargs.get('apply_flat_norm',False)
 	ignoreExisting = kwargs.get('ignore_existing',True)
+	# another hacky entry point for preprocessing of per-amp images
+	# before combining
+	_preprocess_ims = kwargs.get('_preprocess_function')
 	# fitsio doesn't accept file descriptors, but tempfile opens files...
 	tmpFile = tempfile.NamedTemporaryFile()
 	tmpFileName = tmpFile.name
@@ -582,6 +585,8 @@ def combine_ccds(fileList,**kwargs):
 			for j,ext in enumerate(extGroup):
 				im = inFits[ext].read() 
 				hext = inFits[ext].read_header()
+				if _preprocess_ims is not None:
+					im = _preprocess_ims(im,hext,ext)
 				try:
 					# copy in the nominal gain values from per-amp headers
 					gainKey = 'GAIN%02dA' % int(ext[2:])
