@@ -23,19 +23,28 @@ except:
 tiledb_file = 'bass-newtiles-indesi.fits'
 obsdb_file = 'bass-newtiles-observed.fits'
 
-def build_obsdb():
+def build_obsdb(noskip=True):
 	import glob,re
-	dtype = [('utDate','S8'),('fileName','S10'),('expTime','f4'),
+	dtype = [('utDate','S8'),('fileName','S35'),('expTime','f4'),
 	         ('tileId','i4'),('ditherId','i2'),
 	         ('ra','f8'),('dec','f8'),('filter','S1')]
 	obsdb = np.empty(2e5,dtype=dtype)
-	obsfiles = glob.glob(os.path.join(bass_dir,'database','obsed-[gr]-*.txt'))
+	obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
+	                                      'obsed-[gr]-*.txt'))
+	obsfiles_2015 = glob.glob(os.path.join(bass_dir,'database','2015_old',
+	                                       'obsed-[gr]-*.txt'))
+	obsfiles = obsfiles_2015 + obsfiles_new
 	nobs = 0
 	for fn in sorted(obsfiles):
 		_fn = os.path.basename(fn)
-		print _fn
+		print _fn,
 		m = re.match(r'obsed-(\w)-(\d+)-(\d+)-(\d+).txt',_fn)
-		filt,yr,mo,day = m.groups()
+		try:
+			filt,yr,mo,day = m.groups()
+			print ' loaded'
+		except:
+			print ' skipped'
+			continue
 		utd = yr+mo+day
 		#obstab = ascii_io.read(fn)
 		with open(fn) as f:
@@ -52,12 +61,14 @@ def build_obsdb():
 				else:
 					try:
 						tnum = int(tile_s)
+						tnum1 = tnum // 10
+						tnum2 = tnum % 10
 					except:
-						print 'WARNING: unrecognized tile id %s; skipping' % \
-						         tile_s
-						continue
-					tnum1 = tnum // 10
-					tnum2 = tnum % 10
+						if noskip:
+							tnum1,tnum2 = -1,-1
+						else:
+							print 'WARNING: unrecognized tile id %s; ' \
+							      'skipping' % tile_s
 					obsdb['tileId'][nobs] = tnum1
 					obsdb['ditherId'][nobs] = tnum2
 				obsdb['utDate'][nobs] = utd
@@ -143,5 +154,13 @@ def obs_summary(doplot=False,saveplot=False):
 		if saveplot:
 			pdf.close()
 	return nobs,tileList
+
+def nersc_archive_list():
+	from glob import glob
+	dirs = sorted(glob(os.path.join(os.environ['BASSDATA'],'BOK_Raw','*')))
+	print dirs
+
+if __name__=='__main__':
+	build_obsdb()
 
 
