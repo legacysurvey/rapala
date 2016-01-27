@@ -610,6 +610,10 @@ def combine_ccds(fileList,**kwargs):
 			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords
 			outIm,hdr = _orient_mosaic(hdr,ccdIms,ccdNum,origin)
+			if True:
+				# For some reason this results in a segfault when running
+				# on NERSC unless the image is copied...
+				outIm = outIm.copy()
 			outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
 		outFits.close()
 		if outputFile == inputFile:
