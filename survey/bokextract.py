@@ -7,7 +7,8 @@ import subprocess
 from bass import rdxdir
 
 def sextract(imagepath,frompv=True,redo=False,
-             withpsf=True,redopsf=False,psfpath=None):
+             withpsf=True,redopsf=False,psfpath=None,onlypsf=False):
+	cfgdir = os.path.join(os.environ['BOKPIPE'],'..','survey','config')
 	catpath = imagepath.replace('.fits','.cat.fits')
 	if not redo and os.path.exists(catpath):
 		print catpath,' exists; skipping'
@@ -20,19 +21,21 @@ def sextract(imagepath,frompv=True,redo=False,
 		else:
 			ldaccatpath = psfpath.replace('.psf','.ldac_cat.fits')
 		if redopsf or not os.path.exists(psfpath):
-			cmd = ['sex','-c','config/psfex.sex',
+			cmd = ['sex','-c',os.path.join(cfgdir,'psfex.sex'),
 			       '-CATALOG_NAME',ldaccatpath,_imagepath]
 			subprocess.call(cmd)
-			cmd = ['psfex','-c','config/default.psfex',ldaccatpath]
+			cmd = ['psfex','-c',os.path.join(cfgdir,'default.psfex'),
+			       ldaccatpath]
 			subprocess.call(cmd)
 		else:
 			print 'using psf ',psfpath
-		cmd = ['sex','-c','config/default.sex',
-		       '-CATALOG_NAME',catpath,
-		       '-PSF_NAME',psfpath,_imagepath]
-		subprocess.call(cmd)
+		if not onlypsf:
+			cmd = ['sex','-c',os.path.join(cfgdir,'default.sex'),
+			       '-CATALOG_NAME',catpath,
+			       '-PSF_NAME',psfpath,_imagepath]
+			subprocess.call(cmd)
 	else:
-		cmd = ['sex','-c','config/default.sex',
+		cmd = ['sex','-c',os.path.join(cfgdir,'default.sex'),
 		       '-CATALOG_NAME',catpath,_imagepath]
 		subprocess.call(cmd)
 

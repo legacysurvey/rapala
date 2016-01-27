@@ -3,6 +3,7 @@
 import os
 import subprocess
 import numpy as np
+import fitsio
 import bass
 
 from astropy import units as u
@@ -11,8 +12,8 @@ from astropy.coordinates import SkyCoord
 pxscl = 0.45
 cfgpath = '/project/projectdirs/desi/users/imcgreer/astrometry-index-4200/cfg'
 
-def solve_bass_tile(imagepath,ra=None,dec=None,redo=False,
-                    convert2pv=False,extns='all'):
+def solve_bass_image(imagepath,ra=None,dec=None,redo=False,center=False,
+                     convert2pv=False,extns='all',writehead=False):
 	if not os.path.exists(imagepath):
 		print imagepath,' does not exist; skipping'
 		return
@@ -29,14 +30,15 @@ def solve_bass_tile(imagepath,ra=None,dec=None,redo=False,
 	solveargs += ['-u','arcsecperpix']
 	solveargs += ['--continue','--no-plots','--no-remove-lines',
 	              '--uniformize','0','--no-fits2fits']
-	solveargs += ['--crpix-center','-N','none','-U','none',
-	              '-S','none','-M','none',
+	solveargs += ['-N','none','-U','none','-S','none','-M','none',
 	              '--rdls','none','--corr','none']
+	if center:
+		solveargs += ['--crpix-center']
 	if convert2pv:
 		# in order to do SIP->PV conversion for sextractor;
 		# see https://groups.google.com/forum/#!topic/astrometry/qrNW5KtsNCc
 		solveargs += ['--tweak-order','4']
-	if extns='all':
+	if extns=='all':
 		extns = [1,2,3,4]
 	for extNum in extns:
 		wcsfn = imagepath.replace('.fits','_ext%s.wcs'%extNum)
@@ -46,7 +48,8 @@ def solve_bass_tile(imagepath,ra=None,dec=None,redo=False,
 			continue
 		solvecmd += ['--wcs',wcsfn,imagepath]
 		subprocess.call(solvecmd)
-		subprocess.call(['missfits','-c','config/missfits.cfg',imagepath])
+		if writehead:
+			subprocess.call(['missfits','-c','config/missfits.cfg',imagepath])
 		if convert2pv:
 			pvimpath = imagepath.replace('.fits','_pv.fits')
 			if os.path.exists(pvimpath):
@@ -66,12 +69,13 @@ def solve_bass_tile_byid(tileId,ditherId,imageNum=-1,raw=False):
 
 if __name__=='__main__':
 	import sys
-	args = sys.argv[1:]
-	if args[0]=='raw':
-		raw = True
-		args = args[1:]
-	else:
-		raw = False
-	tileId,ditherId = [int(a) for a in args]
-	solve_bass_tile_byid(tileId,ditherId,raw=raw)
+#	args = sys.argv[1:]
+#	if args[0]=='raw':
+#		raw = True
+#		args = args[1:]
+#	else:
+#		raw = False
+#	tileId,ditherId = [int(a) for a in args]
+#	solve_bass_tile_byid(tileId,ditherId,raw=raw)
+	solve_bass_image(sys.argv[1],extns=[1])
 
