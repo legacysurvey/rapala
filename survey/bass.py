@@ -162,7 +162,6 @@ def nersc_archive_list():
 	logf = open('nersc_noaoarchive.log','w')
 #	errlogf = open('nersc_noaoarchive_errs.log','w')
 	for utdir in dirs:
-		if int(os.path.basename(utdir))<20150400: continue
 		files = sorted(glob(os.path.join(utdir,'*.fits.fz')))
 		print utdir,' %d files' % len(files)
 		for f in files:
@@ -183,9 +182,9 @@ def nersc_archive_list():
 			objname = h['OBJECT'].strip()
 			if len(objname)==0:
 				objname = '<null>'
-			logf.write('%40s %25s %10s %6.1f %s\n' %
-			           ('%s/%s'%(nersc_dir,fn),'%s/%s'%(orig_dir,orig_fn),
-			            imtype,exptime,objname))
+			logf.write('%8s %30s %18s %10s %6.1f %s\n' %
+			           (nersc_dir,fn,orig_fn,imtype,exptime,objname))
+		logf.flush()
 	logf.close()
 #	errlogf.close()
 
