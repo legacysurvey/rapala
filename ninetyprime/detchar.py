@@ -1,18 +1,20 @@
 #!/usr/bin/env python
 
 import os,sys
+from glob import glob
 import numpy as np
 import fitsio
 from astropy.stats import sigma_clip
 
-from bokutil.bokproc import ampOrder
+from bokpipe.bokproc import ampOrder
 
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
-def _data2arr(data,minVal=0,maxVal=65335):
-	return np.ma.masked_array(data.astype(np.float32),
-	                          mask=((data<minVal)|(data>maxVal)))
+def _data2arr(data,minVal=0,maxVal=65335,clip=True):
+	arr = np.ma.masked_array(data.astype(np.float32),
+	                         mask=((data<minVal)|(data>maxVal)))
+	return sigma_clip(arr,iters=1,sigma=5.0)
 
 def calc_gain_rdnoise(biases,flats,margin=500):
 	rv = []
@@ -20,7 +22,15 @@ def calc_gain_rdnoise(biases,flats,margin=500):
 	y1,y2 = margin,-margin
 	for files in zip(biases[:-1],biases[1:],flats[:-1],flats[1:]):
 		ff = [fitsio.FITS(f) for f in files]
-		data = np.empty(1,dtype=[('gain','f4',16),('rdnoise','f4',16)])
+		data = np.empty(1,dtype=[('bias1','S15'),('bias2','S15'),
+		                         ('flat1','S15'),('flat2','S15'),
+		                         ('biasADU','f4',16),('flatADU','f4',16),
+		                      ('biasRmsADU','f4',16),('flatRmsADU','f4',16),
+		                         ('gain','f4',16),('rdnoise','f4',16)])
+		data['bias1'] = os.path.basename(files[0])
+		data['bias2'] = os.path.basename(files[1])
+		data['flat1'] = os.path.basename(files[2])
+		data['flat2'] = os.path.basename(files[3])
 		for ext in range(1,17):
 			bias1,bias2 = [ _data2arr(f[ext].read()[y1:y2,x1:x2],500,5000) 
 			                  for f in ff[:2]]
@@ -41,23 +51,15 @@ def calc_gain_rdnoise(biases,flats,margin=500):
 			# equations from end of sec 4.3 (pg 73) of Howell 2006 
 			gain = ( (_F1 + _F2) - (_B1 + _B2) )  / (varF1F2 - varB1B2)
 			rdnoise = gain * np.sqrt(varB1B2/2)
+			data['biasADU'][0,ext-1] = _B1
+			data['flatADU'][0,ext-1] = _F1
+			data['biasRmsADU'][0,ext-1] = bias1.std()
+			data['flatRmsADU'][0,ext-1] = flat1.std()
 			data['gain'][0,ext-1] = gain
 			data['rdnoise'][0,ext-1] = rdnoise
 		rv.append(data)
 	return np.concatenate(rv)
 
-
-#
-# Analysis of data obtained for BASS imaging survey
-#
-
-def get_BASS_datadir():
-	try:
-		datadir = os.environ['BASSDATA']
-	except:
-		print 'must set BASSDATA to location of imaging data'
-		raise ValueError
-	return datadir
 
 def calc_all_gain_rdnoise(nmax=5,fn='bass'):
 	# XXX if keeping then update to use dataMap
@@ -252,11 +254,99 @@ def bias_drops():
 				logf.write('%s %s %s\n' % (utd,fn,imType))
 	logf.close()
 
+def nightly_checks(utdir,logdir,redo=False):
+	from bokpipe.bokobsdb import generate_log
+	logf = os.path.join(logdir,'log_ut%s.fits' % os.path.basename(utdir))
+	if os.path.exists(logf):
+		# assume that if log file exists processing is already done
+		if not redo:
+			return
+	else:
+		generate_log([utdir],logf)
+	logFits = fitsio.FITS(logf,'rw')
+	log = logFits[1].read()
+	# find first bias sequence
+	biases = []
+	is_bias = (log['imType'] == 'zero')
+	ii = np.where(is_bias)[0]
+	for _i,i in enumerate(ii):
+		for j in range(_i+1,len(ii)):
+			if ii[j] != ii[j-1]+1:
+				break
+		if (j-_i > 5):
+			biases = ii[:j-_i]
+			break
+	# find first flat sequence in any filter
+	flats = []
+	is_flat = (log['imType'] == 'flat')
+	ii = np.where(is_flat)[0]
+	for _i,i in enumerate(ii):
+		for j in range(_i+1,len(ii)):
+			if ( (ii[j] != ii[j-1]+1) or
+			     (log['filter'][ii[j]] != log['filter'][ii[j-1]]) or
+			     (log['expTime'][ii[j]] != log['expTime'][ii[j-1]]) ):
+				break
+		if (j-_i > 5):
+			flats = ii[:j-_i]
+			break
+	#
+	# empirical gain/readnoise calculation
+	#
+	biases = [ os.path.join(utdir,f+'.fits') for f in log['fileName'][biases] ]
+	flats = [ os.path.join(utdir,f+'.fits') for f in log['fileName'][flats] ]
+	if len(biases)>3 and len(flats)>3:
+		# skip the first image in each sequence
+		gainrdnoise = calc_gain_rdnoise(biases[1:],flats[1:])
+		logFits.write(gainrdnoise)
+	#
+	# bit integrity check
+	#
+	nbits = 8
+	bitbit = np.zeros(len(flats),dtype=[('fileName','S15'),
+	                                    ('bitFreq','f4',(16,nbits))])
+	for i,flat in enumerate(flats):
+		bitbit['fileName'][i] = os.path.basename(flat)
+		fits = fitsio.FITS(flat)
+		for j,hdu in enumerate(fits[1:]):
+			imNum = 'IM%d' % ampOrder[j]
+			data = hdu.read().astype(np.int32)
+			npix = float(data.size)
+			for bit in range(nbits):
+				nbit = np.sum((data&(1<<bit))>0)
+				bitbit['bitFreq'][i,j,bit] = nbit/npix
+	logFits.write(bitbit)
+	# finish up
+	logFits.close()
+
+
 
 if __name__=='__main__':
+	import argparse
 	#calc_all_gain_rdnoise(10)
 	#calc_all_gain_rdnoise(10,'sdss')
 	#linearity_check()
 	#bias_check()
-	bias_drops()
+	#bias_drops()
+	parser = argparse.ArgumentParser()
+	parser.add_argument("-n","--nightly",action='store_true',
+	                    help="run nightly processing")
+	parser.add_argument("-d","--datadir",type=str,
+	                    default="/data/primefocus/bass/",
+	                    help="top-level data directory")
+	parser.add_argument("-o","--output",type=str,
+	                    default="/home/mcgreer/basslogs/",
+	                    help="output directory")
+	parser.add_argument("-r","--redo",action='store_true',
+	                    help="ignore existing data and redo")
+	parser.add_argument("-u","--utdate",type=str,
+	                    help="restrict UT date")
+	args = parser.parse_args()
+	#
+	if args.nightly:
+		if args.utdate is not None:
+			utdirs = [os.path.join(args.datadir,args.utdate)]
+		else:
+			utdirs = sorted(glob(os.path.join(args.datadir,'201?????')))
+		for utdir in utdirs:
+			nightly_checks(utdir,args.output,redo=args.redo)
 
