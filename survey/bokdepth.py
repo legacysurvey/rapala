@@ -12,32 +12,7 @@ try:
 except ImportError:
 	pass
 
-from ninetyprime import nX,nY,improcess
-
-def load_flat_im(fn,npix2=100):
-	from astropy.io import fits
-	# fitsio doesn't like the way these files are written
-	#pixflatim = fitsio.FITS(fn)
-	pixflatim = fits.open(fn)
-	x1,x2,y1,y2 = 1024-npix2,1024+npix2,1008-npix2,1008+npix2
-	for extn in range(1,17):
-		im = pixflatim[extn].data
-		pix = sigma_clip(im[y1:y2,x1:x2],iters=2,sig=2.2)
-		im /= pix.mean()
-		print 'scaling ext ',extn,' by ',pix.mean()
-	return pixflatim
-
-def quickproc(fn,flatname,outfn,**kwargs):
-	from astropy.io import fits
-	pixflatim = load_flat_im(flatname)
-	imhdu = fitsio.FITS(fn)
-	hdul = [fits.PrimaryHDU()]
-	for extn in range(1,17):
-		im,bias = improcess(imhdu[extn],extn,pixflatim=pixflatim,**kwargs)
-		hdr = fits.getheader(fn,extn)
-		hdul.append(fits.ImageHDU(im,hdr))
-	f = fits.HDUList(hdul)
-	f.writeto(outfn,clobber=True)
+nX,nY = 4032,4096
 
 def make_PSFEx_psf(psfdata,hdr,x_im,y_im):
 	assert (hdr['POLNAME1'].strip()=='X_IMAGE' and 

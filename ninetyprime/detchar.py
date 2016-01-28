@@ -2,13 +2,10 @@
 
 import os,sys
 import numpy as np
-try:
-	import fitsio
-except:
-	from astropy.io import fits
+import fitsio
 from astropy.stats import sigma_clip
 
-from ninetyprime import ampOrder,colbias
+from bokutil.bokproc import ampOrder
 
 import matplotlib.pyplot as plt
 from matplotlib import ticker
@@ -22,15 +19,12 @@ def calc_gain_rdnoise(biases,flats,margin=500):
 	x1,x2 = margin,-margin
 	y1,y2 = margin,-margin
 	for files in zip(biases[:-1],biases[1:],flats[:-1],flats[1:]):
-		try:
-			ff = [fitsio.FITS(f) for f in files]
-		except NameError:
-			ff = [fits.open(f) for f in files]
+		ff = [fitsio.FITS(f) for f in files]
 		data = np.empty(1,dtype=[('gain','f4',16),('rdnoise','f4',16)])
 		for ext in range(1,17):
-			bias1,bias2 = [ _data2arr(f[ext][y1:y2,x1:x2],500,5000) 
+			bias1,bias2 = [ _data2arr(f[ext].read()[y1:y2,x1:x2],500,5000) 
 			                  for f in ff[:2]]
-			flat1,flat2 = [ _data2arr(f[ext][y1:y2,x1:x2],500,40000) 
+			flat1,flat2 = [ _data2arr(f[ext].read()[y1:y2,x1:x2],500,40000) 
 			                  for f in ff[2:] ]
 			_B1 = bias1.mean()
 			_B2 = bias2.mean()
@@ -44,7 +38,6 @@ def calc_gain_rdnoise(biases,flats,margin=500):
 				data['gain'][0,ext-1] = -1
 				data['rdnoise'][0,ext-1] = -1
 				continue
-###			print '%s %s %d %.1f %.1f %.1f %.1f %.1f %.1f %.1f' % (os.path.basename(files[0]),os.path.basename(files[1]),ext,_B1,_B2,_F1,_F2,varF1F2,varB1B2,varF1F2-varB1B2)
 			# equations from end of sec 4.3 (pg 73) of Howell 2006 
 			gain = ( (_F1 + _F2) - (_B1 + _B2) )  / (varF1F2 - varB1B2)
 			rdnoise = gain * np.sqrt(varB1B2/2)
@@ -67,6 +60,8 @@ def get_BASS_datadir():
 	return datadir
 
 def calc_all_gain_rdnoise(nmax=5,fn='bass'):
+	# XXX if keeping then update to use dataMap
+	raise NotImplementedError
 	if fn=='bass':
 		import basslog
 		datadir = get_BASS_datadir()
@@ -123,6 +118,8 @@ def calc_all_gain_rdnoise(nmax=5,fn='bass'):
 	fitsio.write('bok90_%s_char.fits'%fn,fileData)
 
 def bias_check():
+	# XXX if keeping update to use bokproc
+	raise NotImplementedError
 	import basslog
 	datadir = get_BASS_datadir()
 	logs = basslog.load_Bok_logs('../survey/logs/')
@@ -233,6 +230,8 @@ def plot_fastmode_analysis(det):
 				plt.hist(v,bins,histtype='step')
 
 def bias_drops():
+	# XXX if keeping update to use bokproc
+	raise NotImplementedError
 	import basslog
 	from ninetyprime import extract_colbias
 	nightlyLogs = basslog.load_Bok_logs('../survey/logs/')
