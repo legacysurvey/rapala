@@ -1,0 +1,7 @@
+movefilter bokr
+obs 100.0 object 'cosmosbokr_ra150_1' 1 bokr 100028.08 +021220.88 2000.0
+obs 100.0 object 'cosmosbokr_ra150_2' 1 bokr 100128.08 +021220.88 2000.0
+obs 100.0 object 'cosmosbokr_ra150_3' 1 bokr 100128.08 +022720.88 2000.0
+obs 100.0 object 'cosmosbokr_ra150_4' 1 bokr 100028.08 +022720.88 2000.0
+obs 100.0 object 'cosmosbokr_ra150_5' 1 bokr 100028.08 +014125.88 2000.0
+obs 100.0 object 'cosmosbokr_ra150_6' 1 bokr 100239.41 +021220.88 2000.0

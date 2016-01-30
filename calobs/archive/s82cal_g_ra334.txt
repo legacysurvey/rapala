@@ -1,0 +1,12 @@
+movefilter g
+obs 100.0 object 's82calg_ra334_1' 1 g 221800.00 +000000.00 2000.0
+obs 100.0 object 's82calg_ra334_2' 1 g 221900.00 +000000.00 2000.0
+obs 100.0 object 's82calg_ra334_3' 1 g 221900.00 +001500.00 2000.0
+obs 100.0 object 's82calg_ra334_4' 1 g 221800.00 +001500.00 2000.0
+obs 100.0 object 's82calg_ra334_5' 1 g 221800.00 -003055.00 2000.0
+obs 100.0 object 's82calg_ra334_6' 1 g 222011.33 +000000.00 2000.0
+obs  25.0 object 's82calg_ra334_a' 1 g 221800.00 +000000.00 2000.0
+obs  50.0 object 's82calg_ra334_b' 1 g 221800.00 +000000.00 2000.0
+obs 100.0 object 's82calg_ra334_c' 1 g 221800.00 +000000.00 2000.0
+obs 200.0 object 's82calg_ra334_d' 1 g 221800.00 +000000.00 2000.0
+obs 400.0 object 's82calg_ra334_e' 1 g 221800.00 +000000.00 2000.0

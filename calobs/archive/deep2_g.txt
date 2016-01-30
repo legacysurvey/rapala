@@ -1,0 +1,7 @@
+movefilter g
+obs 100.0 object 'deep2g_ra352_1' 1 g 232800.00 +000000.00 2000.0
+obs 100.0 object 'deep2g_ra352_2' 1 g 232900.00 +000000.00 2000.0
+obs 100.0 object 'deep2g_ra352_3' 1 g 232900.00 +001500.00 2000.0
+obs 100.0 object 'deep2g_ra352_4' 1 g 232800.00 +001500.00 2000.0
+obs 100.0 object 'deep2g_ra352_5' 1 g 232800.00 -003055.00 2000.0
+obs 100.0 object 'deep2g_ra352_6' 1 g 233011.33 +000000.00 2000.0
