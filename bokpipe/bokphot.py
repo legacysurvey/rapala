@@ -88,7 +88,7 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 	x = x[ii2]
 	y = y[ii2]
 	ii = ii[ii2]
-	#bkg = sep.Background(image)
+	bkg = sep.Background(image)
 	nObj,nAper = len(ii),len(aperRad)
 	cts = np.empty((nObj,nAper),dtype=np.float32)
 	ctserr = np.empty((nObj,nAper),dtype=np.float32)
@@ -97,10 +97,10 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 	if mask is not None:
 		mask = mask.astype(np.int32)
 	for j,aper in enumerate(aperRad):
-		c,cvar,f = sep.sum_circle(image,x,y,aper,mask=mask,
-		                          gain=1.0,bkgann=(25.,35.))
+		c,crms,f = sep.sum_circle(image-bkg.back(),x,y,aper,mask=mask,
+		                          gain=1.0,err=bkg.globalrms)
 		cts[:,j] = c
-		ctserr[:,j] = np.sqrt(cvar)
+		ctserr[:,j] = crms
 		flags[:,j] = f
 	return x,y,ii,cts,ctserr,flags
 
