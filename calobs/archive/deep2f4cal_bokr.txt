@@ -1,0 +1,7 @@
+movefilter bokr
+obs 100.0 object 'deep2f4calbokr_1' 1 bokr 020200.00 +000000.00 2000.0
+obs 100.0 object 'deep2f4calbokr_2' 1 bokr 020300.00 +000000.00 2000.0
+obs 100.0 object 'deep2f4calbokr_3' 1 bokr 020300.00 +001500.00 2000.0
+obs 100.0 object 'deep2f4calbokr_4' 1 bokr 020200.00 +001500.00 2000.0
+obs 100.0 object 'deep2f4calbokr_5' 1 bokr 020200.00 -003055.00 2000.0
+obs 100.0 object 'deep2f4calbokr_6' 1 bokr 020411.33 +000000.00 2000.0
