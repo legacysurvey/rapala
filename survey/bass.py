@@ -23,8 +23,21 @@ except:
 tiledb_file = 'bass-newtiles-indesi.fits'
 obsdb_file = 'bass-newtiles-observed.fits'
 
-def build_obsdb(noskip=True):
-	import glob,re
+def build_obsdb(noskip=True,update=True):
+	import glob,re,shutil
+	from urllib2 import urlopen
+	import tarfile
+	if update:
+		resp = urlopen('http://batc.bao.ac.cn/BASS/lib/exe/fetch.php?media=observation:observation:database.tar.gz')
+		f = resp.read()
+		tarname = os.path.join(bass_dir,'database.tar.gz')
+		outf = open(tarname,'wb')
+		outf.write(f)
+		outf.close()
+		shutil.rmtree(os.path.join(bass_dir,'database'))
+		tar = tarfile.open(tarname)
+		tar.extractall(path=bass_dir)
+		tar.close()
 	dtype = [('utDate','S8'),('fileName','S35'),('expTime','f4'),
 	         ('tileId','i4'),('ditherId','i2'),
 	         ('ra','f8'),('dec','f8'),('filter','S1')]
@@ -100,10 +113,14 @@ def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 		              (tiledb['TDEC']>dec1) & (tiledb['TDEC']<dec2))[0]
 	return tiledb[ii]
 
-def obs_summary(doplot=False,saveplot=False):
+def obs_summary(filt='g',utstart=None,doplot=False,saveplot=False,pltsfx=''):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb()
+	obsdb = obsdb[obsdb['filter']==filt]
+	if utstart is not None:
+		utds = np.array([int(u) for u in obsdb['utDate']])
+		obsdb = obsdb[utds>=utstart]
 	tid = np.array([int(tid) for tid in tiledb['TID']])
 	nobs = np.zeros((tiledb.size,3),dtype=int)
 	tileList = {1:defaultdict(list),2:defaultdict(list),3:defaultdict(list)}
@@ -122,7 +139,7 @@ def obs_summary(doplot=False,saveplot=False):
 	print 'unique tiles: '
 	for i in range(3):
 		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]>0))
-	print 'any dither: ',np.sum(np.any(nobs>0,axis=1))
+	print 'any pass: ',np.sum(np.any(nobs>0,axis=1))
 	print 'repeats: '
 	for i in range(3):
 		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]>1))
@@ -131,7 +148,7 @@ def obs_summary(doplot=False,saveplot=False):
 		import matplotlib.pyplot as plt
 		from matplotlib.backends.backend_pdf import PdfPages
 		if saveplot:
-			pdf = PdfPages('bass_coverage.pdf')
+			pdf = PdfPages('bass_coverage_%s%s.pdf'%(filt,pltsfx))
 		for j in range(3):
 			fig = plt.figure(figsize=(10,6))
 			plt.subplots_adjust(0.03,0.05,0.98,0.95)
@@ -146,8 +163,8 @@ def obs_summary(doplot=False,saveplot=False):
 			         [32.5,32.5,36.1,36.1,32.5],c='k')
 			plt.xlim(20,5.9)
 			plt.ylim(29.7,58)
-			plt.title('dither %d total %d unique %d repeats %d' %
-			          (j+1,np.sum(nobs[:,j]),np.sum(nobs[:,j]>0),
+			plt.title('filter %s pass %d total %d unique %d repeats %d' %
+			          (filt,j+1,np.sum(nobs[:,j]),np.sum(nobs[:,j]>0),
 			           np.sum(nobs[:,j]>1)))
 			if saveplot:
 				pdf.savefig(fig,orientation='landscape')
@@ -189,7 +206,7 @@ def nersc_archive_list():
 #	errlogf.close()
 
 if __name__=='__main__':
-	#build_obsdb()
-	nersc_archive_list()
+	build_obsdb()
+	#nersc_archive_list()
 
 
