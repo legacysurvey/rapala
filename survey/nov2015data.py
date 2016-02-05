@@ -274,7 +274,6 @@ def stripe82zps():
 
 def stripe82_depth(imageFile,aperRad=7.0):
 	from bokpipe.bokphot import aper_phot_image
-	_minmax = lambda a,b: (a,b) if a<=b else (b,a)
 	aperRad /= 0.455
 	s82all = load_stripe82_truth(ra_range=(332,336))
 	ph = aper_phot_image(imageFile,s82all['ra'],s82all['dec'],[aperRad])
@@ -282,4 +281,37 @@ def stripe82_depth(imageFile,aperRad=7.0):
 	ph['ra'] = s82all['ra'][ph['objId']]
 	ph['dec'] = s82all['dec'][ph['objId']]
 	return ph
+
+def plot_pointings():
+	from matplotlib.patches import Rectangle
+	from astrotools.idmstuff import radec_fromstr
+	filt = 'g'
+	fields = ['cosmos%s_ra150_%s' % (filt,n) for n in '123456']
+	_minmax = lambda a,b: (a,b) if a<=b else (b,a)
+	plt.figure()
+	ax = plt.subplot(111)
+	for f in fields:
+		imf = os.path.join(os.environ['BASSRDXDIR'],'reduced','bokpipe_v0.2',
+		                   'nov15data',filt,f+'.fits')
+		hdus = fits.open(imf)
+		for hdu in hdus[1:]:
+			w = WCS(hdu.header)
+			ra0,dec0 = w.all_pix2world(1,1,1,ra_dec_order=True)
+			ra1,dec1 = w.all_pix2world(4096,4032,1,ra_dec_order=True)
+			ra0,ra1 = _minmax(ra0,ra1)
+			dec0,dec1 = _minmax(dec0,dec1)
+			rect = Rectangle((ra0,dec0),ra1-ra0,dec1-dec0,
+			                 alpha=0.5,color='0.2')
+			ax.add_patch(rect)
+	moscoo = ['10:00:28.00  02:12:20.99', '10:00:19.06  02:17:11.00',
+	          '10:00:25.80  02:15:56.99', '10:00:21.25  02:13:35.00',
+	          '10:00:23.52  02:14:45.99']
+	for c in moscoo:
+		ra,dec = radec_fromstr(c,True)
+		#plt.scatter(ra,dec,c='r',s=100,lw=2,marker='x')
+		rect = Rectangle((ra-0.3,dec-0.3),0.6,0.6,
+		                 color='r',fill=False)
+		ax.add_patch(rect)
+	plt.xlim(149.49,151.3)
+	plt.ylim(1.05,3.05)
 
