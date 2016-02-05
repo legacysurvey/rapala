@@ -765,10 +765,12 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			           (self.inputNameMap(f),meanVal)
 		if self.rawStackFile is not None:
 			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
-			self.rawStackFits = fitsio.FITS(
-			                        self.rawStackFile(outFits._filename),'rw')
+			rawFn = self.rawStackFile(outFits._filename)
+			if os.path.exists(rawFn):
+				os.remove(rawFn)
+			self.rawStackFits = fitsio.FITS(rawFn,'rw')
 			# if we've gotten to here, we already know any existing file 
-			# needs to be clobbered
+			# needs to be clobbered (XXX but this didn't work??? added above)
 			self.rawStackFits.write(None,header=outFits[0].read_header(),
 			                        clobber=True)
 	def _rescale(self,imCube,scales=None):
