@@ -5,6 +5,7 @@ import numpy as np
 from astropy.io import fits
 from astropy.table import Table
 from astropy.stats import sigma_clip
+from astropy.wcs import WCS
 
 import matplotlib.pyplot as plt
 from matplotlib import ticker
@@ -270,4 +271,15 @@ def stripe82zps():
 			                     zpcorr=zpcorr)
 			plt.savefig('s82zp_%s_%s.png' % (filt,s))
 	plt.ion()
+
+def stripe82_depth(imageFile,aperRad=7.0):
+	from bokpipe.bokphot import aper_phot_image
+	_minmax = lambda a,b: (a,b) if a<=b else (b,a)
+	aperRad /= 0.455
+	s82all = load_stripe82_truth(ra_range=(332,336))
+	ph = aper_phot_image(imageFile,s82all['ra'],s82all['dec'],[aperRad])
+	ph['refMag'] = s82all['psfMag_g'][ph['objId']]
+	ph['ra'] = s82all['ra'][ph['objId']]
+	ph['dec'] = s82all['dec'][ph['objId']]
+	return ph
 

@@ -76,7 +76,7 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 	if rename:
 		shutil.move(defPsfFile,psfFile)
 
-def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5,**kwargs):
+def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 	w = wcs_from_header(hdr)
 	foot = w.calc_footprint()
 	raMin,raMax = foot[:,0].min(),foot[:,0].max()
@@ -94,16 +94,17 @@ def aper_phot(image,hdr,ra,dec,aperRad,badPixMask,edge_buf=5,**kwargs):
 	ctserr = np.empty((nObj,nAper),dtype=np.float32)
 	flags = np.empty((nObj,nAper),dtype=np.int32)
 	# only data type sep appears to accept
-	_mask = badPixMask.astype(np.int32)
+	if mask is not None:
+		mask = mask.astype(np.int32)
 	for j,aper in enumerate(aperRad):
-		c,cvar,f = sep.sum_circle(image,x,y,aper,mask=_mask,
+		c,cvar,f = sep.sum_circle(image,x,y,aper,mask=mask,
 		                          gain=1.0,bkgann=(25.,35.))
 		cts[:,j] = c
 		ctserr[:,j] = np.sqrt(cvar)
 		flags[:,j] = f
 	return x,y,ii,cts,ctserr,flags
 
-def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
+def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 	                aHeadFile=None,**kwargs):
 	from astropy.io.fits import getheader
 	if aHeadFile is not None:
@@ -118,8 +119,11 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask,
 		if aHeadFile is not None:
 			for k,v in wcsHdrs[i].items():
 				hdr[k] = v
-		mask = badPixMask[extn].read().astype(np.bool)
-		phot = aper_phot(im,hdr,ra,dec,aperRad,mask,**kwargs)
+		if badPixMask is None:
+			mask = None
+		else:
+			mask = badPixMask[extn].read().astype(np.bool)
+		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,**kwargs)
 		n = len(phot[0])
 		if n==0:
 			continue
