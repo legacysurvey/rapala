@@ -499,7 +499,8 @@ def make_supersky_flats(dataMap,**kwargs):
 	                                            mask_map=dataMap('skymask'),
 	                    exposure_time_map=bokio.FileNameMap(caldir,'.exp'),
 	                       raw_stack_file=bokio.FileNameMap(caldir,'_raw'),
-	                                        header_bad_key='BADSKY')
+	                                        header_bad_key='BADSKY',
+	                                            **kwargs)
 	skyFlatStack.set_badpixelmask(dataMap('MasterBadPixMask4'))
 	for filt in dataMap.iterFilters():
 		if True:
@@ -560,7 +561,8 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
 	                                    input_map=dataMap('proc2'),
 	                                    output_map=dataMap('skymask'),
-	                                    mask_map=dataMap('MasterBadPixMask4'))
+	                                    mask_map=dataMap('MasterBadPixMask4'),
+	                                              **kwargs)
 	files = dataMap.getFiles(imType='object')
 	skyFlatMask.process_files(files)
 	skyfitmap = dataMap('skyfit') if save_sky else None

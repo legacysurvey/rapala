@@ -337,7 +337,7 @@ class BokCCDProcess(bokutil.BokProcess):
 			hdr['GAIN'] = 1.0 # now in e-
 			hdr['SATUR'] = saturation_dn * self.inputGain[extName]
 			hdr['GAIN%02dA'%chNum] = self.inputGain[extName]
-		else:
+		elif 'SATUR' not in hdr:
 			hdr['SATUR'] = saturation_dn
 		return data,hdr
 
@@ -582,6 +582,7 @@ def combine_ccds(fileList,**kwargs):
 		for ccdNum,extGroup in enumerate(np.hsplit(extns,4),start=1):
 			hdr = inFits[bokCenterAmps[ccdNum-1]].read_header()
 			ccdIms = []
+			satvals = []
 			for j,ext in enumerate(extGroup):
 				im = inFits[ext].read() 
 				hext = inFits[ext].read_header()
@@ -601,6 +602,7 @@ def combine_ccds(fileList,**kwargs):
 					hdr['GAIN%02dB'%int(ext[2:])] = gc1
 					if j==0:
 						hdr['CCDGAIN'] = gc2
+						satvals.append(hdr['SATUR']*gc1*gc2)
 					im *= gc1 * gc2
 				if flatNorm:
 					_s = bokutil.stats_region('amp_corner_ccdcenter_128')
@@ -610,6 +612,7 @@ def combine_ccds(fileList,**kwargs):
 			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords
 			outIm,hdr = _orient_mosaic(hdr,ccdIms,ccdNum,origin)
+			hdr['SATUR'] = np.min(satvals)
 			if True:
 				# For some reason this results in a segfault when running
 				# on NERSC unless the image is copied...
@@ -695,7 +698,7 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 	def _preprocess(self,fits,f):
 		print 'generating sky mask for ',f
 	def process_hdu(self,extName,data,hdr):
-		if (data>hdr['SATUR']).sum() > 10000:
+		if (data>hdr['SATUR']).sum() > 50000:
 			# if too many pixels are saturated mask the whole damn thing
 			hdr['BADSKY'] = 1
 		n = self.nSample
@@ -744,7 +747,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		                     if k.startswith('clip_') }
 		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs.setdefault('clip_iters',3)
-		self.clipArgs.setdefault('clip_sig',4.0)
+		self.clipArgs.setdefault('clip_sig',2.2)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.rawStackFile = kwargs.get('raw_stack_file')
