@@ -13,13 +13,15 @@ nov15db:
 
 nov15proc:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    -s oscan,bias2d -vvv -p 4 
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    -s flat2d -vvv --nousepixflat
+	                    -s oscan,bias2d,flat2d --nousepixflat \
+	                    -vvv -p 4 
 
 nov15badpix:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s bpmask -u 20151115 -b g -vvv
+
+# exclude the linearity sequences at fixed positions
+NOV14SKYFLATS := "33-38,45-50,57-110"
 
 nov15flats:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
@@ -34,6 +36,7 @@ nov15flats:
 	                    --nodarkskycorr --skymethod polynomial --skyorder 1 \
 	                    --tmpdirin --tmpdirout -vvv -p 4
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14SKYFLATS) \
 	                    -s skyflat \
 	                    --tmpdirin --tmpdirout -vvv 
 
