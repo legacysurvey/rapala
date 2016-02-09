@@ -8,12 +8,17 @@ import subprocess
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
 from scipy.signal import spline_filter
+from scipy.ndimage.morphology import binary_dilation,binary_closing
+import scipy.ndimage.measurements as meas
 from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
+from astropy.convolution.convolve import convolve
+from astropy.convolution.kernels import Gaussian2DKernel
 import fitsio
 
 from .bokio import *
 from . import bokutil
+from .bokoscan import extract_overscan
 
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
@@ -341,6 +346,46 @@ class BokCCDProcess(bokutil.BokProcess):
 			hdr['SATUR'] = saturation_dn
 		return data,hdr
 
+class BokWeightMap(bokutil.BokProcess):
+	def __init__(self,**kwargs):
+		kwargs.setdefault('header_key','WHTMAP')
+		super(BokWeightMap,self).__init__(**kwargs)
+		self._mask_map = kwargs.get('_mask_map')
+		self.maskFile = None
+	def _preprocess(self,fits,f):
+		print 'weight map ',fits.outFileName
+		try:
+			maskFile = self._mask_map(f)
+		except:
+			maskFile = self._mask_map
+		if maskFile != self.maskFile:
+			if type(maskFile) is str:
+				self.maskFile = self._mask_map(f)
+				self.maskFits = fitsio.FITS(self.maskFile)
+			else:
+				self.maskFits = maskFile
+	def process_hdu(self,extName,data,hdr):
+		satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
+		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
+		mask = data > satVal
+		#mask = binary_fill_holes(mask)
+		for i in np.where(np.any(mask,axis=1))[0]:
+			jj = np.where(mask[i])[0]
+			if len(jj)>=2:
+				bb = np.where((np.diff(jj)>1)&(np.diff(jj)<100))[0]
+				for b in bb:
+					mask[i,jj[b]:jj[b+1]] = True
+		mask |= ( (self.maskFits[extName].read() > 0) |
+		          (data==0) )
+		data -= np.median(oscan_cols)
+#		if oscan_rows is not None:
+#			data -= np.median(oscan_rows)
+		# XXX this is a nominal gain value, should be matched to image values
+		ivar = (np.clip(data,1e-10,65535)*1.5)**-1
+		ivar[mask] = 0
+		#return ivar,hdr
+		return ivar,hdr
+
 class BokSkySubtract(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','SKYSUB')
@@ -631,11 +676,6 @@ def combine_ccds(fileList,**kwargs):
 #                                                                             #
 ###############################################################################
 
-from astropy.convolution.convolve import convolve
-from astropy.convolution.kernels import Gaussian2DKernel
-from scipy.ndimage.morphology import binary_dilation,binary_closing
-import scipy.ndimage.measurements as meas
-
 def find_bright_stars(im,saturation,minNSat=100):
 	y,x = np.indices(im.shape)
 	saturated = im >= saturation
@@ -726,10 +766,14 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		# mask everything above the threshold
 		mask |= (snr < -self.loThresh) | (snr > self.hiThresh)
 		# grow the mask from positive deviations
-		mask = binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
+		mask = binary_dilation(mask,mask=(snr>self.growThresh),iterations=0)
 		                       structure=self.growKern)
+		#binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
+		#                structure=self.growKern,output=mask)
 		# fill in holes in the mask
 		mask = binary_closing(mask,iterations=5,structure=self.growKern)
+		#binary_closing(mask,iterations=5,structure=self.growKern,
+		#               output=mask)
 		# bright star mask
 		bsmask = False # XXX
 		# construct the output array

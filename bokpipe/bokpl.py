@@ -26,7 +26,7 @@ all_process_steps = ['oscan','bias2d','flat2d','bpmask',
                      'proc1','comb','skyflat','proc2','sky','wcs','cat']
 
 default_filenames = {
-  'oscan':'','bias':'_b','proc1':'_p','comb':'_c',
+  'oscan':'','bias':'_b','proc1':'_p','comb':'_c','weight':'.wht',
   'pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
   'sky':'_s','proc2':'_q','wcscat':'.wcscat',
   'cat':'.cat','psf':'.psf'
@@ -163,7 +163,7 @@ class BokDataManager(object):
 	def setInPlace(self,inPlace):
 		self.inPlace = inPlace
 		if self.inPlace:
-			self.filesToMap = ['oscan','pass1cat','skymask','skyfit',
+			self.filesToMap = ['oscan','pass1cat','weight','skymask','skyfit',
 			                   'wcscat','cat','psf']
 		else:
 			self.filesToMap = self.fileSuffixes.keys()
@@ -491,6 +491,12 @@ def process_all(dataMap,bias_map,flat_map,
 	                     output_map=dataMap('comb'),
 	                     gain_map=gainMap,
 	                     **kwargs)
+	# 4. construct weight maps starting from raw images
+	whmap = bokproc.BokWeightMap(input_map=dataMap('raw'),
+	                             output_map=dataMap('weight'),
+	                             _mask_map=dataMap('MasterBadPixMask'),
+	                             **kwargs)
+	whmap.process_files(files)
 
 def make_supersky_flats(dataMap,**kwargs):
 	caldir = dataMap.getCalDir()
