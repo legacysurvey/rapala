@@ -766,7 +766,7 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		# mask everything above the threshold
 		mask |= (snr < -self.loThresh) | (snr > self.hiThresh)
 		# grow the mask from positive deviations
-		mask = binary_dilation(mask,mask=(snr>self.growThresh),iterations=0)
+		mask = binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
 		                       structure=self.growKern)
 		#binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
 		#                structure=self.growKern,output=mask)
