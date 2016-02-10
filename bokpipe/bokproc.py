@@ -730,7 +730,7 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		super(BokGenerateSkyFlatMasks,self).__init__(**kwargs)
 		self.hiThresh = kwargs.get('high_thresh',5.0)
 		self.loThresh = kwargs.get('low_thresh',5.0)
-		self.growThresh = kwargs.get('grow_thresh',3.0)
+		self.growThresh = kwargs.get('grow_thresh',1.0)
 		self.binGrowSize = kwargs.get('mask_grow_size',3)
 		self.nSample = kwargs.get('num_sample',4)
 		self.nKnots = kwargs.get('num_spline_knots',3)
@@ -774,14 +774,11 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		# mask everything above the threshold
 		mask |= (snr < -self.loThresh) | (snr > self.hiThresh)
 		# grow the mask from positive deviations
-		mask = binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
-		                       structure=self.growKern)
-		#binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
-		#                structure=self.growKern,output=mask)
+		binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
+		                structure=self.growKern,output=mask)
 		# fill in holes in the mask
-		mask = binary_closing(mask,iterations=5,structure=self.growKern)
-		#binary_closing(mask,iterations=5,structure=self.growKern,
-		#               output=mask)
+		binary_closing(mask,iterations=5,structure=self.growKern,
+		               output=mask)
 		# bright star mask
 		bsmask = False # XXX
 		# construct the output array
