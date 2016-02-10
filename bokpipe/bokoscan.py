@@ -5,10 +5,9 @@ import re
 from collections import OrderedDict
 import numpy as np
 from scipy.ndimage.filters import median_filter
-from astropy.stats import sigma_clip
 import fitsio
 
-from .bokutil import BokProcess
+from .bokutil import BokProcess,array_clip
 
 # argh
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
@@ -44,12 +43,9 @@ def fit_overscan(overscan,**kwargs):
 	reject = kwargs.get('reject','sigma_clip')
 	method = kwargs.get('method','mean')
 	applyFilter = kwargs.get('apply_filter','median')
-	windowSize = kwargs.get('filter_window',17)
+	windowSize = kwargs.get('filter_window',31)
 	maskAlong = kwargs.get('mask_along',[0,1,2,-1])
 	along = kwargs.get('along','columns')
-	clipArgs = {'iters':kwargs.get('clip_iters',2),
-	            'sig':kwargs.get('clip_sig',2.5),
-	            'cenfunc':np.ma.mean}
 	spline_interval = kwargs.get('spline_interval',20)
 	if along == 'rows':
 		# make it look like a column overscan for simplicity
@@ -58,13 +54,19 @@ def fit_overscan(overscan,**kwargs):
 	#
 	overscan = np.ma.masked_array(overscan)
 	overscan[:,maskAlong] = np.ma.masked
-	#
+	# reject outlier values perpendicular to overscan axis
 	if reject == 'sigma_clip':
-		overscan = sigma_clip(overscan,axis=1,**clipArgs)
+		overscan = array_clip(overscan,axis=1,**kwargs)
 	elif reject == 'minmax':
 		overscan[:,overscan.argmax(axis=1)] = np.ma.masked
 		overscan[:,overscan.argmin(axis=1)] = np.ma.masked
-	#
+	# identify outliers along overscan vector (i.e., due to bleed trails
+	#   of saturated stars)
+	if True:
+		overscan = array_clip(overscan,axis=0,
+		                      clip_iters=None,clip_sig=3.5,
+		                      clip_cenfunc=np.ma.median)
+	# collapse overscan into scalar or vector
 	if method == 'mean':
 		oscan_fit = overscan.mean(axis=1)
 	elif method == 'mean_value':
@@ -79,8 +81,16 @@ def fit_overscan(overscan,**kwargs):
 		oscan_fit = spl_fit(x)
 	else:
 		raise ValueError
-	if applyFilter == 'median':
-		oscan_fit = median_filter(oscan_fit,windowSize)
+	if 'value' not in method:
+		# another round of rejection, this time along the vector
+		oscan_fit = array_clip(oscan_fit,axis=0,
+		                       clip_iters=None,clip_sig=3.0,
+		                       clip_cenfunc=np.ma.median)
+		# fill any vector elements that were rejected as outliers
+		oscan_fit = oscan_fit.filled(np.ma.median(oscan_fit))
+		# smoothing filter along overscan vector
+		if applyFilter == 'median':
+			oscan_fit = median_filter(oscan_fit,windowSize)
 	return oscan_fit
 
 def overscan_subtract(data,hdr,returnFull=False,**kwargs):
@@ -94,11 +104,7 @@ def overscan_subtract(data,hdr,returnFull=False,**kwargs):
 		_colbias = fit_overscan(oscan_rows[:,-20:],**kwargs)
 		oscan_rows = oscan_rows[:,:-20] - _colbias[:,np.newaxis]
 		# now fit and subtract the overscan rows
-		#    saturated stars can contaminate the overscan rows and need to
-		#    be interpolated over several tens of pixels. instead just
-		#    use median
-		rowbias = fit_overscan(oscan_rows,along='rows',#**kwargs)
-		                       method='median_value',applyFilter=None)
+		rowbias = fit_overscan(oscan_rows,along='rows',**kwargs)
 		data[:] -= rowbias[np.newaxis,:data.shape[1]]
 	else:
 		rowbias = None
