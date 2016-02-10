@@ -497,6 +497,14 @@ def process_all(dataMap,bias_map,flat_map,
 	                             _mask_map=dataMap('MasterBadPixMask'),
 	                             **kwargs)
 	whmap.process_files(files)
+	# rescale the gain corrections to inverse variance
+	for f in gainMap['corrections']:
+		gainMap['corrections'][f] **= -1
+	bokproc.combine_ccds(files,
+	                     input_map=dataMap('weight'), 
+	                     output_map=dataMap('weight'), 
+	                     gain_map=gainMap,
+	                     **kwargs)
 
 def make_supersky_flats(dataMap,**kwargs):
 	caldir = dataMap.getCalDir()

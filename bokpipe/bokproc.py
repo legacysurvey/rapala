@@ -351,6 +351,8 @@ class BokWeightMap(bokutil.BokProcess):
 		kwargs.setdefault('header_key','WHTMAP')
 		super(BokWeightMap,self).__init__(**kwargs)
 		self._mask_map = kwargs.get('_mask_map')
+		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
+		                          for ampNum,g in zip(ampOrder,nominal_gain)})
 		self.maskFile = None
 	def _preprocess(self,fits,f):
 		print 'weight map ',fits.outFileName
@@ -380,10 +382,12 @@ class BokWeightMap(bokutil.BokProcess):
 		data -= np.median(oscan_cols)
 #		if oscan_rows is not None:
 #			data -= np.median(oscan_rows)
-		# XXX this is a nominal gain value, should be matched to image values
-		ivar = (np.clip(data,1e-10,65535)*1.5)**-1
+		gain = self.inputGain[extName]
+		ivar = (gain*np.clip(data,1e-10,65535))**-1
 		ivar[mask] = 0
-		#return ivar,hdr
+		#
+		chNum = int(extName.replace('IM',''))
+		hdr['GAIN%02dA'%chNum] = gain
 		return ivar,hdr
 
 class BokSkySubtract(bokutil.BokProcess):
@@ -647,7 +651,10 @@ def combine_ccds(fileList,**kwargs):
 					hdr['GAIN%02dB'%int(ext[2:])] = gc1
 					if j==0:
 						hdr['CCDGAIN'] = gc2
-						satvals.append(hdr['SATUR']*gc1*gc2)
+						try:
+							satvals.append(hdr['SATUR']*gc1*gc2)
+						except ValueError:
+							pass
 					im *= gc1 * gc2
 				if flatNorm:
 					_s = bokutil.stats_region('amp_corner_ccdcenter_128')
