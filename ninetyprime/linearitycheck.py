@@ -172,7 +172,8 @@ def fit_ref_exposures(dataMap,st,imNum,
 	return fit
 
 def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
-                          refCor=None,fitmethod='spline',outfn='linearity'):
+                          refCor=None,fitmethod='spline',outfn='linearity',
+	                      onlyim=None):
 	seqno = 1 + np.arange(len(st))
 	t = st['expTime']
 	print seqno,t
@@ -186,9 +187,15 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 		# for PTCs skip every other image since they are done in pairs
 		ii = ii[::2]
 	# only fit to unsaturated frames
-	firstsat = np.where(np.any(st[which][ii,:] > 55000,axis=1))[0][0]
-	pdf = PdfPages(outfn+'.pdf')
+	try:
+		firstsat = np.where(np.any(st[which][ii,:] > 55000,axis=1))[0][0]
+	except IndexError:
+		firstsat = -1
+	if onlyim is None:
+		pdf = PdfPages(outfn+'.pdf')
 	for imNum in range(1,17):
+		if onlyim is not None and imNum != onlyim:
+			continue
 		j = imNum - 1
 		# correct lamp variation
 		if correct:
@@ -208,25 +215,35 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 		slope = fit[0] / (st[which][ref,j][0]/refExpTime)
 		#
 		pltindex = imNum % 4
-		if pltindex == 1:
-			fig = plt.figure(figsize=(8,10))
-			plt.subplots_adjust(0.11,0.08,0.96,0.95,0.25,0.2)
-		ax = plt.subplot(4,2,2*(j%4)+1)
+		if onlyim is None:
+			if pltindex == 1:
+				fig = plt.figure(figsize=(8,10))
+				plt.subplots_adjust(0.11,0.08,0.96,0.95,0.25,0.2)
+			ax = plt.subplot(4,2,2*(j%4)+1)
+		else:
+			fig = plt.figure(figsize=(6,2.5))
+			plt.subplots_adjust(0.11,0.23,0.99,0.98,0.35,0.2)
+			ax = plt.subplot(1,2,1)
 		plt.plot(t[ii],fscl[ii]*st[which][ii,j],'bs-')
-		plt.xlim(0.0,t.max()+0.5)
-		plt.ylim(0,69000)
+		plt.xlim(0.1,t.max()+0.5)
+		plt.xscale('log')
+		plt.ylim(1e2,9e4)
+		plt.yscale('log')
 		plt.ylabel('counts [%s]' % which)
-		tt = np.arange(0,t.max()+1)
+		tt = np.logspace(-1,np.log10(1.3*t.max()),100)
 		plt.plot(tt,np.polyval(fit,tt),c='r')
 		plt.text(0.05,0.9,'IM%d'%imNum,va='top',transform=ax.transAxes)
 		plt.text(0.95,0.18,r'y = %.1f $\times$ t + %.1f' % tuple(fit),
 		         ha='right',va='top',size=9,transform=ax.transAxes)
 		plt.text(0.95,0.10,r'y = %.3f $\times$ counts + %.1f' % (slope,fit[1]),
 		         ha='right',va='top',size=9,transform=ax.transAxes)
-		if pltindex==0:
+		if pltindex==0 or onlyim is not None:
 			plt.xlabel('exptime (s)')
 		#
-		ax = plt.subplot(4,2,2*(j%4)+2)
+		if onlyim is None:
+			ax = plt.subplot(4,2,2*(j%4)+2)
+		else:
+			ax = plt.subplot(1,2,2)
 		plt.plot(t[ii],100*(fscl[ii]*st[which][ii,j]-fitv[ii])/fitv[ii],'bs-')
 		plt.axhline(0,c='r')
 		#ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
@@ -234,14 +251,17 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 		ax.yaxis.set_major_locator(ticker.MultipleLocator(2))
 		ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.5))
 		plt.ylim(-5,5)
-		plt.xlim(0.0,t.max()+0.5)
-		if pltindex==0:
+		plt.xlim(0.1,t.max()+0.5)
+		plt.xscale('log')
+		if pltindex==0 or onlyim is not None:
 			plt.xlabel('exptime (s)')
 		plt.ylabel('residual \%')
-		if pltindex == 0:
-			pdf.savefig(fig)
-			plt.close(fig)
-	pdf.close()
+		if onlyim is None:
+			if pltindex == 0:
+				pdf.savefig(fig)
+				plt.close(fig)
+	if onlyim is None:
+		pdf.close()
 
 def get_first_saturated_frame(seq):
 	try:
@@ -304,15 +324,13 @@ def init_oct02ptc_data_map():
 	return dataMap
 
 def init_oct20_data_map():
-	#datadir = os.environ.get('BASSDATA')+'/20151020/'
-	datadir = 'tmp/20151020/'
-	outdir = 'tmp/proc/'
+	datadir = os.environ.get('BASSDATA')+'/20151020/'
 	exptimes = np.loadtxt(datadir+'images.log',usecols=(6,))
 	nuse = 53
 	exptimes = exptimes[:nuse]
 	print exptimes
-	dataMap = init_data_map(datadir,outdir,expTimes=exptimes)
-	dataMap['rawFiles'] = dataMap['files'][:nuse]
+	dataMap = init_data_map(datadir,'tmp_oct20',expTimes=exptimes)
+	dataMap['rawFiles'] = dataMap['rawFiles'][:nuse]
 	dataMap['files'] = [ dataMap['oscan'](f) 
 	                       for f in dataMap['files'][:nuse] ]
 	dataMap['biasFiles'] = dataMap['files'][:20]
@@ -321,18 +339,54 @@ def init_oct20_data_map():
 	dataMap['refExpTime'] = 3.0
 	return dataMap
 
-def init_nov_data_map():
+def init_nov11g_data_map():
 	datadir = os.environ.get('BASSDATA')+'/Nov2015/'
 	log = Table.read(datadir+'bassLog_Nov2015.fits')
 	exptimes = log['expTime'][111:150]
-	files = [ datadir+f['utDir']+'/'+f['fileName']+'i.fits'
+	files = [ datadir+f['utDir']+'/'+f['fileName']+'.fits'
 	              for f in log[111:150] ]
-	dataMap = init_data_map(datadir,'tmp_nov',
+	dataMap = init_data_map(datadir,'tmp_nov11g',
 	                        expTimes=exptimes,files=files)
 	dataMap['biasFiles'] = dataMap['files'][-10:]
 	dataMap['flatSequence'] = np.arange(len(dataMap['files'])-10)
 	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
 	dataMap['refExpTime'] = 3.0
+	return dataMap
+
+def init_nov14_data_map(filt):
+	datadir = os.environ.get('BASSDATA')+'/Nov2015/'
+	log = Table.read(datadir+'bassLog_Nov2015.fits')
+	if filt=='g':
+		frames = np.r_[np.s_[297:345],np.s_[247:257]]
+	else:
+		frames = np.r_[np.s_[345:393],np.s_[247:257]]
+	exptimes = log['expTime'][frames]
+	files = [ datadir+f['utDir']+'/'+f['fileName']+'.fits'
+	              for f in log[frames] ]
+	dataMap = init_data_map(datadir,'tmp_nov14'+filt,
+	                        expTimes=exptimes,files=files)
+	dataMap['biasFiles'] = dataMap['files'][-10:]
+	dataMap['flatSequence'] = np.arange(len(dataMap['files'])-10)
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	dataMap['refExpTime'] = {'Ha':10.0,'g':3.0}[filt]
+	return dataMap
+
+def init_jan3_data_map(filt):
+	datadir = os.environ.get('BASSDATA')
+	log = Table.read('basslogs/log_ut20160103.fits')
+	if filt=='g':
+		frames = np.r_[np.s_[57:105],np.s_[160:170]]
+	else:
+		frames = np.r_[np.s_[105:160],np.s_[160:170]]
+	exptimes = log['expTime'][frames]
+	files = [ datadir+'/'+f['utDir'].strip()+'/'+f['fileName'].strip()+'.fits'
+	              for f in log[frames] ]
+	dataMap = init_data_map(datadir,'tmp_jan3'+filt,
+	                        expTimes=exptimes,files=files)
+	dataMap['biasFiles'] = dataMap['files'][-10:]
+	dataMap['flatSequence'] = np.arange(len(dataMap['files'])-10)
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	dataMap['refExpTime'] = {'Ha':10.0,'g':3.0}[filt]
 	return dataMap
 
 if __name__=='__main__':
@@ -344,11 +398,28 @@ if __name__=='__main__':
 		dataMap = init_oct02ptc_data_map()
 	elif dataset == 'oct20':
 		dataMap = init_oct20_data_map()
-	elif dataset == 'nov':
-		dataMap = init_nov_data_map()
+	elif dataset == 'nov11g':
+		dataMap = init_nov11g_data_map()
+	elif dataset == 'nov14g':
+		dataMap = init_nov14_data_map('g')
+	elif dataset == 'nov14Ha':
+		dataMap = init_nov14_data_map('Ha')
+	elif dataset == 'jan3g':
+		dataMap = init_jan3_data_map('g')
+	elif dataset == 'jan3Ha':
+		dataMap = init_jan3_data_map('Ha')
 	else:
 		raise ValueError
 	print 'processing ',dataset
-	process_data(dataMap,bias2d=True)
-	imstat(dataMap,outfn='stats_'+dataset)
+	if not os.path.exists('stats_'+dataset+'.fits'):
+		process_data(dataMap,bias2d=True)
+		imstat(dataMap,outfn='stats_'+dataset)
+	st = fitsio.read('stats_'+dataset+'.fits')
+	plot_linearity_curves(dataMap,st,outfn='linearity_'+dataset)
+	if True:
+		plot_linearity_curves(dataMap,st,outfn='linearity_'+dataset,
+		                      onlyim=4)
+		plt.savefig('linearity_IM4_%s.png'%dataset)
+		plot_sequence(dataMap,st,4)
+		plt.savefig('linsequence_IM4_%s.png'%dataset)
 
