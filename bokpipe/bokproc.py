@@ -657,7 +657,8 @@ def combine_ccds(fileList,**kwargs):
 			# orient the channel images into a mosaic of CCDs and
 			# modify WCS & mosaic keywords
 			outIm,hdr = _orient_mosaic(hdr,ccdIms,ccdNum,origin)
-			hdr['SATUR'] = np.min(satvals)
+			if len(satvals)>0:
+				hdr['SATUR'] = np.min(satvals)
 			if True:
 				# For some reason this results in a segfault when running
 				# on NERSC unless the image is copied...

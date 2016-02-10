@@ -94,7 +94,11 @@ def overscan_subtract(data,hdr,returnFull=False,**kwargs):
 		_colbias = fit_overscan(oscan_rows[:,-20:],**kwargs)
 		oscan_rows = oscan_rows[:,:-20] - _colbias[:,np.newaxis]
 		# now fit and subtract the overscan rows
-		rowbias = fit_overscan(oscan_rows,along='rows',**kwargs)
+		#    saturated stars can contaminate the overscan rows and need to
+		#    be interpolated over several tens of pixels. instead just
+		#    use median
+		rowbias = fit_overscan(oscan_rows,along='rows',#**kwargs)
+		                       method='median_value',applyFilter=None)
 		data[:] -= rowbias[np.newaxis,:data.shape[1]]
 	else:
 		rowbias = None
