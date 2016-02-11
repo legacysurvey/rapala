@@ -58,3 +58,16 @@ nov15finish:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) --finish
 
+nov15redo:
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) \
+	                    -s oscan -vvv -R
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) \
+	                    -s proc1 --norampcorr --nobiascorr -vvv -R
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) \
+	                    -s proc2  -vvv -R
+
+nov15all: nov15proc nov15badpix nov15flats nov15final
+
