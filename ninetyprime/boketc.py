@@ -7,7 +7,7 @@ k_ext = {'g':0.17,'r':0.10}
 A_ext = {'g':3.303,'r':2.285}
 
 # DESI parameters
-mag_lim = {'g':24.0,'r':23.6}
+mag_lim = {'g':24.0,'r':23.4}
 default_r_half = 0.45
 
 # Bok parameters
@@ -22,7 +22,8 @@ kpno_sky_lun0 = {'g':22.10,'r':21.07}
 
 def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
                 profile='exponential',tablezpt=False,r_half=default_r_half,
-                skyADU=None,gain=None,rdnoise=None,verbose=False):
+                skyADU=None,gain=None,rdnoise=None,taversion=False,
+                verbose=False):
 	if mag is None:
 		mag = mag_lim[band]
 	if zpt0 is None:
@@ -53,7 +54,12 @@ def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
 	sig_seeing = fwhm / 2.355
 	#
 	if profile=='exponential':
-		NEA = 4 * pi * ((sig_seeing/p)**2 + p**2/12 + (r_half/p)**2)
+		if taversion:
+			NEA = 4 * pi * ((sig_seeing/p)**2 + p**2/12 + (r_half/p)**2)
+		else:
+			_p = 1.15
+			NEA = ( (4*pi*((sig_seeing/p)**2)**(1/_p) + 
+			        (8.91*(r_half/p)**2)**(1/_p)) )**_p
 	elif profile=='gaussian':
 		NEA = 4 * pi * (sig_seeing/p)**2
 	else:
@@ -76,11 +82,13 @@ def targalt_eqn1(band,SNR=5.,ndith=3,**kwargs):
 		print 'source counts: %.1f e-  %.1f ADU' % (f0*T_exp,f0*T_exp/G)
 		print 'sky counts: %.1f e-  %.1f ADU' % (skyflux*T_exp,skyflux*T_exp/G)
 		print 'calculated exposure time: %.2f' % T_exp
+		print ' ... for single exposure: %.2f' % (T_exp/3)
 	return T_exp
 
 def targalt_verify(band):
 	targalt_eqn1(band,SNR=6.,r_half=0.35,tablezpt=True,
-	             fwhm=1.74,profile='gaussian',verbose=True)
+	             mag={'g':24.0,'r':23.6}[band],
+	             fwhm=1.74,profile='gaussian',taversion=True,verbose=True)
 
 def snr_singleexposure(band,mag,texp,**kwargs):
 	f0,skyflux,sig_sky,NEA,sig_readout = _exp_config(band,mag=mag,**kwargs)
@@ -129,6 +137,8 @@ if __name__=='__main__':
 	                    help='zeropoint (AB) [default=nominal Bok]')
 	parser.add_argument('-Y','--exposuretime',type=float,default=None,
 	                    help='exposure time (s) [default=calculate SNR]')
+	parser.add_argument('--taversion',action='store_true',
+	                    help='use targeting alternatives version')
 	args = parser.parse_args()
 	skyextinction = args.skyextinction
 	if skyextinction is None:
@@ -146,6 +156,6 @@ if __name__=='__main__':
 		           SNR=args.signaltonoise,
 		           sky=args.skybackground,fwhm=args.fwhm,
 		           zpt0=args.zeropoint,mag=args.magnitude,
-		           profile=args.profile,
+		           profile=args.profile,taversion=args.taversion,
 		           verbose=True)
 
