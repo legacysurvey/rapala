@@ -53,7 +53,7 @@ def match_stripe82():
 	nAper = 3
 	cdtypes = {'NUMBER':'i4','ALPHA_J2000':'f8','DELTA_J2000':'f8',
 	           'FLAGS':'i8'}
-	for filt in ['g','bokr']:
+	for filt in ['g','r']:
 		s82_1 = s82_ra_slice(s82,(333.5,336.0))
 		s82_2 = s82_ra_slice(s82,(351.0,353.5))
 		fields1 = ['s82cal%s_ra334_%s' % (filt,n) for n in '123456abcde']
@@ -90,7 +90,8 @@ def match_stripe82():
 					tab['ccdNum'][ii[m2],fNum] = ccdNum
 				print
 			tab = Table(tab)
-			tab.write(fields[0][:-2]+'_merged.fits',overwrite=True)
+			fn = fields[0][:-2].replace('bokr','r')
+			tab.write(fn+'_merged.fits',overwrite=True)
 
 def flux2mag(tab,band,which='PSF',zp=None):
 	assert which in ['APER','AUTO','PSF']
@@ -109,11 +110,11 @@ def flux2mag(tab,band,which='PSF',zp=None):
 
 ampNums = [ [ 4,2,3,1 ] , [ 7,5,8,6 ], [ 10,12,9,11 ], [ 13,15,14,16] ]
 
-def get_amp_index(tab):
+def get_amp_index(x,y):
 	nx = 4096 // 2
 	ny = 4032 // 2
-	xi = (tab['X_IMAGE']/nx).astype(np.int32)
-	yi = (tab['Y_IMAGE']/ny).astype(np.int32)
+	xi = (x/nx).astype(np.int32)
+	yi = (y/ny).astype(np.int32)
 	ampIndex = 2*yi + xi
 	return ampIndex
 
@@ -123,7 +124,7 @@ def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 	aperMag = flux2mag(tab,band,'APER',zp=zp)
 	ref_star = (tab['tMag']>16.5) & (tab['tMag']<19.7)
 	nImages = tab['NUMBER'].shape[1]
-	ampIndex = get_amp_index(tab)
+	ampIndex = get_amp_index(tab['X_IMAGE'],tab['Y_IMAGE'])
 	zpIm = np.zeros((nImages))
 	zpCCD = np.zeros((nImages,4))
 	zpAmp = np.zeros((nImages,4,4))
@@ -154,7 +155,11 @@ def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 	return zpIm,zpCCD,zpAmp
 
 def dump_zeropoints(tab,band,byamp=False,**kwargs):
+	from boketc import k_ext
 	zpim,zpccd,zpamp = calc_zeropoints(tab,band,**kwargs)
+	# argh, didn't keep airmass
+	#zp0adu = zpim - 2.5*np.log10(1.375) - k_ext*(tab['airmass']-1)
+	zp0adu = zpim - 2.5*np.log10(1.375) - k_ext[band]*(1.17-1)
 	for j in range(len(zpim)):
 		print 'image %2d: ' % (j+1),
 		for ccdNum in range(1,5):
@@ -165,7 +170,9 @@ def dump_zeropoints(tab,band,byamp=False,**kwargs):
 				print '  IM%d  %6.3f  ' % \
 				   (ampNums[ccdNum-1][ai],zpamp[j,ccdNum-1,ai]),
 			print
-		print '   %6.3f' % zpim[j]
+		print '   %6.3f   %6.3f' % (zpim[j],zp0adu[j])
+	print
+	print ' average zeropoints: %6.3f   %6.3f' % (zpim.mean(),zp0adu.mean())
 
 def delta_zps_byamp(zpFit):
 	for ccdi in range(4):
@@ -176,7 +183,7 @@ def delta_zps_byamp(zpFit):
 
 def dump_all_zeropoints():
 	for fpfx,fsfx in [('s82cal','ra334'),('deep2','ra352')]:
-		for filt in ['g','bokr']:
+		for filt in ['g','r']:
 			fieldcatf = fpfx+filt+'_'+fsfx+'_merged.fits'
 			fieldcat = Table.read(fieldcatf)
 			print fieldcatf
@@ -211,7 +218,7 @@ def focalplanevar(tab,band,nbin=4,doplot=False,vr=0.015,shownum=False,
 			zp = np.hstack([np.zeros((zpccd.shape[0],1)),zpccd])
 			zp = np.choose(tab['ccdNum'],zp.transpose())[:,:,np.newaxis]
 		elif zpcorr=='amp':
-			ampIndex = get_amp_index(tab)
+			ampIndex = get_amp_index(tab['X_IMAGE'],tab['Y_IMAGE'])
 			ai = np.clip(4*(tab['ccdNum']-1) + ampIndex + 1, 0, 16)
 			zp = np.hstack([np.zeros((zpamp.shape[0],1)),zpamp.reshape(-1,16)])
 			zp = np.choose(ai,zp.transpose())[:,:,np.newaxis]
@@ -263,7 +270,7 @@ def focalplanevar(tab,band,nbin=4,doplot=False,vr=0.015,shownum=False,
 
 def stripe82zps():
 	s82g = Table.read('s82calg_ra334_merged.fits')
-	s82r = Table.read('s82calbokr_ra334_merged.fits')
+	s82r = Table.read('s82calr_ra334_merged.fits')
 	plt.ioff()
 	for filt,tab in [('g',s82g),('r',s82r)]:
 		for zpcorr in ['image','ccd','amp']:
@@ -272,15 +279,70 @@ def stripe82zps():
 			plt.savefig('s82zp_%s_%s.png' % (filt,s))
 	plt.ion()
 
-def stripe82_depth(imageFile,aperRad=7.0):
+def stripe82_phot(imageFile,s82cat,aperRad=2.5):
 	from bokpipe.bokphot import aper_phot_image
 	aperRad /= 0.455
-	s82all = load_stripe82_truth(ra_range=(332,336))
-	ph = aper_phot_image(imageFile,s82all['ra'],s82all['dec'],[aperRad])
-	ph['refMag'] = s82all['psfMag_g'][ph['objId']]
-	ph['ra'] = s82all['ra'][ph['objId']]
-	ph['dec'] = s82all['dec'][ph['objId']]
+	ph = aper_phot_image(imageFile,s82cat['ra'],s82cat['dec'],[aperRad])
+	ph['refMag'] = s82cat['psfMag_g'][ph['objId']]
+	ph['ra'] = s82cat['ra'][ph['objId']]
+	ph['dec'] = s82cat['dec'][ph['objId']]
 	return ph
+
+def stripe82_linearity(filt,**kwargs):
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
+	                      'bokpipe_v0.2','nov15data')
+	s82all = load_stripe82_truth(ra_range=(332,336))
+	fields = ['s82cal%s_ra334_%s' % (filt,n) for n in 'abcde']
+	ph = [ stripe82_phot(os.path.join(bokdir,filt,field+'.fits'),
+	                     s82all,**kwargs)
+	                 for field in fields ]
+	tab = np.zeros(len(s82all),
+	               dtype=[('x','5f4'),('y','5f4'),
+	                      ('counts','5f4'),('countsErr','5f4'),
+	                      ('flags','5i4'),('ccdNum','i4')])
+	for j,p in enumerate(ph):
+		for k in ['x','y','counts','countsErr','flags']:
+			tab[k][p['objId'],j] = p[k].squeeze()
+		tab['ccdNum'][p['objId']] = p['ccdNum']
+	# actually had coverage
+	ii = np.where(tab['ccdNum']>0)[0]
+	tab = tab[ii]
+	tab = Table(tab)
+	tab['refMag'] = s82all['psfMag_'+filt[-1]][ii]
+	tab['refErr'] = s82all['psfMagErr_'+filt[-1]][ii]
+	tab['ampIndex'] = get_amp_index(tab['x'][:,-1],tab['y'][:,-1])
+	tab['ampNum'] = 4*(tab['ccdNum']-1) + tab['ampIndex'] + 1
+	return tab
+
+def stripe82_linearity_plot(s82tab):
+	m = 19.5
+	dm = 2.5
+	exptime = np.array([25.,50.,100.,200.,400.])
+	plt.figure(figsize=(7.5,9.5))
+	if True:
+		magrange = (s82tab['refMag']>m-dm) & (s82tab['refMag']<m+dm)
+		for ampNum in range(1,17):
+			plt.subplot(8,2,ampNum)
+			ii = np.where((s82tab['ampNum']==ampNum) & magrange &
+#			              (s82tab['counts'][:,-1]>0) &
+			              np.all(s82tab['flags']==0,axis=1))[0]
+			cps = s82tab['counts'][ii] / exptime
+			mean_cps = np.average(cps,weights=exptime,axis=-1)
+			for j in range(5):
+				#xx = exptime[j] + 10*(np.random.rand(len(ii))-0.5)
+				xx = mean_cps
+				expected_cts = mean_cps * exptime[j]
+				#ctsratio = s82tab['counts'][ii,j]/s82tab['counts'][ii,-1]
+				#ctsratio *= exptime[-1]/exptime[j]
+				ctsratio = s82tab['counts'][ii,j]/expected_cts
+				plt.scatter(xx,ctsratio,
+				            s=10,c='gray',edgecolor='none')
+#				plt.errorbar(exptime[j],ctsratio.mean(),ctsratio.std(),
+#				             fmt='bs')
+			plt.axhline(1.0,c='r')
+			plt.ylim(0.96,1.04)
+			plt.xscale('log')
+			plt.xlim(20,8e3)
 
 def plot_pointings():
 	from matplotlib.patches import Rectangle
