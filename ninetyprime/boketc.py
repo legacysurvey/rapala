@@ -58,8 +58,8 @@ def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
 			NEA = 4 * pi * ((sig_seeing/p)**2 + p**2/12 + (r_half/p)**2)
 		else:
 			_p = 1.15
-			NEA = ( (4*pi*((sig_seeing/p)**2)**(1/_p) + 
-			        (8.91*(r_half/p)**2)**(1/_p)) )**_p
+			NEA = ( (4*pi*(sig_seeing/p)**2)**(1/_p) + 
+			        (8.91*(r_half/p)**2)**(1/_p) )**_p
 	elif profile=='gaussian':
 		NEA = 4 * pi * (sig_seeing/p)**2
 	else:
