@@ -28,13 +28,14 @@ def finish_up(args,dataMap):
 		os.mkdir(outdir)
 	for filt in dataMap.iterFilters():
 		filesAndNames = dataMap.getFiles(with_objnames=True)
-		outdirb = os.path.join(outdir,filt)
+		outdirb = os.path.join(outdir,filt[-1])
 		if not os.path.exists(outdirb):
 			os.mkdir(outdirb)
 		for f,n in zip(*filesAndNames):
+			n = n.replace('bokr','r')
 			outf = os.path.join(outdirb,n)
 			print f,outf
-			for ext in ['.fits','.psf.fits','.ahead','.cat.fits']:
+			for ext in ['.fits','.wht.fits','.psf.fits','.ahead','.cat.fits']:
 				shutil.copy(os.path.join(indir,f)+ext,outf+ext)
 			put_wcs(outf+'.fits')
 			os.remove(outf+'.ahead')
