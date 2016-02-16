@@ -344,50 +344,49 @@ def stripe82_linearity_plot(s82tab,peak=False):
 	from astrotools.idmstuff import binmean
 	countsk = 'counts' if not peak else 'peakCounts'
 	exptime = np.array([25.,50.,100.,200.,400.])
+	magrange = (s82tab['refMag']>17) & (s82tab['refMag']<22)
 	plt.figure(figsize=(8.5,9.5))
 	plt.subplots_adjust(0.10,0.06,0.96,0.98,0.02,0.02)
-	if True:
-		magrange = (s82tab['refMag']>17) & (s82tab['refMag']<22)
-		for ampNum in range(1,17):
-			ax = plt.subplot(8,2,ampNum)
-			ii = np.where((s82tab['ampNum']==ampNum) & magrange &
-			              np.all(s82tab['flags']==0,axis=1))[0]
-			cps = s82tab[countsk][ii] / exptime
-			mean_cps = np.average(cps,weights=exptime,axis=-1)
-			gt0 = np.where(mean_cps>0)[0]
-			xall,yall = [],[]
-			for j in range(5):
-				expected_cts = mean_cps * exptime[j]
-				ctsratio = s82tab[countsk][ii,j]/expected_cts
-				plt.scatter(np.log10(mean_cps[gt0]),ctsratio[gt0],
-				            s=7,c='gray',edgecolor='none')
-				xall.append(np.log10(mean_cps[gt0]))
-				yall.append(ctsratio[gt0])
-			xall = np.concatenate(xall)
-			yall = np.concatenate(yall)
-			plt.axhline(1.0,c='r')
-			xr = scoreatpercentile(xall,[1,99])
-			xb,yb,yv = binmean(xall,yall,
-			                   np.linspace(xr[0],xr[1],10),std=True,median=True,
-			                   clip=True)
-			plt.errorbar(xb,yb,yv,fmt='ks',ms=4)
-			if countsk=='counts':
-				plt.xlim(1.4,3.4)
-				plt.ylim(0.921,1.079)
-			else:
-				plt.xlim(1.0,2.4)
-				plt.ylim(0.89,1.11)
-			ax.yaxis.set_major_locator(ticker.MultipleLocator(0.04))
-			ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.01))
-			ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.1))
-			if ampNum % 2 == 0:
-				ax.yaxis.set_ticks([])
-			if ampNum < 15:
-				ax.xaxis.set_ticks([])
-			plt.text(3.15,1.05,'IM%d'%ampNum)
-		plt.figtext(0.5,0.01,'log counts / sec',size=14,ha='center')
-		plt.figtext(0.01,0.5,r'$flux / <flux>$',size=14,va='center',
-		            rotation='vertical')
+	for ampNum in range(1,17):
+		ax = plt.subplot(8,2,ampNum)
+		ii = np.where((s82tab['ampNum']==ampNum) & magrange &
+		              np.all(s82tab['flags']==0,axis=1))[0]
+		cps = s82tab[countsk][ii] / exptime
+		mean_cps = np.average(cps,weights=exptime,axis=-1)
+		gt0 = np.where(mean_cps>0)[0]
+		xall,yall = [],[]
+		for j in range(5):
+			expected_cts = mean_cps * exptime[j]
+			ctsratio = s82tab[countsk][ii,j]/expected_cts
+			plt.scatter(np.log10(mean_cps[gt0]),ctsratio[gt0],
+			            s=7,c='gray',edgecolor='none')
+			xall.append(np.log10(mean_cps[gt0]))
+			yall.append(ctsratio[gt0])
+		xall = np.concatenate(xall)
+		yall = np.concatenate(yall)
+		plt.axhline(1.0,c='r')
+		xr = scoreatpercentile(xall,[5,99])
+		xb,yb,yv = binmean(xall,yall,
+		                   np.linspace(xr[0],xr[1],10),std=True,median=True,
+		                   clip=True)
+		plt.errorbar(xb,yb,yv,fmt='ks',ms=4)
+		if countsk=='counts':
+			plt.xlim(1.4,3.4)
+			plt.ylim(0.921,1.079)
+		else:
+			plt.xlim(1.0,2.4)
+			plt.ylim(0.89,1.11)
+		ax.yaxis.set_major_locator(ticker.MultipleLocator(0.04))
+		ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.01))
+		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.1))
+		if ampNum % 2 == 0:
+			ax.yaxis.set_ticks([])
+		if ampNum < 15:
+			ax.xaxis.set_ticks([])
+		plt.text(3.15,1.05,'IM%d'%ampNum)
+	plt.figtext(0.5,0.01,'$log(<flux>)$',size=14,ha='center')
+	plt.figtext(0.01,0.5,r'$flux / <flux>$',size=14,va='center',
+	            rotation='vertical')
 
 def plot_pointings():
 	from matplotlib.patches import Rectangle
