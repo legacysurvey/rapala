@@ -78,6 +78,7 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 		shutil.move(defPsfFile,psfFile)
 
 def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
+	dopeak = kwargs.get('calc_peak',False)
 	w = WCS(hdr)
 	foot = w.calc_footprint()
 	raMin,raMax = foot[:,0].min(),foot[:,0].max()
@@ -103,11 +104,24 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 		cts[:,j] = c
 		ctserr[:,j] = crms
 		flags[:,j] = f
-	return x,y,ii,cts,ctserr,flags
+	rv = (x,y,ii,cts,ctserr,flags)
+	if dopeak:
+		# a pretty hacky way to do this
+		pkvals = np.array([ image[_y-5:_y+5,_x-5:_x+5].max() 
+		                       for _x,_y in zip(x,y) ])
+		rv += (pkvals,)
+	return rv
 
 def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 	                aHeadFile=None,**kwargs):
 	from astropy.io.fits import getheader
+	phot_cols = ('x','y','objId','counts','countsErr','flags')
+	phot_dtype = ('f4','f4','i4','f4','f4','i4')
+	if kwargs.get('calc_peak',False):
+		phot_cols += ('peakCounts',)
+		phot_dtype += ('f4',)
+	phot_cols += ('ccdNum',)
+	phot_dtype += ('i4',)
 	if aHeadFile is not None:
 		wcsHdrs = read_headers(aHeadFile)
 	tabs = []
@@ -137,9 +151,7 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 			continue
 		# add ccd number
 		phot += (np.repeat(i+1,n),)
-		t = Table(phot,
-		        names=('x','y','objId','counts','countsErr','flags','ccdNum'),
-		        dtype=('f4','f4','i4','f4','f4','i4','i4'))
+		t = Table(phot,names=phot_cols,dtype=phot_dtype)
 		tabs.append(t)
 	if len(tabs)==0:
 		return None
