@@ -6,6 +6,7 @@ from astropy.io import fits
 from astropy.table import Table,join
 from astropy.stats import sigma_clip
 from astropy.wcs import WCS
+import fitsio
 
 import matplotlib.pyplot as plt
 from matplotlib import ticker
@@ -303,7 +304,9 @@ def stripe82zps():
 def stripe82_phot(imageFile,s82cat,aperRad=2.5):
 	from bokpipe.bokphot import aper_phot_image
 	aperRad /= 0.455
-	ph = aper_phot_image(imageFile,s82cat['ra'],s82cat['dec'],[aperRad])
+	bpmask = fitsio.FITS(imageFile.replace('.fits','.wht.fits'))
+	ph = aper_phot_image(imageFile,s82cat['ra'],s82cat['dec'],[aperRad],
+	                     badPixMask=bpmask,calc_peak=True)
 	ph['refMag'] = s82cat['psfMag_g'][ph['objId']]
 	ph['ra'] = s82cat['ra'][ph['objId']]
 	ph['dec'] = s82cat['dec'][ph['objId']]
@@ -320,9 +323,10 @@ def stripe82_linearity(filt,**kwargs):
 	tab = np.zeros(len(s82all),
 	               dtype=[('x','5f4'),('y','5f4'),
 	                      ('counts','5f4'),('countsErr','5f4'),
-	                      ('flags','5i4'),('ccdNum','i4')])
+	                      ('flags','5i4'),('ccdNum','i4'),
+	                      ('peakCounts','5f4')])
 	for j,p in enumerate(ph):
-		for k in ['x','y','counts','countsErr','flags']:
+		for k in ['x','y','counts','countsErr','flags','peakCounts']:
 			tab[k][p['objId'],j] = p[k].squeeze()
 		tab['ccdNum'][p['objId']] = p['ccdNum']
 	# actually had coverage
@@ -335,35 +339,55 @@ def stripe82_linearity(filt,**kwargs):
 	tab['ampNum'] = 4*(tab['ccdNum']-1) + tab['ampIndex'] + 1
 	return tab
 
-def stripe82_linearity_plot(s82tab):
-	m = 19.5
-	dm = 2.5
+def stripe82_linearity_plot(s82tab,peak=False):
+	from scipy.stats import scoreatpercentile
+	from astrotools.idmstuff import binmean
+	countsk = 'counts' if not peak else 'peakCounts'
 	exptime = np.array([25.,50.,100.,200.,400.])
-	plt.figure(figsize=(7.5,9.5))
+	plt.figure(figsize=(8.5,9.5))
+	plt.subplots_adjust(0.10,0.06,0.96,0.98,0.02,0.02)
 	if True:
-		magrange = (s82tab['refMag']>m-dm) & (s82tab['refMag']<m+dm)
+		magrange = (s82tab['refMag']>17) & (s82tab['refMag']<22)
 		for ampNum in range(1,17):
-			plt.subplot(8,2,ampNum)
+			ax = plt.subplot(8,2,ampNum)
 			ii = np.where((s82tab['ampNum']==ampNum) & magrange &
-#			              (s82tab['counts'][:,-1]>0) &
 			              np.all(s82tab['flags']==0,axis=1))[0]
-			cps = s82tab['counts'][ii] / exptime
+			cps = s82tab[countsk][ii] / exptime
 			mean_cps = np.average(cps,weights=exptime,axis=-1)
+			gt0 = np.where(mean_cps>0)[0]
+			xall,yall = [],[]
 			for j in range(5):
-				#xx = exptime[j] + 10*(np.random.rand(len(ii))-0.5)
-				xx = mean_cps
 				expected_cts = mean_cps * exptime[j]
-				#ctsratio = s82tab['counts'][ii,j]/s82tab['counts'][ii,-1]
-				#ctsratio *= exptime[-1]/exptime[j]
-				ctsratio = s82tab['counts'][ii,j]/expected_cts
-				plt.scatter(xx,ctsratio,
-				            s=10,c='gray',edgecolor='none')
-#				plt.errorbar(exptime[j],ctsratio.mean(),ctsratio.std(),
-#				             fmt='bs')
+				ctsratio = s82tab[countsk][ii,j]/expected_cts
+				plt.scatter(np.log10(mean_cps[gt0]),ctsratio[gt0],
+				            s=7,c='gray',edgecolor='none')
+				xall.append(np.log10(mean_cps[gt0]))
+				yall.append(ctsratio[gt0])
+			xall = np.concatenate(xall)
+			yall = np.concatenate(yall)
 			plt.axhline(1.0,c='r')
-			plt.ylim(0.96,1.04)
-			plt.xscale('log')
-			plt.xlim(20,8e3)
+			xr = scoreatpercentile(xall,[1,99])
+			xb,yb,yv = binmean(xall,yall,
+			                   np.linspace(xr[0],xr[1],10),std=True,median=True,
+			                   clip=True)
+			plt.errorbar(xb,yb,yv,fmt='ks',ms=4)
+			if countsk=='counts':
+				plt.xlim(1.4,3.4)
+				plt.ylim(0.921,1.079)
+			else:
+				plt.xlim(1.0,2.4)
+				plt.ylim(0.89,1.11)
+			ax.yaxis.set_major_locator(ticker.MultipleLocator(0.04))
+			ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.01))
+			ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.1))
+			if ampNum % 2 == 0:
+				ax.yaxis.set_ticks([])
+			if ampNum < 15:
+				ax.xaxis.set_ticks([])
+			plt.text(3.15,1.05,'IM%d'%ampNum)
+		plt.figtext(0.5,0.01,'log counts / sec',size=14,ha='center')
+		plt.figtext(0.01,0.5,r'$flux / <flux>$',size=14,va='center',
+		            rotation='vertical')
 
 def plot_pointings():
 	from matplotlib.patches import Rectangle
