@@ -10,7 +10,7 @@ from astropy.wcs import WCS
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
-default_zps = {'g':25.55,'r':25.23}
+from boketc import bok_zpt0
 
 test_exptimes = np.array([100.]*6 + [25.,50.,100.,200.,400.])
 
@@ -42,9 +42,13 @@ def has_coverage(truth,objs):
 	         (truth['dec']>objs['DELTA_J2000'].min()) &
 	         (truth['dec']<objs['DELTA_J2000'].max()) )
 
+def load_obsdb():
+	return Table.read('../basschute/config/nov2015_mod.fits')
+
 def match_stripe82():
 	from collections import defaultdict
-	bokdir = os.path.join(os.environ['BOKDATADIR'])
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
+	                      'bokpipe_v0.2','nov15data')
 	s82 = load_stripe82_truth()
 	cols = ['NUMBER','FLUX_APER','FLUXERR_APER','FLUX_AUTO','FLUXERR_AUTO',
 	        'BACKGROUND','X_IMAGE','Y_IMAGE','ALPHA_J2000','DELTA_J2000',
@@ -96,7 +100,7 @@ def match_stripe82():
 def flux2mag(tab,band,which='PSF',zp=None):
 	assert which in ['APER','AUTO','PSF']
 	if zp is None:
-		zp = default_zps[band] # XXX these are the nominal AM=1.3 vals
+		zp = bok_zpt0[{'g':'g','r':'bokr'}[band]]
 	k = 'FLUX_'+which
 	mask = tab['NUMBER'] < 0
 	if which=='APER':
@@ -120,7 +124,7 @@ def get_amp_index(x,y):
 
 def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 	if zp is None:
-		zp = default_zps[band]
+		zp = bok_zpt0[{'g':'g','r':'bokr'}[band]]
 	aperMag = flux2mag(tab,band,'APER',zp=zp)
 	ref_star = (tab['tMag']>16.5) & (tab['tMag']<19.7)
 	nImages = tab['NUMBER'].shape[1]
@@ -154,12 +158,24 @@ def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 					zpAmp[j,ccdNum-1,ai] = zp - dm.mean()
 	return zpIm,zpCCD,zpAmp
 
-def dump_zeropoints(tab,band,byamp=False,**kwargs):
+def dump_zeropoints(fieldname,band,byamp=False,showADU=True,**kwargs):
 	from boketc import k_ext
+	#from bokpipe.bokproc import nominal_gain
+	tab = Table.read(fieldname+'_merged.fits')
 	zpim,zpccd,zpamp = calc_zeropoints(tab,band,**kwargs)
-	# argh, didn't keep airmass
-	#zp0adu = zpim - 2.5*np.log10(1.375) - k_ext*(tab['airmass']-1)
-	zp0adu = zpim - 2.5*np.log10(1.375) - k_ext[band]*(1.17-1)
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
+	                      'bokpipe_v0.2','nov15data')
+	# to derive per-amp zeropoints using applied gain corrections (not used)
+	#gaindat = np.load(os.path.join(bokdir,'..','diagnostics',
+	#              'gainbal_20151112_%s.npz'%{'g':'g','r':'bokr'}[band]))
+	#gain = nominal_gain * np.product(gaindat['gainCor'],axis=0)
+	if showADU:
+		obsdb = load_obsdb()
+		fname = fieldname.replace('r_','bokr_')
+		airmass = np.array([ obs['airmass'] for obs in obsdb
+		                         if obs['objName'].startswith(fname) and
+		                            obs['good'] ])
+		zp0adu = zpim - 2.5*np.log10(1.375) - k_ext[band]*(airmass-1)
 	for j in range(len(zpim)):
 		print 'image %2d: ' % (j+1),
 		for ccdNum in range(1,5):
@@ -402,22 +418,41 @@ def get_colors():
 	tab['ref_gr'] = tab['ref_g'] - tab['ref_r']
 	return tab
 
-def color_terms(tab):
+def color_terms(tab,nIter=3):
 	plt.figure(figsize=(9,4))
+	plt.subplots_adjust(0.08,0.12,0.95,0.95,0.3,0.3)
 	xedges = np.arange(-0.5,2.01,0.05)
 	yedges = np.arange(-0.5,0.51,0.02)
 	xbins = xedges[:-1] + np.diff(xedges)/2
 	ybins = yedges[:-1] + np.diff(yedges)/2
 	for pnum,b in enumerate('gr',start=1):
 		dmag = tab['bok_'+b] - tab['ref_'+b]
-		dmag = sigma_clip(dmag,sigma=4.0)
-		ii = np.where(tab['ref_gr']<1.3)[0]
-		fit = np.ma.polyfit(tab['ref_gr'][ii],dmag[ii],1)
-		print fit
+		dmag = sigma_clip(dmag,sigma=5.0)
+		ii = np.where(tab['ref_gr']>1.3)[0]
+		dmag[ii] = np.ma.masked
+		print len(dmag),dmag.mask.sum()
+		for iterNum in range(nIter):
+			fit = np.ma.polyfit(tab['ref_gr'],dmag,1)
+			resid = dmag - np.polyval(fit,tab['ref_gr'])
+			dmag[np.abs(resid)>3.5*resid.std()] = np.ma.masked
+			print iterNum,fit,dmag.mask.sum()
+		print
 		xx = np.array([-0.5,2.0])
 		n,_,_ = np.histogram2d(tab['ref_gr'],dmag,[xedges,yedges])
-		plt.subplot(1,2,pnum)
-		plt.scatter(tab['ref_gr'],dmag,edgecolor='none',alpha=0.7,s=1,c='k')
-		plt.contour(xbins,ybins,n.transpose())
-		plt.plot(xx,np.polyval(fit,xx),c='r')
+		ax = plt.subplot(1,2,pnum)
+		plt.axhline(0,c='m',ls='--')
+		plt.scatter(tab['ref_gr'],dmag.data,
+		            edgecolor='none',alpha=0.7,s=1,c='k')
+		plt.contour(xbins,ybins,n.transpose(),colors='b')
+		plt.plot(xx,np.polyval(fit,xx),c='r',lw=2)
+		ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+		ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.02))
+		plt.xlim(0.1,1.7)
+		plt.ylim(-0.35,0.25)
+		plt.ylabel('Bok %s - SDSS %s'%(b,b),size=11)
+		plt.xlabel('SDSS g-r',size=11)
+		plt.text(0.2,-0.3,
+		         r'$%s(Bok) = %s(SDSS) %.2f\times(g-r) + %.2f$' %
+		         ((b,b)+tuple(fit)),
+		         size=13,bbox=dict(facecolor='w',alpha=0.8))
 
