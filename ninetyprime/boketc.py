@@ -3,22 +3,21 @@
 from math import sqrt,pi,log10
 
 # extinction parameters
-k_ext = {'g':0.17,'r':0.10}
-A_ext = {'g':3.303,'r':2.285}
+k_ext = {'g':0.17,'r':0.10,'bokr':0.10}
+A_ext = {'g':3.303,'r':2.285,'bokr':2.285}
 
 # DESI parameters
-mag_lim = {'g':24.0,'r':23.4}
+mag_lim = {'g':24.0,'r':23.4,'bokr':23.4}
 default_r_half = 0.45
 
 # Bok parameters
 p = 0.455
 nominal_gain = 1.375
 nominal_rdnoise = 7.3
-bok_medianFWHM = {'g':1.5,'r':1.5}
+bok_medianFWHM = {'g':1.5,'r':1.5,'bokr':1.5}
 bok_zpt0_am13 = {'g':25.55,'r':25.23}
-bok_zpt0_am10 = {k: v-k_ext[k]*(1.3-1) for k,v in bok_zpt0_am13.items()}
-bok_zpt0_am00 = {k: v-k_ext[k]*1.3 for k,v in bok_zpt0_am13.items()}
-kpno_sky_lun0 = {'g':22.10,'r':21.07}
+bok_zpt0 = {'g':25.55,'bokr':25.38} # from Nov 2015 Stripe82 observations
+kpno_sky_lun0 = {'g':22.10,'r':21.07,'bokr':21.5}
 
 def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
                 profile='exponential',tablezpt=False,r_half=default_r_half,
@@ -30,7 +29,7 @@ def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
 		if tablezpt:
 			zpt0 = bok_zpt0_am13[band]
 		else:
-			zpt0 = bok_zpt0_am10[band]
+			zpt0 = bok_zpt0[band]
 	if sky is None:
 		sky = kpno_sky_lun0[band]
 	if fwhm is None:
@@ -46,7 +45,7 @@ def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
 	#
 	f0 = 10**(-0.4*(mag - zpt0)) * G
 	if skyADU is None:
-		skyflux = 10**(-0.4*(sky - bok_zpt0_am13[band])) * p**2 * G
+		skyflux = 10**(-0.4*(sky - bok_zpt0[band])) * p**2 * G
 	else:
 		skyflux = skyADU * G
 	#skyflux = 6.6 # from images
