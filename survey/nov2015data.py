@@ -3,7 +3,7 @@
 import os
 import numpy as np
 from astropy.io import fits
-from astropy.table import Table
+from astropy.table import Table,join
 from astropy.stats import sigma_clip
 from astropy.wcs import WCS
 
@@ -204,24 +204,29 @@ def check_scatter(tab,band):
 			                         [25,50,75,90,95])
 			print '  ',mag1,dist
 
+def get_zeropoints(tab,zps,zptype):
+	zpIm,zpCCD,zpAmp = zps
+	if zptype=='image':
+		zp = zpIm[:,np.newaxis]
+	elif zptype=='ccd':
+		# add zp=0 for ccd=0 (empty entries)
+		zp = np.hstack([np.zeros((zpCCD.shape[0],1)),zpCCD])
+		zp = np.choose(tab['ccdNum'],zp.transpose())[:,:,np.newaxis]
+	elif zptype=='amp':
+		ampIndex = get_amp_index(tab['X_IMAGE'],tab['Y_IMAGE'])
+		ai = np.clip(4*(tab['ccdNum']-1) + ampIndex + 1, 0, 16)
+		zp = np.hstack([np.zeros((zpAmp.shape[0],1)),zpAmp.reshape(-1,16)])
+		zp = np.choose(ai,zp.transpose())[:,:,np.newaxis]
+	return zp
+
 def focalplanevar(tab,band,nbin=4,doplot=False,vr=0.015,shownum=False,
                   zpcorr=None):
 	apNum = 2
 	if zpcorr is None:
 		zp = None
 	else:
-		zpim,zpccd,zpamp = calc_zeropoints(tab,band,apNum=apNum)
-		if zpcorr=='image':
-			zp = zpim[:,np.newaxis]
-		elif zpcorr=='ccd':
-			# add zp=0 for ccd=0 (empty entries)
-			zp = np.hstack([np.zeros((zpccd.shape[0],1)),zpccd])
-			zp = np.choose(tab['ccdNum'],zp.transpose())[:,:,np.newaxis]
-		elif zpcorr=='amp':
-			ampIndex = get_amp_index(tab['X_IMAGE'],tab['Y_IMAGE'])
-			ai = np.clip(4*(tab['ccdNum']-1) + ampIndex + 1, 0, 16)
-			zp = np.hstack([np.zeros((zpamp.shape[0],1)),zpamp.reshape(-1,16)])
-			zp = np.choose(ai,zp.transpose())[:,:,np.newaxis]
+		zps = calc_zeropoints(tab,band,apNum=apNum)
+		zp = get_zeropoints(tab,zps,zpcorr)
 	aperMag = flux2mag(tab,band,'APER',zp=zp)[:,:,apNum]
 	refMag = tab['tMag']
 	meanMag = sigma_clip(aperMag,axis=1).mean(axis=1)
@@ -276,7 +281,7 @@ def stripe82zps():
 		for zpcorr in ['image','ccd','amp']:
 			fpim = focalplanevar(tab,filt,doplot=True,nbin=8,vr=0.015,
 			                     zpcorr=zpcorr)
-			plt.savefig('s82zp_%s_%s.png' % (filt,s))
+			plt.savefig('s82zp_%s_%s.png' % (filt,zpcorr))
 	plt.ion()
 
 def stripe82_phot(imageFile,s82cat,aperRad=2.5):
@@ -376,4 +381,43 @@ def plot_pointings():
 		ax.add_patch(rect)
 	plt.xlim(149.49,151.3)
 	plt.ylim(1.05,3.05)
+
+def get_colors():
+	apNum = 2
+	pfx = 's82cal%s_ra334'
+	mag = {}
+	for b in 'gr':
+		tab = Table.read(pfx%b+'_merged.fits')
+		zps = calc_zeropoints(tab,b,apNum=apNum)
+		zp = get_zeropoints(tab,zps,'amp')
+		aperMag = flux2mag(tab,b,'APER',zp=zp)[:,:,apNum]
+		meanMag = sigma_clip(aperMag,axis=1).mean(axis=1)
+		refMag = tab['tMag']
+		ii = np.where(( tab['tMag']>16.5) & (tab['tMag']<21.5) &
+		                ~meanMag.mask )[0]
+		mag[b] = {'bok_'+b:meanMag[ii].filled(0),'ref_'+b:refMag[ii],
+		          'idx':tab['tIndex'][ii]}
+	tab = join(Table(mag['g']),Table(mag['r']),keys='idx')
+	tab['bok_gr'] = tab['bok_g'] - tab['bok_r']
+	tab['ref_gr'] = tab['ref_g'] - tab['ref_r']
+	return tab
+
+def color_terms(tab):
+	plt.figure(figsize=(9,4))
+	xedges = np.arange(-0.5,2.01,0.05)
+	yedges = np.arange(-0.5,0.51,0.02)
+	xbins = xedges[:-1] + np.diff(xedges)/2
+	ybins = yedges[:-1] + np.diff(yedges)/2
+	for pnum,b in enumerate('gr',start=1):
+		dmag = tab['bok_'+b] - tab['ref_'+b]
+		dmag = sigma_clip(dmag,sigma=4.0)
+		ii = np.where(tab['ref_gr']<1.3)[0]
+		fit = np.ma.polyfit(tab['ref_gr'][ii],dmag[ii],1)
+		print fit
+		xx = np.array([-0.5,2.0])
+		n,_,_ = np.histogram2d(tab['ref_gr'],dmag,[xedges,yedges])
+		plt.subplot(1,2,pnum)
+		plt.scatter(tab['ref_gr'],dmag,edgecolor='none',alpha=0.7,s=1,c='k')
+		plt.contour(xbins,ybins,n.transpose())
+		plt.plot(xx,np.polyval(fit,xx),c='r')
 
