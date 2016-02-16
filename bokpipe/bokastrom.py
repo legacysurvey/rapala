@@ -131,11 +131,3 @@ def read_headers(aheadFile):
 		hdrs.append(h)
 	return hdrs
 
-def wcs_from_header(hdr):
-	# XXX workaround until I fix the scamp output
-	h = hdr.copy()
-	h['CTYPE1'] = hdr['CTYPE1'].replace('TAN','TPV')
-	h['CTYPE2'] = hdr['CTYPE2'].replace('TAN','TPV')
-	w = WCS(h)
-	return w
-

@@ -5,9 +5,10 @@ import shutil
 import subprocess
 import numpy as np
 from astropy.table import Table,vstack
+from astropy.wcs import WCS
 import fitsio
 
-from .bokastrom import read_headers,wcs_from_header
+from .bokastrom import read_headers
 
 try:
 	import sep
@@ -77,7 +78,7 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 		shutil.move(defPsfFile,psfFile)
 
 def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
-	w = wcs_from_header(hdr)
+	w = WCS(hdr)
 	foot = w.calc_footprint()
 	raMin,raMax = foot[:,0].min(),foot[:,0].max()
 	decMin,decMax = foot[:,1].min(),foot[:,1].max()
@@ -122,7 +123,14 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 		if badPixMask is None:
 			mask = None
 		else:
-			mask = badPixMask[extn].read().astype(np.bool)
+			mask = badPixMask[extn].read()
+			# XXX HACK to transform weight map to bad pix mask
+			if True:
+				_hdr = badPixMask[0].read_header()
+				if 'WHTMAP' in _hdr:
+					mask = (mask==0)
+			else:
+				mask = mask.astype(np.bool)
 		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,**kwargs)
 		n = len(phot[0])
 		if n==0:
