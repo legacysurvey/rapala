@@ -161,15 +161,11 @@ def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 
 def dump_zeropoints(fieldname,band,byamp=False,showADU=True,**kwargs):
 	from boketc import k_ext
-	#from bokpipe.bokproc import nominal_gain
+	ampn = np.array(ampNums)
 	tab = Table.read(fieldname+'_merged.fits')
 	zpim,zpccd,zpamp = calc_zeropoints(tab,band,**kwargs)
 	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
 	                      'bokpipe_v0.2','nov15data')
-	# to derive per-amp zeropoints using applied gain corrections (not used)
-	#gaindat = np.load(os.path.join(bokdir,'..','diagnostics',
-	#              'gainbal_20151112_%s.npz'%{'g':'g','r':'bokr'}[band]))
-	#gain = nominal_gain * np.product(gaindat['gainCor'],axis=0)
 	if showADU:
 		obsdb = load_obsdb()
 		fname = fieldname.replace('r_','bokr_')
@@ -181,15 +177,45 @@ def dump_zeropoints(fieldname,band,byamp=False,showADU=True,**kwargs):
 		print 'image %2d: ' % (j+1),
 		for ccdNum in range(1,5):
 			print '%6.3f ' % zpccd[j,ccdNum-1],
-			if not byamp:
-				continue
-			for ai in range(4):
-				print '  IM%d  %6.3f  ' % \
-				   (ampNums[ccdNum-1][ai],zpamp[j,ccdNum-1,ai]),
+		if byamp:
 			print
+			for ccdNum in range(1,5):
+				print '   ',
+				for ai in range(4):
+					print 'IM%-2d  %6.3f   ' % \
+					   (ampn[ccdNum-1][ai],zpamp[j,ccdNum-1,ai]),
+				print
 		print '   %6.3f   %6.3f' % (zpim[j],zp0adu[j])
 	print
 	print ' average zeropoints: %6.3f   %6.3f' % (zpim.mean(),zp0adu.mean())
+	if byamp and showADU:
+		from bokpipe.bokproc import nominal_gain,ampOrder
+		# to derive per-amp zeropoints using applied gain corrections
+		gaindat = np.load(os.path.join(bokdir,'..','diagnostics',
+		              'gainbal_20151112_%s.npz'%{'g':'g','r':'bokr'}[band]))
+		gain = nominal_gain * np.product(gaindat['gainCor'],axis=0)
+		# reorder arrays to match ampNumber
+		ampgain = nominal_gain[np.array(ampOrder)-1][ampn-1]
+		deltazp = zpim.mean() - zpamp
+		ampdelta = deltazp.mean(axis=0)
+		extcorr = (k_ext[band]*(airmass-1))[:,np.newaxis,np.newaxis]
+		zp0adu_amp = zpamp - 2.5*np.log10(ampgain) - extcorr + ampdelta
+		zp0adu_amp = zp0adu_amp.mean(axis=0)
+		print
+		print ' per-amplifier zeropoints in ADU:'
+		for ccdNum in range(1,5):
+			for ai in range(4):
+				print '  IM%-2d  %6.3f  ' % \
+				   (ampn[ccdNum-1][ai],zp0adu_amp[ccdNum-1,ai]),
+			print
+		print
+		_zp = zp0adu_amp.flatten()
+		_ii = _zp.argsort()
+		print 'sorted by zeropoint(ADU):'
+		for _i in _ii:
+			print '  IM%-2d  %6.3f' % (ampn.flatten()[_i],_zp[_i])
+		print ' median is %6.3f' % np.median(zp0adu_amp)
+		print
 
 def delta_zps_byamp(zpFit):
 	for ccdi in range(4):
