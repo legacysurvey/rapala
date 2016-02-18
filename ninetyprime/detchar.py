@@ -18,11 +18,17 @@ def _data2arr(data,minVal=0,maxVal=65335,clip=True):
 	                         mask=((data<minVal)|(data>maxVal)))
 	return array_clip(arr,clip_iters=2,clip_sig=5.0)
 
+def _open_fits(f):
+	try:
+		return fitsio.FITS(f)
+	except IOError:
+		return fitsio.FITS(f+'.fz')
+
 def calc_gain_rdnoise(biases,flats):
 	rv = []
 	s = stats_region('amp_corner_ccdcenter_1024')
 	for files in zip(biases[:-1],biases[1:],flats[:-1],flats[1:]):
-		ff = [fitsio.FITS(f) for f in files]
+		ff = [_open_fits(f) for f in files]
 		data = np.empty(1,dtype=[('bias1','S15'),('bias2','S15'),
 		                         ('flat1','S15'),('flat2','S15'),
 		                         ('biasADU','f4',16),('flatADU','f4',16),
@@ -323,7 +329,7 @@ def nightly_checks(utdir,logdir,redo=False):
 	                                    ('bitFreq','f4',(16,nbits))])
 	for i,flat in enumerate(flats):
 		bitbit['fileName'][i] = os.path.basename(flat)
-		fits = fitsio.FITS(flat)
+		fits = _open_fits(flat)
 		for j,hdu in enumerate(fits[1:]):
 			imNum = 'IM%d' % ampOrder[j]
 			data = hdu.read().astype(np.int32)
