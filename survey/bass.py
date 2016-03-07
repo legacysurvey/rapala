@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
 import os
+import re
 import numpy as np
 from astropy.io import fits
-#import astropy.io.ascii as ascii_io
+from astropy.table import Table,vstack
 
 try:
 	bass_dir = os.environ['BASSDIR']
@@ -23,7 +24,7 @@ except:
 tiledb_file = 'bass-newtiles-indesi.fits'
 obsdb_file = 'bass-newtiles-observed.fits'
 
-def build_obsdb(noskip=True,update=True):
+def build_obsdb(noskip=True,update=True,onlygood=True):
 	import glob,re,shutil
 	from urllib2 import urlopen
 	import tarfile
@@ -38,63 +39,50 @@ def build_obsdb(noskip=True,update=True):
 		tar = tarfile.open(tarname)
 		tar.extractall(path=bass_dir)
 		tar.close()
-	dtype = [('utDate','S8'),('fileName','S35'),('expTime','f4'),
-	         ('tileId','i4'),('ditherId','i2'),
-	         ('ra','f8'),('dec','f8'),('filter','S1')]
-	obsdb = np.empty(2e5,dtype=dtype)
-	obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
-	                                      'obsed-[gr]-*.txt'))
-	obsfiles_2015 = glob.glob(os.path.join(bass_dir,'database','2015_old',
-	                                       'obsed-[gr]-*.txt'))
-	obsfiles = obsfiles_2015 + obsfiles_new
-	nobs = 0
-	for fn in sorted(obsfiles):
-		_fn = os.path.basename(fn)
-		print _fn,
-		m = re.match(r'obsed-(\w)-(\d+)-(\d+)-(\d+).txt',_fn)
-		try:
-			filt,yr,mo,day = m.groups()
-			print ' loaded'
-		except:
-			print ' skipped'
-			continue
-		utd = yr+mo+day
-		#obstab = ascii_io.read(fn)
-		with open(fn) as f:
-			for l in f:
-				if l.startswith('#'):
-					continue
-				bokfn,expt_s,tile_s,ra_s,dec_s = l.strip().split()
-				if tile_s.startswith('X'):
-					print 'skipping bad tile ',l.strip()
-					continue
-				elif tile_s.startswith('cal'):
-					obsdb['tileId'][nobs] = -99
-					obsdb['ditherId'][nobs] = -99
-				else:
-					try:
-						tnum = int(tile_s)
-						tnum1 = tnum // 10
-						tnum2 = tnum % 10
-					except:
-						if noskip:
-							tnum1,tnum2 = -1,-1
-						else:
-							print 'WARNING: unrecognized tile id %s; ' \
-							      'skipping' % tile_s
-					obsdb['tileId'][nobs] = tnum1
-					obsdb['ditherId'][nobs] = tnum2
-				obsdb['utDate'][nobs] = utd
-				m = re.match(r'.*(d\d\d\d\d.\d\d\d\d).*',bokfn).groups()[0]
-				obsdb['fileName'][nobs] = m
-				obsdb['expTime'][nobs] = float(expt_s)
-				obsdb['ra'][nobs] = float(ra_s)
-				obsdb['dec'][nobs] = float(dec_s)
-				obsdb['filter'][nobs] = filt
-				nobs += 1
-	obsdb = obsdb[:nobs]
-	print 'ingested %d observed tiles' % nobs
-	fits.writeto(os.path.join(bass_dir,obsdb_file),obsdb,clobber=True)
+	if onlygood:
+		obsfiles = ['obsed-g-2015-good.txt','obsed-g-2016-0102-good.txt',
+		            'obsed-r-2015-good.txt','obsed-r-2016-0102-good.txt',]
+		obsfiles = [os.path.join(bass_dir,'database',f) for f in obsfiles]
+	else:
+		obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
+		                                      'obsed-[gr]-*.txt'))
+		obsfiles_old = glob.glob(os.path.join(bass_dir,'database','201?_old',
+		                                      'obsed-[gr]-*.txt'))
+		obsfiles = sorted(obsfiles_old + obsfiles_new)
+	obsdb = []
+	for obsfile in obsfiles:
+		# filenames get written in weird ways
+		def fnconv(s):
+			s1,s2 = re.match('.*\w(\d\d\d\d)[\w.](\d\d\d\d)',s).groups()
+			return 'd'+s1+'.'+s2
+		# for some reason astropy.Table barfs on reading this in directly
+		# so working around it
+		def idconv(s):
+			try:
+				return int(s)
+			except:
+				return -99
+		arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),('expTime','f4'),
+		                           ('tileId','i4'),('ra','f8'),('dec','f8')],
+		                 converters={0:fnconv,2:idconv})
+		if '2015-good' in obsfile:
+			# each line in this file is for a single CCD
+			arr = arr[::4]
+		t = Table(arr)
+		t['ditherId'] = t['tileId'] % 10
+		t['tileId'] //= 10
+		t['filter'] = os.path.basename(obsfile)[6]
+		# filename is encoded with last 4 digits of JD
+		t['mjd'] = 50000. + np.array([int(d[1:5]) for d in arr['fileName']],
+		                             dtype=np.float32)
+		obsdb.append(t)
+	obsdb = vstack(obsdb)
+	obsdb.sort('fileName')
+	#
+	print 'ingested %d observed tiles' % len(obsdb)
+	outf = obsdb_file if onlygood else obsdb_file.replace('.fits','_all.fits')
+	obsdb.write(os.path.join(bass_dir,outf),overwrite=True)
+	return
 
 def load_tiledb():
 	return fits.getdata(os.path.join(bass_dir,tiledb_file))
@@ -113,14 +101,15 @@ def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 		              (tiledb['TDEC']>dec1) & (tiledb['TDEC']<dec2))[0]
 	return tiledb[ii]
 
-def obs_summary(filt='g',utstart=None,doplot=False,saveplot=False,pltsfx=''):
+def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,pltsfx=''):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb()
+	print obsdb
 	obsdb = obsdb[obsdb['filter']==filt]
-	if utstart is not None:
-		utds = np.array([int(u) for u in obsdb['utDate']])
-		obsdb = obsdb[utds>=utstart]
+	if mjdstart is not None:
+		print obsdb['mjd'].min(),obsdb['mjd'].max()
+		obsdb = obsdb[obsdb['mjd']>mjdstart]
 	tid = np.array([int(tid) for tid in tiledb['TID']])
 	nobs = np.zeros((tiledb.size,3),dtype=int)
 	tileList = {1:defaultdict(list),2:defaultdict(list),3:defaultdict(list)}
