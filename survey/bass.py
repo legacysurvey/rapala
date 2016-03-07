@@ -101,18 +101,20 @@ def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 		              (tiledb['TDEC']>dec1) & (tiledb['TDEC']<dec2))[0]
 	return tiledb[ii]
 
-def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,pltsfx=''):
+def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,
+                pltsfx='',decalsstyle=False):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb()
-	print obsdb
-	obsdb = obsdb[obsdb['filter']==filt]
+	if filt is not None:
+		obsdb = obsdb[obsdb['filter']==filt]
 	if mjdstart is not None:
 		print obsdb['mjd'].min(),obsdb['mjd'].max()
 		obsdb = obsdb[obsdb['mjd']>mjdstart]
 	tid = np.array([int(tid) for tid in tiledb['TID']])
 	nobs = np.zeros((tiledb.size,3),dtype=int)
 	tileList = {1:defaultdict(list),2:defaultdict(list),3:defaultdict(list)}
+	tileCov = np.zeros((len(tiledb),2,3),dtype=bool)
 	for n,row in enumerate(obsdb):
 		if row['tileId']>0:
 			try:
@@ -122,6 +124,10 @@ def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,pltsfx=''):
 				continue
 			nobs[i,row['ditherId']-1] += 1
 			tileList[row['ditherId']][row['tileId']].append(n)
+			if row['filter']=='g':
+				tileCov[i,0,row['ditherId']-1] = True
+			else:
+				tileCov[i,1,row['ditherId']-1] = True
 	print 'total tiles: '
 	for i in range(3):
 		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]))
@@ -136,29 +142,61 @@ def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,pltsfx=''):
 	if doplot:
 		import matplotlib.pyplot as plt
 		from matplotlib.backends.backend_pdf import PdfPages
-		if saveplot:
-			pdf = PdfPages('bass_coverage_%s%s.pdf'%(filt,pltsfx))
-		for j in range(3):
-			fig = plt.figure(figsize=(10,6))
-			plt.subplots_adjust(0.03,0.05,0.98,0.95)
-			sz = 5 if saveplot else 20
-			plt.scatter(tiledb['TRA']/15,tiledb['TDEC'],marker='s',
-			            c=np.choose(nobs[:,j],
-			                        ['0.9','c','DarkCyan','b','purple','m']),
-			            edgecolor='none',s=sz)
-			plt.plot([13+5./6,14+45./60,14+45./60,13+5./6,13+5./6],
-			         [50.7,50.7,56.2,56.2,50.7],c='k')
-			plt.plot([14.37,14.62,14.62,14.37,14.37],
-			         [32.5,32.5,36.1,36.1,32.5],c='k')
-			plt.xlim(20,5.9)
-			plt.ylim(29.7,58)
-			plt.title('filter %s pass %d total %d unique %d repeats %d' %
-			          (filt,j+1,np.sum(nobs[:,j]),np.sum(nobs[:,j]>0),
-			           np.sum(nobs[:,j]>1)))
+		if decalsstyle:
+			fig = plt.figure(figsize=(5,6))
+			plt.subplots_adjust(0.11,0.08,0.98,0.98,0.0,0.0)
+			for _pass in range(1,4):
+				ax = plt.subplot(3,1,_pass)
+				grsum = tileCov[:,0,_pass-1].astype(np.int) + \
+				        2*(tileCov[:,1,_pass-1].astype(np.int))
+				ii = np.where(grsum==0)[0]
+				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
+				            marker='+',s=7,c='0.7')
+				ii = np.where(grsum>0)[0]
+				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
+				            marker='s',
+				            c=np.choose(grsum[ii],['0.5','b','y','g']),
+				            edgecolor='none',s=5)
+				if _pass==3:
+					for c,lbl in zip('byg',['g','r','g+r']):
+						plt.scatter(-99,-99,marker='s',s=20,c=c,label=lbl,
+						            edgecolor='None')
+					plt.legend(scatterpoints=1,ncol=3,fontsize=11,
+					           handletextpad=0,columnspacing=1,
+					           loc='upper center')
+				plt.xlim(85,305)
+				plt.ylim(29,62)
+				if _pass==3:
+					plt.xlabel('RA')
+				else:
+					ax.xaxis.set_ticklabels([])
+				if _pass==2:
+					plt.ylabel('Dec')
+				plt.text(270,55,'pass %d'%_pass)
+		else:
 			if saveplot:
-				pdf.savefig(fig,orientation='landscape')
-		if saveplot:
-			pdf.close()
+				pdf = PdfPages('bass_coverage_%s%s.pdf'%(filt,pltsfx))
+			for j in range(3):
+				fig = plt.figure(figsize=(10,6))
+				plt.subplots_adjust(0.03,0.05,0.98,0.95)
+				sz = 5 if saveplot else 20
+				plt.scatter(tiledb['TRA']/15,tiledb['TDEC'],marker='s',
+				            c=np.choose(nobs[:,j],
+				                    ['0.9','c','DarkCyan','b','purple','m']),
+				            edgecolor='none',s=sz)
+				plt.plot([13+5./6,14+45./60,14+45./60,13+5./6,13+5./6],
+				         [50.7,50.7,56.2,56.2,50.7],c='k')
+				plt.plot([14.37,14.62,14.62,14.37,14.37],
+				         [32.5,32.5,36.1,36.1,32.5],c='k')
+				plt.xlim(20,5.9)
+				plt.ylim(29.7,58)
+				plt.title('filter %s pass %d total %d unique %d repeats %d' %
+				          (filt,j+1,np.sum(nobs[:,j]),np.sum(nobs[:,j]>0),
+				           np.sum(nobs[:,j]>1)))
+				if saveplot:
+					pdf.savefig(fig,orientation='landscape')
+			if saveplot:
+				pdf.close()
 	return nobs,tileList
 
 def nersc_archive_list():
