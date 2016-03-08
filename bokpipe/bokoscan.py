@@ -85,7 +85,7 @@ def fit_overscan(overscan,**kwargs):
 		# another round of rejection, this time along the vector
 		oscan_fit = array_clip(oscan_fit,axis=0,
 		                       clip_iters=None,clip_sig=3.0,
-		                       clip_cenfunc=np.ma.median)
+		                       clip_cenfunc=np.ma.mean)
 		# fill any vector elements that were rejected as outliers
 		oscan_fit = oscan_fit.filled(np.ma.median(oscan_fit))
 		# smoothing filter along overscan vector
