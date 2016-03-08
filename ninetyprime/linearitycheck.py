@@ -389,6 +389,28 @@ def init_jan3_data_map(filt):
 	dataMap['refExpTime'] = {'Ha':10.0,'g':3.0}[filt]
 	return dataMap
 
+def init_data_map_fromfile(filename,outdir='tmp',nersc=True):
+	datadir = os.environ.get('BASSDATA')
+	if nersc:
+		datadir = os.path.join(datadir,'BOK_Raw')
+	log = np.loadtxt(filename,dtype=[('frameNum','i4'),('utDir','S8'),
+	                                 ('fileName','S35'),
+	                                 ('imType','S10'),('filter','S8'),
+	                                 ('expTime','f4')],skiprows=1)
+	exptimes = log['expTime']
+	files = [ datadir+'/'+f['utDir'].strip()+'/'+f['fileName'].strip()+'.fits'
+	              for f in log ]
+	if nersc:
+		files = [ f+'.fz' for f in files ]
+	dataMap = init_data_map(datadir,outdir,
+	                        expTimes=exptimes,files=files)
+	dataMap['biasFiles'] = np.array(dataMap['files'])[log['imType']=='zero']
+	dataMap['flatSequence'] = np.where(log['imType']=='flat')[0]
+	dataMap['statsPix'] = bokutil.stats_region('amp_corner_ccdcenter_small')
+	# assume it starts with reference
+	dataMap['refExpTime'] = exptimes[dataMap['flatSequence'][0]]
+	return dataMap
+
 if __name__=='__main__':
 	import sys
 	dataset = sys.argv[1] 
@@ -409,7 +431,7 @@ if __name__=='__main__':
 	elif dataset == 'jan3Ha':
 		dataMap = init_jan3_data_map('Ha')
 	else:
-		raise ValueError
+		dataMap = init_data_map_fromfile(sys.argv[2],dataset)
 	print 'processing ',dataset
 	if not os.path.exists('stats_'+dataset+'.fits'):
 		process_data(dataMap,bias2d=True)
