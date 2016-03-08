@@ -402,6 +402,10 @@ def bit_report(data,outf,utbreaks=None,save=True):
 			l = 'bit%d'%j if j//2==i else None
 			if l is not None: haslab = True 
 			ax.plot(data['bitFreq'][:,i,j],label=l)
+		for n in range(data['bitFreq'].shape[0]):
+			outf.write('%s  ' % data['fileName'][n])
+			outf.write(('%.3f  '*6) % tuple(data['bitFreq'][n,i,:6]))
+			outf.write('\n')
 		if haslab:
 			ax.legend(ncol=2,frameon=False,fontsize=8,columnspacing=1.0)
 		ax.set_ylim(0.35,0.65)
