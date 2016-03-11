@@ -1,19 +1,47 @@
 #!/usr/bin/env python
 
-from __future__ import print_function
+#from __future__ import print_function
 
 import os
 import numpy as np
+from astropy.table import Table,join
 
-from astropy.table import Table
+from bass import reform_filename,files2tiles,load_obsdb
 
-def load_etc_results_file(resultsf):
+def load_etc_results_file(resultsf='result.txt'):
 	names = ['fileName','ra','dec','magLimNie','expTime','finalCal',
 	         'skyFlux','skyRms','seeing','airmass','filter',
 	         'obsCal','obsSkyFlux','obsSkyRms','obsSeeing','obsAirmass',
 	         'E(B-V)','calcExpTime',
 	         'magLimPoint1','magLimExt1','magLimPoint3','magLimExt3']
-	etcVals = Table.read('result.txt',format='ascii',names=names)
+	return Table.read(resultsf,format='ascii',names=names)
+
+def load_etc_maglim_file(maglimf='maglim_result_2016.txt',obsdb=None):
+	if obsdb is None:
+		obsdb = Table(load_obsdb())
+	names = ['fileName','expTime','airmass','obsCal','seeing',
+	         'skyFlux','skyRms','E(B-V)',
+	         'magLimETC','magLimOBS','magLimOBSCorr']
+	tab = Table.read(maglimf,format='ascii.basic',names=names)
+	tab['fileName'] = [ reform_filename(fn) for fn in tab['fileName'] ]
+	tab.remove_column('expTime') 
+	tab = join(obsdb,tab,join_type='left',keys='fileName')
+#	ii = files2tiles(obsdb,tab['fileName'])
+#	print '%d tiles total, %d images missing from tile db' % \
+#	            (len(ii),np.sum(ii<0))
+#	m = np.where(ii>=0)[0]
+#	#print tab[ii<0]
+#	ii = ii[m]
+#	tab = tab[m]
+	# add some fields
+	tab['zeroPointETC'] = 25 - 2.5*np.log10(tab['expTime']) + tab['obsCal']
+#	nominalZp = np.choose(obsdb['filter'][ii]=='g',[25.38,25.55])
+	nominalZp = np.choose(obsdb['filter']=='g',[25.38,25.55])
+	tab['transparencyETC'] = nominalZp - tab['zeroPointETC']
+	tab['skyAduPerSec'] = tab['skyFlux'] / tab['expTime']
+#	tab.remove_columns(['fileName','expTime']) # these are repeats
+#	return hstack([tab,Table(obsdb)[ii]])
+	return tab
 
 def match_results(ccds,etcVals):
 	ccds['seeing'][ii] = etcVals['seeing'][jj]

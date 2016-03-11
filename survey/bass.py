@@ -4,7 +4,7 @@ import os
 import re
 import numpy as np
 from astropy.io import fits
-from astropy.table import Table,vstack
+from astropy.table import Table,vstack,join
 
 try:
 	bass_dir = os.environ['BASSDIR']
@@ -23,6 +23,11 @@ except:
 
 tiledb_file = 'bass-newtiles-indesi.fits'
 obsdb_file = 'bass-newtiles-observed.fits'
+
+# filenames get written in weird ways
+def reform_filename(s):
+	s1,s2 = re.match('.*\w(\d\d\d\d)[\w.]+(\d\d\d\d)',s).groups()
+	return 'd'+s1+'.'+s2
 
 def build_obsdb(noskip=True,update=True,onlygood=True):
 	import glob,re,shutil
@@ -45,16 +50,12 @@ def build_obsdb(noskip=True,update=True,onlygood=True):
 		obsfiles = [os.path.join(bass_dir,'database',f) for f in obsfiles]
 	else:
 		obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
-		                                      'obsed-[gr]-*.txt'))
+		                                      'obsed-[gr]-????-??-??.txt'))
 		obsfiles_old = glob.glob(os.path.join(bass_dir,'database','201?_old',
-		                                      'obsed-[gr]-*.txt'))
+		                                      'obsed-[gr]-????-??-??.txt'))
 		obsfiles = sorted(obsfiles_old + obsfiles_new)
 	obsdb = []
 	for obsfile in obsfiles:
-		# filenames get written in weird ways
-		def fnconv(s):
-			s1,s2 = re.match('.*\w(\d\d\d\d)[\w.](\d\d\d\d)',s).groups()
-			return 'd'+s1+'.'+s2
 		# for some reason astropy.Table barfs on reading this in directly
 		# so working around it
 		def idconv(s):
@@ -64,10 +65,15 @@ def build_obsdb(noskip=True,update=True,onlygood=True):
 				return -99
 		arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),('expTime','f4'),
 		                           ('tileId','i4'),('ra','f8'),('dec','f8')],
-		                 converters={0:fnconv,2:idconv})
+		                 converters={0:reform_filename,2:idconv})
+		if arr.size<=1:
+			# for some reason len() freaks out in this case
+			continue
 		if '2015-good' in obsfile:
 			# each line in this file is for a single CCD
 			arr = arr[::4]
+		print obsfile
+		#import pdb; pdb.set_trace()
 		t = Table(arr)
 		t['ditherId'] = t['tileId'] % 10
 		t['tileId'] //= 10
@@ -87,8 +93,19 @@ def build_obsdb(noskip=True,update=True,onlygood=True):
 def load_tiledb():
 	return fits.getdata(os.path.join(bass_dir,tiledb_file))
 
-def load_obsdb():
-	return fits.getdata(os.path.join(bass_dir,obsdb_file))
+def load_obsdb(dbfile=obsdb_file):
+	return fits.getdata(os.path.join(bass_dir,dbfile))
+
+def obsdbs_joined():
+	goodobs = Table(load_obsdb())
+	allobs = load_obsdb(obsdb_file.replace('.fits','_all.fits'))
+	goodobs['good'] = True
+	return join(allobs,goodobs['fileName','good'],
+	            join_type='outer',keys='fileName')
+
+def files2tiles(obsdb,fileNames):
+	idxs = { row['fileName']:i for i,row in enumerate(obsdb) }
+	return np.array([idxs.get(fn,-1) for fn in fileNames])
 
 def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 	if observed:
@@ -100,6 +117,22 @@ def region_tiles(ra1,ra2,dec1,dec2,observed=True):
 		ii = np.where((tiledb['TRA']>ra1) & (tiledb['TRA']<ra2) &
 		              (tiledb['TDEC']>dec1) & (tiledb['TDEC']<dec2))[0]
 	return tiledb[ii]
+
+def get_coverage(obsdb,tiledb):
+	tileCov = np.zeros((len(tiledb),2,3),dtype=np.int32)
+	tid = np.array([int(tid) for tid in tiledb['TID']])
+	for n,row in enumerate(obsdb):
+		if row['tileId']>0:
+			try:
+				i = np.where(tid==row['tileId'])[0][0]
+			except:
+				print 'tile ',row['tileId'],' is not in db'
+				continue
+			if row['filter']=='g':
+				tileCov[i,0,row['ditherId']-1] += 1
+			else:
+				tileCov[i,1,row['ditherId']-1] += 1
+	return tileCov
 
 def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,
                 pltsfx='',decalsstyle=False):

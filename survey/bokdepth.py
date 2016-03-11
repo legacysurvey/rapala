@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker
 from astropy.stats import sigma_clip
 import astropy.io.ascii as ascii_io
+from astropy.time import Time
 import fitsio
 try:
 	import bass
@@ -221,6 +222,81 @@ def plot_NEA_images(psfimfs,axes=None,npts=16):
 	for ax,ccdNum,psfimf in zip(axes,[1,3,2,4],psfimfs):
 		nea = calc_PSF_NEA_grid(psfimf,npts=npts)
 		ax.imshow(nea,origin='lower')
+
+def _setticksize(ax,ts):
+	for tick in ax.xaxis.get_major_ticks()+ax.yaxis.get_major_ticks():
+		tick.label1.set_fontsize(ts)
+
+def strip_chart(dat,mjd,filt,cmap=None,fig=None):
+	if cmap is None:
+		cmap = plt.cm.Spectral
+	if fig is None:
+		fig = plt.figure(figsize=(10.5,7))
+		plt.subplots_adjust(0.06,0.05,0.99,0.95,0.0,0.0)
+	if True:
+		magLim = {'g':23.4,'r':22.8}[filt]
+		ii = np.where((dat['mjd']==mjd)&(dat['filter']==filt))[0]
+		if len(ii)<10:
+			return None
+		seqno = np.arange(len(ii))
+		dmag = dat['magLimOBSCorr'][ii] - magLim
+		dmagclr = dmag.clip(-0.4,0.4).filled(0)
+		ax1 = plt.subplot(511)
+		plt.scatter(seqno,dat['magLimOBSCorr'][ii].clip(magLim-0.3,magLim+0.3),
+		            c=dmagclr,edgecolor='none',s=25,cmap=cmap,
+		            vmin=-0.3,vmax=0.3)
+		bad = np.where(dat['good'].mask[ii])[0]
+		plt.scatter(seqno[bad],
+		            dat['magLimOBSCorr'][ii[bad]].clip(magLim-0.3,magLim+0.3),
+		            c='k',s=40,marker='x')
+		plt.ylim(magLim-0.35,magLim+0.35)
+		plt.axhline(magLim,c='k',ls='--')
+		ax1.set_ylabel('lim. mag',size=10)
+		_setticksize(ax1,9)
+		utdate = Time(mjd,format='mjd').iso.split()[0]
+		plt.title('MJD %d, UT %s, %s band'%(mjd,utdate,filt))
+		for j,k in enumerate(['seeing','transparencyETC',
+		                      'skyAduPerSec','expTime']):
+			ax = plt.subplot(5,1,j+2,sharex=ax1)
+			yval = dat[k][ii]
+			if k=='seeing':
+				plt.axhline(1.7,c='k',ls='--')
+			elif k=='transparencyETC':
+				plt.axhline(0,c='k',ls='--')
+			elif k=='expTime':
+				plt.axhline(90,c='k',ls='--')
+			plt.scatter(seqno,yval,
+			            c=dmagclr,edgecolor='none',s=25,cmap=cmap,
+			            vmin=-0.3,vmax=0.3)
+			if k=='transparencyETC':
+				plt.ylim(0.5,-0.1)
+			elif k=='expTime':
+				plt.ylim(40,290)
+			ax.set_ylabel(k,size=10)
+			_setticksize(ax,9)
+		ax1.set_xlim(-1,seqno[-1]+1)
+	return fig
+
+def all_strip_charts():
+	from astropy.time import Time
+	import annotate_ccds
+	from matplotlib.backends.backend_pdf import PdfPages
+	tiledb = bass.load_tiledb()
+	obsdb = bass.obsdbs_joined()
+	obsdb = obsdb[obsdb['mjd']>57388]
+	# for now just looking at Jan/Feb
+	obsdb = obsdb[obsdb['mjd']<57450]
+	dat = annotate_ccds.load_etc_maglim_file('maglim_result_2016.txt',obsdb)
+	allmjds = np.unique(dat['mjd'])
+	plt.ioff()
+	pdf = PdfPages('bass_stripcharts_2016.pdf')
+	for mjd in allmjds:
+		for filt in 'gr':
+			fig = strip_chart(dat,mjd,filt)
+			if fig is not None:
+				pdf.savefig(fig,orientation='landscape')
+	pdf.close()
+	plt.ion()
 
 if __name__=='__main__':
 	#calc_depth_all()
