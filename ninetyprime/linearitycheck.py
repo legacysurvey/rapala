@@ -225,7 +225,7 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 			plt.subplots_adjust(0.11,0.23,0.99,0.98,0.35,0.2)
 			ax = plt.subplot(1,2,1)
 		plt.plot(t[ii],fscl[ii]*st[which][ii,j],'bs-')
-		plt.xlim(0.1,t.max()+0.5)
+		plt.xlim(0.9*t.min(),t.max()+0.5)
 		plt.xscale('log')
 		plt.ylim(1e2,9e4)
 		plt.yscale('log')
@@ -251,7 +251,7 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 		ax.yaxis.set_major_locator(ticker.MultipleLocator(2))
 		ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.5))
 		plt.ylim(-5,5)
-		plt.xlim(0.1,t.max()+0.5)
+		plt.xlim(0.9*t.min(),t.max()+0.5)
 		plt.xscale('log')
 		if pltindex==0 or onlyim is not None:
 			plt.xlabel('exptime (s)')
@@ -262,6 +262,49 @@ def plot_linearity_curves(dataMap,st,which='median',correct=True,isPTC=False,
 				plt.close(fig)
 	if onlyim is None:
 		pdf.close()
+
+def rel_gain(dataMap,st,which='median',correct=True,fitmethod='spline',
+             nskip=0):
+	seqno = 1 + np.arange(len(st))
+	t = st['expTime']
+	refExpTime = dataMap['refExpTime']
+	ref = np.isclose(t,refExpTime)
+	refCorFit = None
+	ii = np.arange(len(st))
+	ii = ii[~ref]
+	ii = ii[nskip:]
+	sky4 = st[which][ii,3]
+	fit_ii = ii[np.where((sky4>5000)&(sky4<25000))[0]]
+	plt.figure()
+	for imNum in range(1,17):
+		j = imNum - 1
+		# correct lamp variation
+		if correct:
+			if True: #refCor is None:
+				fscl_fit = fit_ref_exposures(dataMap,st,imNum,which,
+				                             method=fitmethod)
+			else:
+				if refCorFit is None:
+					refCorFit = fit_ref_exposures(dataMap,st,imNum,which)
+				fscl_fit = refCorFit
+			fscl = fscl_fit(seqno)
+		else:
+			fscl = np.ones_like(seqno)
+		fit = np.polyfit(t[fit_ii],fscl[fit_ii]*st[which][fit_ii,j],1)
+		fitv = np.polyval(fit,t)
+#		slope = fit[0] / (st[which][ref,j][0]/refExpTime)
+		xx = np.array(0,1.1*t.max())
+		plt.subplot(4,4,imNum)
+		if False:
+			plt.scatter(t[ii],fscl[ii]*st[which][ii,j])
+			plt.plot(xx,np.polyval(fit,xx),c='r')
+		else:
+			plt.scatter(t[ii],fscl[ii]*st[which][ii,j]/fitv[ii])
+			plt.axhline(1,c='r')
+		plt.ylim(0.7,1.3)
+		if True:
+			plt.xscale('log')
+		plt.xlim(0.9*t.min(),1.1*t.max())
 
 def get_first_saturated_frame(seq):
 	try:
