@@ -51,8 +51,17 @@ def process_images(images):
 			for hdrfn in ['tmp%d.ahead'%n for n in range(1,5)]:
 				with open(hdrfn) as hdrf:
 					outf.write(hdrf.read())
+				os.remove(hdrfn)
 		sextract(tmpFile,frompv=False,redo=True,
 		         withpsf=True,redopsf=True,psfpath=None,onlypsf=True)
+		os.rename('tmp.ldac_cat.fits',
+		          os.path.basename(image).replace('.fits','.cat.fits'))
+		os.rename('tmp.ldac_cat.psf',
+		          os.path.basename(image).replace('.fits','.psf'))
+		os.remove(tmpHdrFile)
+		os.remove(tmpFile)
+		os.remove('tmp.axy')
+		os.remove('tmp_ext1.wcs')
 
 if __name__=='__main__':
 	import sys
