@@ -259,6 +259,8 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.gainMultiply = kwargs.get('gain_multiply',True)
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
+		# hacky way to say arithmetic is appropriate for inverse-var maps
+		self.asWeight = kwargs.get('asweight',False)
 		self.imTypes = ['bias','flat','ramp','illum','darksky']
 		#
 		self.procIms = {}
@@ -328,7 +330,10 @@ class BokCCDProcess(bokutil.BokProcess):
 		for flatType in ['flat','illum','darksky']:
 			flat = self.procIms[flatType]['fits']
 			if flat is not None:
-				data /= flat[extName][:,:]
+				if asweight:
+					data *= flat[extName][:,:]**2  # inverse variance
+				else:
+					data /= flat[extName][:,:]     # image counts
 		if self.fixPix:
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
@@ -354,6 +359,19 @@ class BokWeightMap(bokutil.BokProcess):
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
 		self.maskFile = None
+		# ... this is copied from CCDProcess... push up to BokProcess?
+		flatIn = kwargs.get('flat')
+		self.flat = {'file':None,'fits':None}
+		self.flatIsMaster = True
+		if type(fitsIn) is fitsio.fitslib.FITS:
+			self.flat['file'] = fitsIn._filename
+			self.flat['fits'] = fitsIn
+		elif type(fitsIn) is str:
+			self.flat['file'] = fitsIn
+			self.flat['fits'] = fitsio.FITS(fitsIn)
+		elif type(fitsIn) is dict:
+			self.flat['map'] = fitsIn
+			self.flatIsMaster = False
 	def _preprocess(self,fits,f):
 		print 'weight map ',fits.outFileName
 		try:
@@ -366,6 +384,21 @@ class BokWeightMap(bokutil.BokProcess):
 				self.maskFits = fitsio.FITS(self.maskFile)
 			else:
 				self.maskFits = maskFile
+		# ... also copied from CCDProcess... 
+		calFn = None
+		if not self.flatIsMaster:
+			inFile = self.flat['map'][f]
+			if type(inFile) is fitsio.fitslib.FITS:
+				self.flat['fits'] = inFile
+				calFn = inFile._filename
+			elif self.flat['file'] != inFile:
+				if self.flat['fits'] is not None:
+					self.flat['fits'].close()
+				self.flat['file'] = inFile
+				self.flat['fits'] = fitsio.FITS(inFile)
+		if calFn is None:
+			calFn = self.flat['file']
+		fits.outFits[0].write_keys({hdrKey:calFn})
 	def process_hdu(self,extName,data,hdr):
 		satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
@@ -382,8 +415,13 @@ class BokWeightMap(bokutil.BokProcess):
 		data -= np.median(oscan_cols)
 #		if oscan_rows is not None:
 #			data -= np.median(oscan_rows)
+		if self.flat['fits'] is None:
+			flatField = 1.0
+		else:
+			flatField = self.flat['fits'][extName][:,:]
 		gain = self.inputGain[extName]
-		ivar = (gain*np.clip(data,1e-10,65535))**-1
+		ivar = np.clip(data,1e-10,65535)**-1
+		ivar *= (gain/flatField)**-2
 		ivar[mask] = 0
 		#
 		chNum = int(extName.replace('IM',''))

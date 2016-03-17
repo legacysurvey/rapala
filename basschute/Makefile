@@ -5,7 +5,15 @@ TOOLS := $(HOME)/dev/rapala/bokpipe/tools
 #NOV15LOG := config/nov2015.fits
 # used topcat to flag images to ignore (added 'good' column)
 NOV15LOG := config/nov2015_mod.fits
-NOV15RAW := $(BASSDATA)/Nov2015
+
+HOST=$(shell hostname)
+ifeq ($(HOST),"clarno")
+	NOV15RAW := $(BASSDATA)/Nov2015
+else
+	NOV15RAW := $(BASSDATA)/BOK_Raw
+endif
+
+nov15all: nov15proc nov15badpix nov15flats nov15final
 
 nov15db:
 	python $(TOOLS)/bokmkobsdb.py -o config/nov2015.fits \
@@ -68,6 +76,4 @@ nov15redo:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
 	                    -s proc2  -vvv -R
-
-nov15all: nov15proc nov15badpix nov15flats nov15final
 

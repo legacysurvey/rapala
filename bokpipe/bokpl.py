@@ -494,12 +494,13 @@ def process_all(dataMap,bias_map,flat_map,
 	# 4. construct weight maps starting from raw images
 	whmap = bokproc.BokWeightMap(input_map=dataMap('raw'),
 	                             output_map=dataMap('weight'),
+	                             flat=flat_map,
 	                             _mask_map=dataMap('MasterBadPixMask'),
 	                             **kwargs)
 	whmap.process_files(files)
 	# rescale the gain corrections to inverse variance
 	for f in gainMap['corrections']:
-		gainMap['corrections'][f] **= -1
+		gainMap['corrections'][f] **= -2
 	bokproc.combine_ccds(files,
 	                     input_map=dataMap('weight'), 
 	                     output_map=dataMap('weight'), 
@@ -566,6 +567,17 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	                             illum=illum_map,darksky=darksky_map,
 	                             **kwargs)
 	proc.process_files(files)
+	# need to process the weight maps in the same fashion
+	wtproc = bokproc.BokCCDProcess(input_map=dataMap('weight'), 
+	                               output_map=dataMap('weight'), 
+	                               mask_map=dataMap('MasterBadPixMask4'),
+	                               header_key=prockey,
+	                               gain_multiply=False,bias=None,flat=None,
+	                               ramp=None,fixpix=False,
+	                               illum=illum_map,darksky=darksky_map,
+	                               asweight=True,
+	                               **kwargs)
+	wtproc.process_files(files)
 	if noskysub:
 		return
 	#
@@ -786,7 +798,7 @@ def init_data_map(args,create_dirs=True):
 	if create_dirs:
 		for d in [dataMap.procDir,dataMap.getCalDir(),dataMap.getDiagDir()]:
 			if not os.path.exists(d):
-				os.mkdir(d)
+				os.makedirs(d)
 		for _utdir in dataMap.getUtDirs():
 			utdir = os.path.join(dataMap.procDir,_utdir)
 			if not os.path.exists(utdir): os.mkdir(utdir)

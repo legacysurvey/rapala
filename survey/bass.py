@@ -232,12 +232,13 @@ def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,
 				pdf.close()
 	return nobs,tileList
 
-def nersc_archive_list():
+def nersc_archive_list(dirs='*'):
 	import fitsio
 	from glob import glob
-	dirs = sorted(glob(os.path.join(os.environ['BASSDATA'],'BOK_Raw','*')))
+	dirs = sorted(glob(os.path.join(os.environ['BASSDATA'],'BOK_Raw',dirs)))
 	logf = open('nersc_noaoarchive.log','w')
 #	errlogf = open('nersc_noaoarchive_errs.log','w')
+	print 'dirs is ',dirs
 	for utdir in dirs:
 		files = sorted(glob(os.path.join(utdir,'*.fits.fz')))
 		print utdir,' %d files' % len(files)
@@ -266,7 +267,10 @@ def nersc_archive_list():
 #	errlogf.close()
 
 if __name__=='__main__':
-	build_obsdb()
-	#nersc_archive_list()
+	import sys
+	#build_obsdb()
+	kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
+	print kwargs
+	nersc_archive_list(**kwargs)
 
 
