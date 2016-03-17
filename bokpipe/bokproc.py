@@ -330,7 +330,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		for flatType in ['flat','illum','darksky']:
 			flat = self.procIms[flatType]['fits']
 			if flat is not None:
-				if asweight:
+				if self.asWeight:
 					data *= flat[extName][:,:]**2  # inverse variance
 				else:
 					data /= flat[extName][:,:]     # image counts
