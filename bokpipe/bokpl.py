@@ -500,7 +500,7 @@ def process_all(dataMap,bias_map,flat_map,
 	whmap.process_files(files)
 	# rescale the gain corrections to inverse variance
 	for f in gainMap['corrections']:
-		gainMap['corrections'][f] **= -2
+		gainMap['corrections'][f] = (gainMap['corrections'][f].copy())**-2
 	bokproc.combine_ccds(files,
 	                     input_map=dataMap('weight'), 
 	                     output_map=dataMap('weight'), 

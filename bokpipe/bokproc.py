@@ -363,14 +363,14 @@ class BokWeightMap(bokutil.BokProcess):
 		flatIn = kwargs.get('flat')
 		self.flat = {'file':None,'fits':None}
 		self.flatIsMaster = True
-		if type(fitsIn) is fitsio.fitslib.FITS:
-			self.flat['file'] = fitsIn._filename
-			self.flat['fits'] = fitsIn
-		elif type(fitsIn) is str:
-			self.flat['file'] = fitsIn
-			self.flat['fits'] = fitsio.FITS(fitsIn)
-		elif type(fitsIn) is dict:
-			self.flat['map'] = fitsIn
+		if type(flatIn) is fitsio.fitslib.FITS:
+			self.flat['file'] = flatIn._filename
+			self.flat['fits'] = flatIn
+		elif type(flatIn) is str:
+			self.flat['file'] = flatIn
+			self.flat['fits'] = fitsio.FITS(flatIn)
+		elif type(flatIn) is dict:
+			self.flat['map'] = flatIn
 			self.flatIsMaster = False
 	def _preprocess(self,fits,f):
 		print 'weight map ',fits.outFileName
@@ -398,7 +398,7 @@ class BokWeightMap(bokutil.BokProcess):
 				self.flat['fits'] = fitsio.FITS(inFile)
 		if calFn is None:
 			calFn = self.flat['file']
-		fits.outFits[0].write_keys({hdrKey:calFn})
+		fits.outFits[0].write_keys({'FLATFILE':calFn})
 	def process_hdu(self,extName,data,hdr):
 		satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)

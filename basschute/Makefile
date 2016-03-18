@@ -7,11 +7,13 @@ TOOLS := $(HOME)/dev/rapala/bokpipe/tools
 NOV15LOG := config/nov2015_mod.fits
 
 HOST=$(shell hostname)
-ifeq ($(HOST),"clarno")
+ifeq ($(HOST),clarno)
 	NOV15RAW := $(BASSDATA)/Nov2015
 else
 	NOV15RAW := $(BASSDATA)/BOK_Raw
 endif
+
+NPROC := -p 4
 
 nov15all: nov15proc nov15badpix nov15flats nov15final
 
@@ -22,7 +24,7 @@ nov15db:
 nov15proc:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s oscan,bias2d,flat2d --nousepixflat \
-	                    -vvv -p 4 
+	                    -vvv $(NPROC)
 
 nov15badpix:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
@@ -35,14 +37,14 @@ nov15flats:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s proc1 --prockey TMPPROC \
 	                    --norampcorr --nobiascorr --nosavegain \
-	                    --tmpdirout -p 4
+	                    --tmpdirout $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --makeillumcorr \
 	                    --tmpdirin -vvv
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s proc2 \
 	                    --nodarkskycorr --skymethod polynomial --skyorder 1 \
-	                    --tmpdirin --tmpdirout -vvv -p 4
+	                    --tmpdirin --tmpdirout -vvv $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14SKYFLATS) \
 	                    -s skyflat \
