@@ -327,6 +327,17 @@ def stripe82zps():
 			plt.savefig('s82zp_%s_%s.png' % (filt,zpcorr))
 	plt.ion()
 
+def stripe82_seeing():
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
+	                      'bokpipe_v0.2','nov15data')
+	for filt in 'gr':
+		fields = ['s82cal%s_ra334_%s' % (filt,n) for n in '123456abcde']
+		for field in fields:
+			cat = fits.getdata(os.path.join(bokdir,filt,field+'.cat.fits'))
+			ii = np.where((cat['FWHM_IMAGE']<10)&(cat['FLAGS']==0))[0]
+			fwhm = np.ma.median(sigma_clip(cat['FWHM_IMAGE'][ii]))[0]
+			print '%s %.2f %.2f' % (field,fwhm,fwhm*0.455)
+
 def stripe82_phot(imageFile,s82cat,aperRad=2.5):
 	from bokpipe.bokphot import aper_phot_image
 	aperRad /= 0.455
@@ -363,6 +374,10 @@ def stripe82_linearity(filt,**kwargs):
 	tab['refErr'] = s82all['psfMagErr_'+filt[-1]][ii]
 	tab['ampIndex'] = get_amp_index(tab['x'][:,-1],tab['y'][:,-1])
 	tab['ampNum'] = 4*(tab['ccdNum']-1) + tab['ampIndex'] + 1
+	exptime = np.array([25.,50.,100.,200.,400.])
+	tab['cps'] = tab['counts'] / exptime
+	tab['meanCps'] = np.average(tab['cps'],weights=exptime,axis=-1)
+	tab['snr'] = tab['counts']/tab['countsErr']
 	return tab
 
 def stripe82_linearity_plot(s82tab,peak=False):
@@ -377,8 +392,8 @@ def stripe82_linearity_plot(s82tab,peak=False):
 		ax = plt.subplot(8,2,ampNum)
 		ii = np.where((s82tab['ampNum']==ampNum) & magrange &
 		              np.all(s82tab['flags']==0,axis=1))[0]
-		cps = s82tab[countsk][ii] / exptime
-		mean_cps = np.average(cps,weights=exptime,axis=-1)
+		cps = s82tab['cps']
+		mean_cps = s82tab['meanCps']
 		gt0 = np.where(mean_cps>0)[0]
 		xall,yall = [],[]
 		for j in range(5):
