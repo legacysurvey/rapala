@@ -21,8 +21,8 @@ kpno_sky_lun0 = {'g':22.10,'r':21.07,'bokr':21.5}
 
 def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
                 profile='exponential',tablezpt=False,r_half=default_r_half,
-                skyADU=None,gain=None,rdnoise=None,taversion=False,
-                verbose=False):
+                skyADU=None,skyeps=None,gain=None,rdnoise=None,
+                taversion=False,verbose=False):
 	if mag is None:
 		mag = mag_lim[band]
 	if zpt0 is None:
@@ -45,7 +45,10 @@ def _exp_config(band,mag=None,zpt0=None,sky=None,fwhm=None,
 	#
 	f0 = 10**(-0.4*(mag - zpt0)) * G
 	if skyADU is None:
-		skyflux = 10**(-0.4*(sky - bok_zpt0[band])) * p**2 * G
+		if skyeps is None:
+			skyflux = 10**(-0.4*(sky - bok_zpt0[band])) * p**2 * G
+		else:
+			skyflux = skyeps
 	else:
 		skyflux = skyADU * G
 	#skyflux = 6.6 # from images
