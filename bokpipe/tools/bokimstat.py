@@ -19,8 +19,17 @@ class BokImStat(bokutil.BokProcess):
 		print '%8.2f ' % pix.mean(),
 		return data,hdr
 
-imstat = BokImStat()
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("inputFiles",type=str,nargs='+',
+                    help="input FITS images")
+parser.add_argument("-e","--ext",type=str,default="all",
+                    help="select FITS extension(s) [default=all]")
+args = parser.parse_args()
 
-imstat.process_files(sys.argv[1:])
+extns = args.ext.split(',')
+
+imstat = BokImStat(extensions=extns)
+imstat.process_files(args.inputFiles)
 
 

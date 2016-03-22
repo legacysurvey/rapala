@@ -351,6 +351,7 @@ class BokProcess(object):
 		self.headerKey = kwargs.get('header_key')
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
+		self.extensions = kwargs.get('extensions')
 		self.verbose = kwargs.get('verbose',0)
 		self.noConvert = False
 	def add_mask(self,maskFits):
@@ -377,7 +378,8 @@ class BokProcess(object):
 				                   keep_headers=self.keepHeaders,
 				                   clobber=self.clobber,
 				                   header_key=self.headerKey,
-				                   read_only=self.readOnly)
+				                   read_only=self.readOnly,
+				                   extensions=self.extensions)
 			except OutputExistsError,msg:
 				if self.ignoreExisting:
 					if self.verbose > 0:
