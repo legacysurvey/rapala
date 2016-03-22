@@ -1,5 +1,7 @@
 #!/usr/bin/make
 
+.PHONY: nov15initproc nov15badpix nov15flats nov15finalproc
+
 TOOLS := $(HOME)/dev/rapala/bokpipe/tools
 
 #NOV15LOG := config/nov2015.fits
@@ -15,13 +17,13 @@ endif
 
 NPROC := -p 4
 
-nov15all: nov15proc nov15badpix nov15flats nov15final
+nov15all: nov15initproc nov15badpix nov15flats nov15finalproc
 
 nov15db:
 	python $(TOOLS)/bokmkobsdb.py -o config/nov2015.fits \
 	       $(BASSDATA)/Nov2015/2015111?
 
-nov15proc:
+nov15initproc:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s oscan,bias2d,flat2d --nousepixflat \
 	                    -vvv $(NPROC)
@@ -53,7 +55,7 @@ nov15flats:
 # Just the science frames in validation fields
 NOV14FRAMES := "33-69,98-110"
 
-nov15final:
+nov15finalproc:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
 	                    -s proc1 --norampcorr --nobiascorr
@@ -68,14 +70,20 @@ nov15finish:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) --finish
 
+nov15proc:
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) \
+	                    -s oscan -vvv $(XARGS)
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) \
+	                    -s proc1 --norampcorr --nobiascorr -vvv $(XARGS)
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) \
+	                    -s proc2  -vvv $(XARGS)
+	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
+	                    --frames $(NOV14FRAMES) \
+	                    -s wcs,cat -vv $(XARGS)
+
 nov15redo:
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --frames $(NOV14FRAMES) \
-	                    -s oscan -vvv -R
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --frames $(NOV14FRAMES) \
-	                    -s proc1 --norampcorr --nobiascorr -vvv -R
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --frames $(NOV14FRAMES) \
-	                    -s proc2  -vvv -R
+	make XARGS=-R nov15proc 
 
