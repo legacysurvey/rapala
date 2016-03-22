@@ -418,7 +418,8 @@ def plot_pointings():
 	from matplotlib.patches import Rectangle
 	from astrotools.idmstuff import radec_fromstr
 	filt = 'g'
-	fields = ['cosmos%s_ra150_%s' % (filt,n) for n in '123456']
+	#fields = ['cosmos%s_ra150_%s' % (filt,n) for n in '123456']
+	fields = ['deep2%s_ra352_%s' % (filt,n) for n in '123456']
 	_minmax = lambda a,b: (a,b) if a<=b else (b,a)
 	plt.figure()
 	ax = plt.subplot(111)
@@ -444,8 +445,16 @@ def plot_pointings():
 		rect = Rectangle((ra-0.3,dec-0.3),0.6,0.6,
 		                 color='r',fill=False)
 		ax.add_patch(rect)
-	plt.xlim(149.49,151.3)
-	plt.ylim(1.05,3.05)
+	d2f3coo = ['23:25:00 -00:05:00', '23:35:00 -00:05:00',
+	           '23:35:00 +00:27:00', '23:25:00 +00:27:00',
+	           '23:25:00 -00:05:00']
+	d2f3 = np.array([radec_fromstr(c,True) for c in d2f3coo])
+	print d2f3.shape
+	plt.plot(d2f3[:,0],d2f3[:,1],c='r')
+	#plt.xlim(149.49,151.3)
+	#plt.ylim(1.05,3.05)
+	plt.xlim(351,353.5)
+	plt.ylim(-1.4,1.0)
 
 def get_colors():
 	apNum = 2
@@ -504,4 +513,30 @@ def color_terms(tab,nIter=3):
 		         r'$%s(Bok) = %s(SDSS) %.2f\times(g-r) + %.2f$' %
 		         ((b,b)+tuple(fit)),
 		         size=13,bbox=dict(facecolor='w',alpha=0.8))
+
+
+def etc_check():
+	from boketc import texp_onsky,k_ext,bok_zpt0
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
+	                      'bokpipe_v0.2','nov15data')
+	ebv = 0.04 # rough average in the field
+	exptime = 100. # all the same
+	deep2g = Table.read('deep2g_ra352_merged.fits')
+	deep2r = Table.read('deep2r_ra352_merged.fits')
+	zps = {b:get_zeropoints(tab,calc_zeropoints(tab,b),'image').squeeze()
+	          for b,tab in [('g',deep2g),('r',deep2r)]}
+	for filt in 'gr':
+		fields = ['deep2%s_ra352_%s' % (filt,n) for n in '123456']
+		for field,zp in zip(fields,zps[filt]):
+			imf = os.path.join(bokdir,filt,field+'.fits')
+			hdr0 = fits.getheader(imf,0)
+			hdr1 = fits.getheader(imf,1)
+			airmass = hdr0['airmass']
+			b = {'g':'g','r':'bokr'}[filt]
+			zp += -2.5*np.log10(1.375) - k_ext[b]*(airmass-1)
+			skyextinction = np.clip(bok_zpt0[b]-zp,0,np.inf)
+			t = texp_onsky(b,airmass,ebv,skyextinction,
+			               skyeps=hdr1['SKYVAL']/exptime)
+			print '%s  %.1f' % (field,t/3)
+		print
 
