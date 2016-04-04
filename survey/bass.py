@@ -5,6 +5,7 @@ import re
 import numpy as np
 from astropy.io import fits
 from astropy.table import Table,vstack,join
+from astropy.time import Time,TimeDelta
 
 try:
 	bass_dir = os.environ['BASSDIR']
@@ -29,10 +30,24 @@ def reform_filename(s):
 	s1,s2 = re.match('.*\w(\d\d\d\d)[\w.]+(\d\d\d\d)',s).groups()
 	return 'd'+s1+'.'+s2
 
-def build_obsdb(noskip=True,update=True,onlygood=True):
+def get_obsdb_filename(which,newest):
+	obsdbfn = obsdb_file
+	if which=='all':
+		obsdbfn = obsdbfn.replace('.fits','_all.fits')
+	if newest:
+		obsdbfn = obsdbfn.replace('.fits','_updated.fits')
+	return obsdbfn
+
+def build_obsdb(update=False,which='good',newest=True):
+	'''which is "good" [only good tiles] or "all" [all observations]
+	   if newest is True include most recent observations 
+	      not yet in "good" lists
+	'''
 	import glob,re,shutil
 	from urllib2 import urlopen
 	import tarfile
+	# update the local observations database by downloading the master
+	# database from the wiki site
 	if update:
 		resp = urlopen('http://batc.bao.ac.cn/BASS/lib/exe/fetch.php?media=observation:observation:database.tar.gz')
 		f = resp.read()
@@ -44,16 +59,35 @@ def build_obsdb(noskip=True,update=True,onlygood=True):
 		tar = tarfile.open(tarname)
 		tar.extractall(path=bass_dir)
 		tar.close()
-	if onlygood:
-		obsfiles = ['obsed-g-2015-good.txt','obsed-g-2016-0102-good.txt',
-		            'obsed-r-2015-good.txt','obsed-r-2016-0102-good.txt',]
-		obsfiles = [os.path.join(bass_dir,'database',f) for f in obsfiles]
+	# the summary files listing the tiles marked as "good"
+	good_files = ['obsed-g-2015-good.txt','obsed-r-2015-good.txt',
+	              'obsed-g-2016-0102-good.txt','obsed-r-2016-0102-good.txt',
+	              'obsed-g-2016-03-good.txt','obsed-r-2016-03-good.txt',
+	]
+	obsfiles_good = [os.path.join(bass_dir,'database',f) for f in good_files]
+	# the original nightly tile lists archived in "*_old" directories
+	obsfiles_old = glob.glob(os.path.join(bass_dir,'database','201?_old',
+	                                      'obsed-[gr]-????-??-??.txt'))
+	# the most recently observed tiles that have not been ingested into
+	# the "good" lists yet
+	obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
+	                                      'obsed-[gr]-????-??-??.txt'))
+	# select which observations to use
+	if which=='all':
+		# include all the observed tiles
+		obsfiles = obsfiles_old
+	elif which=='good':
+		# only include "good" tiles
+		obsfiles = obsfiles_good
 	else:
-		obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
-		                                      'obsed-[gr]-????-??-??.txt'))
-		obsfiles_old = glob.glob(os.path.join(bass_dir,'database','201?_old',
-		                                      'obsed-[gr]-????-??-??.txt'))
-		obsfiles = sorted(obsfiles_old + obsfiles_new)
+		raise ValueError
+	if newest and len(obsfiles_new)>0:
+		# add in the most recent observations (if there are any)
+		obsfiles = sorted(obsfiles + obsfiles_new)
+	else:
+		newest = False
+	# convert the input databases to a single FITS table with some added
+	# fields
 	obsdb = []
 	for obsfile in obsfiles:
 		# for some reason astropy.Table barfs on reading this in directly
@@ -72,8 +106,7 @@ def build_obsdb(noskip=True,update=True,onlygood=True):
 		if '2015-good' in obsfile:
 			# each line in this file is for a single CCD
 			arr = arr[::4]
-		print obsfile
-		#import pdb; pdb.set_trace()
+		print obsfile,len(arr)
 		t = Table(arr)
 		t['ditherId'] = t['tileId'] % 10
 		t['tileId'] //= 10
@@ -86,8 +119,8 @@ def build_obsdb(noskip=True,update=True,onlygood=True):
 	obsdb.sort('fileName')
 	#
 	print 'ingested %d observed tiles' % len(obsdb)
-	outf = obsdb_file if onlygood else obsdb_file.replace('.fits','_all.fits')
-	obsdb.write(os.path.join(bass_dir,outf),overwrite=True)
+	obsdbfn = get_obsdb_filename(which,newest)
+	obsdb.write(os.path.join(bass_dir,obsdbfn),overwrite=True)
 	return
 
 def load_tiledb():
@@ -134,20 +167,22 @@ def get_coverage(obsdb,tiledb):
 				tileCov[i,1,row['ditherId']-1] += 1
 	return tileCov
 
-def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,
-                pltsfx='',decalsstyle=False):
+def obs_summary(which='good',newest=True,
+                mjdstart=None,mjdend=None,
+                doplot=False,smallplot=False,saveplot=None,
+                decalsstyle=False):
 	from collections import defaultdict
 	tiledb = load_tiledb()
-	obsdb = load_obsdb()
-	if filt is not None:
-		obsdb = obsdb[obsdb['filter']==filt]
+	obsdb = load_obsdb(get_obsdb_filename(which,newest))
+	#
 	if mjdstart is not None:
-		print obsdb['mjd'].min(),obsdb['mjd'].max()
-		obsdb = obsdb[obsdb['mjd']>mjdstart]
+		obsdb = obsdb[obsdb['mjd']>=mjdstart]
+	if mjdend is not None:
+		obsdb = obsdb[obsdb['mjd']<=mjdend]
+	#
 	tid = np.array([int(tid) for tid in tiledb['TID']])
-	nobs = np.zeros((tiledb.size,3),dtype=int)
+	nobs = np.zeros((tiledb.size,2,3),dtype=int)
 	tileList = {1:defaultdict(list),2:defaultdict(list),3:defaultdict(list)}
-	tileCov = np.zeros((len(tiledb),2,3),dtype=bool)
 	for n,row in enumerate(obsdb):
 		if row['tileId']>0:
 			try:
@@ -155,46 +190,67 @@ def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,
 			except:
 				print 'tile ',row['tileId'],' is not in db'
 				continue
-			nobs[i,row['ditherId']-1] += 1
 			tileList[row['ditherId']][row['tileId']].append(n)
 			if row['filter']=='g':
-				tileCov[i,0,row['ditherId']-1] = True
+				nobs[i,0,row['ditherId']-1] += 1
 			else:
-				tileCov[i,1,row['ditherId']-1] = True
-	print 'total tiles: '
-	for i in range(3):
-		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]))
-	print 'unique tiles: '
-	for i in range(3):
-		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]>0))
-	print 'any pass: ',np.sum(np.any(nobs>0,axis=1))
-	print 'repeats: '
-	for i in range(3):
-		print 'D%d: %d' % (i+1,np.sum(nobs[:,i]>1))
-	print 'total repeats: ',np.sum(nobs>1)
+				nobs[i,1,row['ditherId']-1] += 1
+	tileCov = nobs > 0
+	nTiles = float(len(tid))
+	dec34 = np.where(tiledb['TDEC']>=34)[0]
+	nTiles34 = float(len(dec34))
+	print
+	print '  MJDs %d to %d' % (obsdb['mjd'].min(),obsdb['mjd'].max())
+	print
+	print ' '*5,'g band'.center(30,'-'),'  ','r band'.center(30,'-')
+	print ' '*5,
+	print '%5s  %5s  %7s  %7s    ' % ('total','uniq','%compl','%(>34d)'),
+	print '%5s  %5s  %7s  %7s' % ('total','uniq','%compl','%(>34d)')
+	for _j in range(4):
+		if _j < 3:
+			print ' P%d: ' % (_j+1),
+			j,_n = _j,1.0
+		else:
+			print 'all: ',
+			j,_n = slice(None),3.0
+		for i,filt in enumerate('gr'):
+			print '%5d ' % (np.sum(nobs[:,i,j])),
+			print '%5d ' % (np.sum(tileCov[:,i,j])),
+			print '%7.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles/_n),
+			print '%7.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles34/_n),
+			print '  ',
+		print
+	print
+	#
 	if doplot:
 		import matplotlib.pyplot as plt
 		from matplotlib.backends.backend_pdf import PdfPages
 		if decalsstyle:
-			fig = plt.figure(figsize=(5,6))
-			plt.subplots_adjust(0.11,0.08,0.98,0.98,0.0,0.0)
+			if smallplot:
+				fig = plt.figure(figsize=(5,6))
+				plt.subplots_adjust(0.11,0.08,0.98,0.98,0.0,0.0)
+				sz1,sz2,sz3,fsz = 7,5,20,11
+			else:
+				fig = plt.figure(figsize=(8,10))
+				plt.subplots_adjust(0.07,0.05,0.98,0.98,0.0,0.0)
+				sz1,sz2,sz3,fsz = 10,12,20,12
 			for _pass in range(1,4):
 				ax = plt.subplot(3,1,_pass)
 				grsum = tileCov[:,0,_pass-1].astype(np.int) + \
 				        2*(tileCov[:,1,_pass-1].astype(np.int))
 				ii = np.where(grsum==0)[0]
 				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
-				            marker='+',s=7,c='0.7')
+				            marker='+',s=sz1,c='0.7')
 				ii = np.where(grsum>0)[0]
 				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
 				            marker='s',
 				            c=np.choose(grsum[ii],['0.5','b','y','g']),
-				            edgecolor='none',s=5)
+				            edgecolor='none',s=sz2)
 				if _pass==3:
 					for c,lbl in zip('byg',['g','r','g+r']):
-						plt.scatter(-99,-99,marker='s',s=20,c=c,label=lbl,
+						plt.scatter(-99,-99,marker='s',s=sz3,c=c,label=lbl,
 						            edgecolor='None')
-					plt.legend(scatterpoints=1,ncol=3,fontsize=11,
+					plt.legend(scatterpoints=1,ncol=3,fontsize=fsz,
 					           handletextpad=0,columnspacing=1,
 					           loc='upper center')
 				plt.xlim(85,305)
@@ -206,6 +262,10 @@ def obs_summary(filt='g',mjdstart=None,doplot=False,saveplot=False,
 				if _pass==2:
 					plt.ylabel('Dec')
 				plt.text(270,55,'pass %d'%_pass)
+			if saveplot is not None:
+				plt.savefig(saveplot)
+			else:
+				plt.show()
 		else:
 			if saveplot:
 				pdf = PdfPages('bass_coverage_%s%s.pdf'%(filt,pltsfx))
@@ -267,10 +327,56 @@ def nersc_archive_list(dirs='*'):
 #	errlogf.close()
 
 if __name__=='__main__':
-	import sys
-	#build_obsdb()
-	kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
-	print kwargs
-	nersc_archive_list(**kwargs)
+	import sys,argparse
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--obsdb",action="store_true",
+	                    help="build the observations database")
+	parser.add_argument("--newest",action="store_true",
+	                    help="include most recent observations")
+	parser.add_argument("-t","--tiles",type=str,default="good",
+	                    help="which set of tiles to include (good|all)")
+	parser.add_argument("--update",action="store_true",
+	                    help="update the tile list by remote download")
+	parser.add_argument("--summary",action="store_true",
+	                    help="print summary information")
+	parser.add_argument("-p","--plot",action="store_true",
+	                    help="also produce summary plot")
+	parser.add_argument("--smallplot",action="store_true",
+	                    help="small summary plot")
+	parser.add_argument("-m","--mjd",type=str,
+	                    help="MJD range (mjd1,mjd2), '*' for any")
+	parser.add_argument("--start2016",action="store_true",
+	                    help="start with Nov 1 2015 ('2016' data)")
+	parser.add_argument("-u","--utdate",type=str,
+	                    help="UT range (ut1,ut2), '*' for any")
+	parser.add_argument("-d","--date",type=str,
+	                    help="local date range (night1,night2), '*' for any")
+	parser.add_argument("--plotfile",type=str,
+	                    help="filename to save plot in")
+	args = parser.parse_args()
+	mjds = [None,None]
+	if args.mjd is not None:
+		mjds = [ int(d) 
+		            if d!='*' else None for d in args.mjd.split(',') ]
+	elif args.utdate is not None:
+		mjds = [ int(Time(d).mjd) 
+		            if d!='*' else None for d in args.utdate.split(',') ]
+	elif args.date is not None:
+		mjds = [ int((Time(d)+TimeDelta(1,format='jd')).mjd) 
+		            if d!='*' else None for d in args.date.split(',') ]
+	if args.start2016:
+		mjds[0] = 57327
+	if len(mjds)==1:
+		mjds = mjds*2
+	if args.obsdb:
+		build_obsdb(update=args.update,which=args.tiles,newest=args.newest)
+	elif args.summary:
+		obs_summary(which=args.tiles,newest=args.newest,
+		            mjdstart=mjds[0],mjdend=mjds[1],
+		            doplot=args.plot,smallplot=args.smallplot,
+		            saveplot=args.plotfile,decalsstyle=True)
+	#kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
+	#print kwargs
+	#nersc_archive_list(**kwargs)
 
 
