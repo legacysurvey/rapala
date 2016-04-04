@@ -129,9 +129,9 @@ def load_tiledb():
 def load_obsdb(dbfile=obsdb_file):
 	return fits.getdata(os.path.join(bass_dir,dbfile))
 
-def obsdbs_joined():
-	goodobs = Table(load_obsdb())
-	allobs = load_obsdb(obsdb_file.replace('.fits','_all.fits'))
+def obsdbs_joined(newest=False):
+	goodobs = Table(load_obsdb(get_obsdb_filename('good',newest)))
+	allobs = Table(load_obsdb(get_obsdb_filename('all',newest)))
 	goodobs['good'] = True
 	return join(allobs,goodobs['fileName','good'],
 	            join_type='outer',keys='fileName')
