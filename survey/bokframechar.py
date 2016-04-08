@@ -61,6 +61,7 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 	ddec = matchedCat['DEC'] - matchedCat['DELTA_J2000']
 	# now find average zeropoints over each CCD and each amp
 	zpCCD = np.zeros(4,dtype=np.float32)
+	zprmsCCD = np.zeros(4,dtype=np.float32)
 	zpAmp = np.zeros((4,4),dtype=np.float32)
 	raoff = np.zeros(4,dtype=np.float32)
 	decoff = np.zeros(4,dtype=np.float32)
@@ -73,6 +74,7 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 		ii = np.where(matchedCat['ccdNum']==ccdNum)[0]
 		dmag = sigma_clip(ps1bokmag[ii]-bokmag[ii])
 		zpCCD[ccdNum-1] = dmag.mean()
+		zprmsCCD[ccdNum-1] = dmag.std()
 		nccd[ccdNum-1] = (~dmag.mask).sum()
 		raoff[ccdNum-1] = np.median(dra[ii[~dmag.mask]])*3600
 		decoff[ccdNum-1] = np.median(ddec[ii[~dmag.mask]])*3600
@@ -84,7 +86,7 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 			dmag = sigma_clip(ps1bokmag[ii]-bokmag[ii])
 			zpAmp[ccdNum-1,ai] = dmag.mean()
 			namp[ccdNum-1,ai] = (~dmag.mask).sum()
-	return dict(zpim=zpIm,zpccd=zpCCD,zpamp=zpAmp,
+	return dict(zpim=zpIm,zpccd=zpCCD,zpamp=zpAmp,zprmsCCD=zprmsCCD,
 	            raoff=raoff,decoff=decoff,
 	            seeing=seeing,medgicolor=medgicolor,
 	            nstarsim=nim,nstarsccd=nccd,nstarsamp=namp)
