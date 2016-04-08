@@ -7,6 +7,16 @@ from astropy.io import fits
 from astropy.table import Table,vstack,join
 from astropy.time import Time,TimeDelta
 
+ampNums = [ [ 4,2,3,1 ] , [ 7,5,8,6 ], [ 10,12,9,11 ], [ 13,15,14,16] ]
+
+def get_amp_index(x,y):
+	nx = 4096 // 2
+	ny = 4032 // 2
+	xi = (x/nx).astype(np.int32)
+	yi = (y/ny).astype(np.int32)
+	ampIndex = 2*yi + xi
+	return ampIndex
+
 try:
 	bass_dir = os.environ['BASSDIR']
 	bass_data_dir = os.environ['BASSDATA']
@@ -325,6 +335,41 @@ def nersc_archive_list(dirs='*'):
 		logf.flush()
 	logf.close()
 #	errlogf.close()
+
+def load_etc_results_file(resultsf='result.txt'):
+	names = ['fileName','ra','dec','magLimNie','expTime','finalCal',
+	         'skyFlux','skyRms','seeing','airmass','filter',
+	         'obsCal','obsSkyFlux','obsSkyRms','obsSeeing','obsAirmass',
+	         'E(B-V)','calcExpTime',
+	         'magLimPoint1','magLimExt1','magLimPoint3','magLimExt3']
+	return Table.read(resultsf,format='ascii',names=names)
+
+def load_etc_maglim_file(maglimf='maglim_result_2016.txt',obsdb=None):
+	if obsdb is None:
+		obsdb = Table(load_obsdb())
+	names = ['fileName','expTime','airmass','obsCal','seeing',
+	         'skyFlux','skyRms','E(B-V)',
+	         'magLimETC','magLimOBS','magLimOBSCorr']
+	tab = Table.read(maglimf,format='ascii.basic',names=names)
+	tab['fileName'] = [ reform_filename(fn) for fn in tab['fileName'] ]
+	tab.remove_column('expTime') 
+	tab = join(obsdb,tab,join_type='left',keys='fileName')
+#	ii = files2tiles(obsdb,tab['fileName'])
+#	print '%d tiles total, %d images missing from tile db' % \
+#	            (len(ii),np.sum(ii<0))
+#	m = np.where(ii>=0)[0]
+#	#print tab[ii<0]
+#	ii = ii[m]
+#	tab = tab[m]
+	# add some fields
+	tab['zeroPointETC'] = 25 - 2.5*np.log10(tab['expTime']) + tab['obsCal']
+#	nominalZp = np.choose(obsdb['filter'][ii]=='g',[25.38,25.55])
+	nominalZp = np.choose(obsdb['filter']=='g',[25.38,25.55])
+	tab['transparencyETC'] = nominalZp - tab['zeroPointETC']
+	tab['skyAduPerSec'] = tab['skyFlux'] / tab['expTime']
+#	tab.remove_columns(['fileName','expTime']) # these are repeats
+#	return hstack([tab,Table(obsdb)[ii]])
+	return tab
 
 if __name__=='__main__':
 	import sys,argparse

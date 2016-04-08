@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker
 
 from boketc import bok_zpt0
+from bass import ampNums,get_amp_index
 
 test_exptimes = np.array([100.]*6 + [25.,50.,100.,200.,400.])
 
@@ -112,16 +113,6 @@ def flux2mag(tab,band,which='PSF',zp=None):
 		exptimes = exptimes[:,:,np.newaxis]
 	mag = zp - 2.5*np.ma.log10(flux/exptimes)
 	return mag
-
-ampNums = [ [ 4,2,3,1 ] , [ 7,5,8,6 ], [ 10,12,9,11 ], [ 13,15,14,16] ]
-
-def get_amp_index(x,y):
-	nx = 4096 // 2
-	ny = 4032 // 2
-	xi = (x/nx).astype(np.int32)
-	yi = (y/ny).astype(np.int32)
-	ampIndex = 2*yi + xi
-	return ampIndex
 
 def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 	if zp is None:
