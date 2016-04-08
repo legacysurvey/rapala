@@ -114,7 +114,7 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		imFile = os.path.basename(image).replace('.fz','')
 		catFile = os.path.join(outputDir,imFile.replace('.fits','.cat.fits'))
 		psfFile = os.path.join(outputDir,imFile.replace('.fits','.psf'))
-		metaFile = os.path.join(outputDir,imFile.replace('.fits','.meta.fits'))
+		metaFile = os.path.join(outputDir,imFile.replace('.fits','.meta'))
 		# check if all the output files exists 
 		if ( os.path.exists(catFile) and os.path.exists(psfFile) and
 		       os.path.exists(metaFile) and not overwrite ):
