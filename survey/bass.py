@@ -75,13 +75,17 @@ def build_obsdb(update=False,which='good',newest=True):
 	              'obsed-g-2016-03-good.txt','obsed-r-2016-03-good.txt',
 	]
 	obsfiles_good = [os.path.join(bass_dir,'database',f) for f in good_files]
+	nov15_files = glob.glob(os.path.join(bass_dir,'database',
+	                                     'obsed-[gr]-2015-11-??.txt'))
+	# XXX not actually sure these have been classified but incl. here for now
+	obsfiles_good += nov15_files
 	# the original nightly tile lists archived in "*_old" directories
 	obsfiles_old = glob.glob(os.path.join(bass_dir,'database','201?_old',
 	                                      'obsed-[gr]-????-??-??.txt'))
 	# the most recently observed tiles that have not been ingested into
 	# the "good" lists yet
 	obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
-	                                      'obsed-[gr]-????-??-??.txt'))
+	                                      'obsed-[gr]-2016-??-??.txt'))
 	# select which observations to use
 	if which=='all':
 		# include all the observed tiles

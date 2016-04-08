@@ -285,7 +285,7 @@ def all_strip_charts():
 	obsdb = bass.obsdbs_joined()
 	obsdb = obsdb[obsdb['mjd']>57388]
 	# for now just looking at Jan/Feb
-	obsdb = obsdb[obsdb['mjd']<57450]
+	#obsdb = obsdb[obsdb['mjd']<57450]
 	dat = annotate_ccds.load_etc_maglim_file('maglim_result_2016.txt',obsdb)
 	allmjds = np.unique(dat['mjd'])
 	plt.ioff()
