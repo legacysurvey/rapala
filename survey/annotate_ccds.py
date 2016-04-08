@@ -7,6 +7,7 @@ import numpy as np
 from astropy.table import Table,join,vstack
 
 from bass import reform_filename,files2tiles,load_obsdb
+import bokdepth
 
 def get_bass_frames(obsLogFile):
 	# read in the observations logs created from trawling the headers,
@@ -48,14 +49,16 @@ def _temp_fn2expid_map(archivelistf):
 			noaofn = d[1]#.replace('.fz','').replace('.fits','')
 			bokfn = d[2]
 			try:
-				expid = int(bokfn[1:5]+bokfn[6:10])
+				expid = np.int32(bokfn[1:5]+bokfn[6:10])
 			except:
 				continue
 			fnmap[noaofn] = expid
 	return fnmap
 
-def frames2ccds(frames,outfn='bass-ccds-annotated.fits'):
+def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits'):
+	framesOrig = frames
 	frames = frames.copy()
+	errlog = open(outfn.replace('.fits','_errors.log'),'w')
 	# slice the columns that are needed
 	cols = [ 'expTime', 'filter', 'date_obs', 'mjd', 'utObs',
 	         'hdrAirmass', 'fileName', 'outsideHumidity', 'outsideTemp', ]
@@ -70,68 +73,112 @@ def frames2ccds(frames,outfn='bass-ccds-annotated.fits'):
 	# translate some data values
 	frames['outtemp'] = 5.0/9.0 * (frames['outtemp']-32) # F->C
 	frames['filter'][frames['filter']=='bokr'] = 'r'
-	frames['propid'] = np.repeat('BASS',len(frames)) # XXX
+	frames['propid'] = 'BASS'
 	frames['image_filename'] = \
 	            np.core.defchararray.add(frames['image_filename'],'.fits.fz')
 	fnmap = _temp_fn2expid_map('nersc_noaoarchive_thru20160216.log') # XXX
 	frames['expnum'] = [ fnmap[fn] for fn in frames['image_filename'] ]
+	frames['width'] = np.int32(4096)
+	frames['height'] = np.int32(4032)
 	# allocate dummy entries for per-ccd items
-	frames['seeing'] = np.zeros(len(frames),dtype=np.float32)
-	frames['zpt'] = np.zeros(len(frames),dtype=np.float32)
-	frames['avsky'] = np.zeros(len(frames),dtype=np.float32)
-	frames['arawgain'] = np.zeros(len(frames),dtype=np.float32)
-	frames['crpix1'] = np.zeros(len(frames),dtype=np.float32)
-	frames['crpix2'] = np.zeros(len(frames),dtype=np.float32)
-	frames['crval1'] = np.zeros(len(frames),dtype=np.float64)
-	frames['crval2'] = np.zeros(len(frames),dtype=np.float64)
-	frames['cd1_1'] = np.zeros(len(frames),dtype=np.float32)
-	frames['cd1_2'] = np.zeros(len(frames),dtype=np.float32)
-	frames['cd2_1'] = np.zeros(len(frames),dtype=np.float32)
-	frames['cd2_2'] = np.zeros(len(frames),dtype=np.float32)
-	frames['ccdnum'] = np.zeros(len(frames),dtype=np.int16)
-	#frames['ccdname'] = np.repeat('CCDN',len(frames))
-	frames['ccdphrms'] = np.zeros(len(frames),dtype=np.float32)
-	frames['frameskyrms'] = np.zeros(len(frames),dtype=np.float32)
-	frames['ccdraoff'] = np.zeros(len(frames),dtype=np.float32)
-	frames['ccddecoff'] = np.zeros(len(frames),dtype=np.float32)
-	frames['ccdnstar'] = np.zeros(len(frames),dtype=np.int16)
+	frames['tileid'] = np.int32(0)
+	frames['tilepass'] = np.uint8(0)
+	for k in ['seeing','zpt','avsky','arawgain',
+	          'crpix1','crpix2','cd1_1','cd1_2','cd2_1','cd2_2',
+	          'ccdphrms','frameskyrms','ccdraoff','ccddecoff',
+	          'ccdzpt','ccdmdncol',
+	          'psfnorm_mean','ebv']:
+		frames[k] = np.float32(0)
+	for k in ['crval1','crval2']:
+		frames[k] = np.float64(0)
+	frames['ccdnum'] = np.int16(0)
+	frames['ccdname'] = 'CCDX'
+	frames['ccdnstar'] = np.int16(0)
 	for amp in ['','a','b','c','d']:
-		frames['ccdzpt'+amp] = np.zeros(len(frames),dtype=np.float32)
-		frames['ccdnmatch'+amp] = np.zeros(len(frames),dtype=np.int16)
-	frames['ccdmdncol'] = np.zeros(len(frames),dtype=np.float32)
-	# now explode the framesle by 4 copies to make the per-CCD entries
+		frames['ccdzpt'+amp] = np.float32(0)
+		frames['ccdnmatch'+amp] = np.int16(0)
+	# now explode the frames by 4 copies to make the per-CCD entries
 	ccds = [ frames.copy() for i in range(4) ]
 	for j,ccdNum in enumerate(range(1,5)):
-		frames['ccdnum'] = ccdNum
-	perframekeys = ['seeing',]
-	perccdkeys = ['zpt','avsky','crpix1','crpix2','crval1','crval2',
-	              'cd1_1','cd1_2','cd2_1','cd2_2','ccdnstar','ccdmdncol',
+		ccds[j]['ccdnum'] = ccdNum
+		ccds[j]['ccdname'] = 'CCD%d' % ccdNum
+	# values derived from images that are common to the whole frame
+	perframekeys = ['seeing','zpt']
+	# and those that need to be renamed from the meta-data file
+	frmkmap = {'zpt':'zpim'}
+	# ditto, but for values which are common to each CCD
+	perccdkeys = ['crpix1','crpix2','crval1','crval2',
+	              'cd1_1','cd1_2','cd2_1','cd2_2',
+	              'ccdzpt','ccdphrms','ccdnmatch','ccdmdncol',
 	              'ccdraoff','ccddecoff']
+	ccdkmap = {'ccdzpt':'zpccd','ccdphrms':'zprmsCCD',
+	           'ccdnmatch':'nstarsccd','ccdmdncol':'medgicolor',
+	           'ccdraoff':'raoff','ccddecoff':'decoff'}
+	# ditto, but for values which are common to each amp
 	perampkeys = ['ccdzpt','ccdnmatch']
-	kmap = {'zpt':'zpccd','ccdnstar':'nstarsccd','ccdmdncol':'medgicolor',
-	        'ccdraoff':'raoff','ccddecoff':'decoff',
-	        'ccdzpt':'zpamp','ccdnmatch':'nstarsamp'}
+	ampkmap = {'ccdzpt':'zpamp','ccdnmatch':'nstarsamp'}
+	# iterate over the frames and extract values from the meta-data files
 	for i,frame in enumerate(frames):
 		fn = frame['image_filename']
-		metaDat = np.load(fn.replace('.fits.fz','.meta.npz'))
+		print 'processing ',fn
+		# first extract the tile specifier from the log file
+		objnm = framesOrig['objName'][i]
+		try:
+			tileid,tilepass = [int(objnm[:-1]),int(objnm[-1])]
+			for ccd in ccds:
+				ccd['tileid'][i] = tileid
+				ccd['tilepass'][i] = tilepass
+		except ValueError:
+			# not a BASS tile
+			pass
+		#  now try to access processing results if they exist
+		metadatf = os.path.join(procdir,fn.replace('.fits.fz','.meta.npz'))
+		try:
+			metaDat = np.load(metadatf)
+		except IOError:
+			errlog.write('no processing for %s/%s\n' % 
+			               tuple(framesOrig['utDir','fileName'][i]))
+			continue
 		for j,ccdNum in enumerate(range(1,5)):
 			# even though these are per-frame still need a copy for each ccd
+			ccds[j]['avsky'][i] = np.mean(metaDat['avsky'])
 			for k in perframekeys:
-				ccds[j][k][i] = metaDat[k]
+				ccds[j][k][i] = metaDat[frmkmap.get(k,k)]
 			for k in perccdkeys:
-				ccds[j][k][i] = metaDat[kmap.get(k,k)][j]
+				ccds[j][k][i] = metaDat[ccdkmap.get(k,k)][j]
 			for ai,aname in enumerate('abcd'):
 				for k in perampkeys:
-					ccds[j][k+aname][i] = metaDat[kmap.get(k,k)][j,ai]
+					ccds[j][k+aname][i] = metaDat[ampkmap.get(k,k)][j,ai]
+		# finally extract PSF data
+		psfexf = os.path.join(procdir,fn.replace('.fits.fz','.psf'))
+		try:
+			psfs = bokdepth.make_PSFEx_psf_fromfile(psfexf,2048,2016)
+		except IOError:
+			errlog.write('no PSFEx model for %s/%s\n' % 
+			               tuple(framesOrig['utDir','fileName'][i]))
+			continue
+		for j,ccdNum in enumerate(range(1,5)):
+			psf = psfs[j]
+			psf /= psf.sum()
+			nea = np.sum(psf**2)**-1
+			ccds[j]['psfnorm_mean'][i] = 1/nea
+	# join all the CCDs into a single table, add a few more fields
 	allccds = vstack(ccds)
+	# the WCS used sets the center of the focal plane in crvaln, so this
+	# works, but watch out if it changes...
+	allccds['ra_bore'] = allccds['crval1']
+	allccds['dec_bore'] = allccds['crval2']
+	# finally sort by exposure number and then ccd number
 	allccds.sort(['expnum','ccdnum'])
 	allccds.write(outfn,overwrite=True)
+	errlog.close()
 
 if __name__=='__main__':
 	import sys
 	if len(sys.argv)>1:
-		frames = get_frames(sys.argv[1])
-		frames2ccds(frames)
+		procdir = os.environ['BASSFRAMEDIR']
+		frames = get_bass_frames(sys.argv[1])
+		frames2ccds(frames,procdir)
 	else:
 		process_dr3_frames()
 

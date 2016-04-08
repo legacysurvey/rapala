@@ -32,8 +32,11 @@ def make_PSFEx_psf_fromfile(psfimf,x_im,y_im):
 	'''Given a PSFEx psf file and an (x,y) position on an image, return
 	   the corresponding PSF model at that position.
 	'''
-	psfdata,hdr = fitsio.read(psfimf,header=True)
-	return make_PSFEx_psf(psfdata,hdr,x_im,y_im)
+	psfdata = fitsio.FITS(psfimf)
+	rv = []
+	for hdu in psfdata[1:]:
+		rv.append(make_PSFEx_psf(hdu.read(),hdu.read_header(),x_im,y_im))
+	return np.array(rv)
 
 def calc_PSF_NEA_grid(psfimf,npts=16):
 	'''Given a PSFEx psf file, calculate the Noise Effective Area from the
