@@ -8,6 +8,31 @@ from astropy.table import Table,join,vstack
 
 from bass import reform_filename,files2tiles,load_obsdb
 
+def get_bass_frames(obsLogFile):
+	# read in the observations logs created from trawling the headers,
+	# use the data common to the full frame as the starting point
+	frames = Table.read(obsLogFile)
+	# identify bass frames
+	isbass = ( ((frames['filter']=='g')|(frames['filter']=='bokr')) &
+	           (frames['imType']=='object')
+	  )
+	# XXX need to verify tile id!!!!
+	#      this is a hacky way
+	isbass &= [ len(s)==5 and s[-1] in '123' for s in frames['objName'] ]
+	frames = frames[isbass]
+	return frames
+
+def process_dr3_frames(overwrite=False):
+	import bokframechar
+	frames = get_bass_frames('bassdr3frames.fits')
+	# XXX use env
+	rawDir = '/global/project/projectdirs/cosmo/staging/bok/BOK_Raw'
+	dr3files = [ os.path.join(rawDir,f['utDir'],f['fileName']+'.fits.fz')
+	                for f in frames ]
+	outputdir = os.path.join(os.environ['SCRATCH'],'imageval','dr3')
+	bokframechar.process_images(dr3files,outputDir=outputdir,
+	                            overwrite=overwrite)
+
 #def match_results(ccds,etcVals):
 #	ccds['seeing'][ii] = etcVals['seeing'][jj]
 #	ccds['zpt'][ii] = etcVals['finalCal'][jj] + 25. \
@@ -29,18 +54,8 @@ def _temp_fn2expid_map(archivelistf):
 			fnmap[noaofn] = expid
 	return fnmap
 
-def frames2ccds(obsLogFile,outfn='bass-ccds-annotated.fits'):
-	# read in the observations logs created from trawling the headers,
-	# use the data common to the full frame as the starting point
-	frames = Table.read(obsLogFile)
-	# identify bass frames
-	isbass = ( ((frames['filter']=='g')|(frames['filter']=='bokr')) &
-	           (frames['imType']=='object')
-	  )
-	# XXX need to verify tile id!!!!
-	#      this is a hacky way
-	isbass &= [ len(s)==5 and s[-1] in '123' for s in frames['objName'] ]
-	frames = frames[isbass]
+def frames2ccds(frames,outfn='bass-ccds-annotated.fits'):
+	frames = frames.copy()
 	# slice the columns that are needed
 	cols = [ 'expTime', 'filter', 'date_obs', 'mjd', 'utObs',
 	         'hdrAirmass', 'fileName', 'outsideHumidity', 'outsideTemp', ]
@@ -112,8 +127,11 @@ def frames2ccds(obsLogFile,outfn='bass-ccds-annotated.fits'):
 	allccds.sort(['expnum','ccdnum'])
 	allccds.write(outfn,overwrite=True)
 
-
 if __name__=='__main__':
 	import sys
-	frames2ccds(sys.argv[1])
+	if len(sys.argv)>1:
+		frames = get_frames(sys.argv[1])
+		frames2ccds(frames)
+	else:
+		process_dr3_frames()
 

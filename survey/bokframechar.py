@@ -114,7 +114,10 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		imFile = os.path.basename(image).replace('.fz','')
 		catFile = os.path.join(outputDir,imFile.replace('.fits','.cat.fits'))
 		psfFile = os.path.join(outputDir,imFile.replace('.fits','.psf'))
-		if os.path.exists(catFile) and not overwrite:
+		metaFile = os.path.join(outputDir,imFile.replace('.fits','.meta.fits'))
+		# check if all the output files exists 
+		if ( os.path.exists(catFile) and os.path.exists(psfFile) and
+		       os.path.exists(metaFile) and not overwrite ):
 			continue
 		combine_ccds([image],output_map=lambda s: tmpFile,
 		             clobber=True,_preprocess_function=quick_process_fun)
@@ -163,7 +166,7 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		# join all the meta-data
 		metadata = dict(zps.items()+hdrWcs.items())
 		metadata['avsky'] = avsky
-		np.savez(catFile.replace('.cat.fits','.meta'),**metadata)
+		np.savez(metaFile,**metadata)
 
 if __name__=='__main__':
 	import argparse
