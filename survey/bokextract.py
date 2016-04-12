@@ -7,7 +7,8 @@ import subprocess
 from bass import rdxdir
 
 def sextract(imagepath,frompv=True,redo=False,
-             withpsf=True,redopsf=False,psfpath=None,onlypsf=False):
+             withpsf=True,redopsf=False,psfpath=None,onlypsf=False,
+	         xargs=[]):
 	cfgdir = os.path.join(os.environ['BOKPIPE'],'..','survey','config')
 	catpath = imagepath.replace('.fits','.cat.fits')
 	if not redo and os.path.exists(catpath):
@@ -36,7 +37,7 @@ def sextract(imagepath,frompv=True,redo=False,
 			subprocess.call(cmd)
 	else:
 		cmd = ['sex','-c',os.path.join(cfgdir,'default.sex'),
-		       '-CATALOG_NAME',catpath,_imagepath]
+		       '-CATALOG_NAME',catpath,_imagepath] + xargs
 		subprocess.call(cmd)
 
 def sextract_all(**kwargs):

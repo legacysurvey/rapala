@@ -125,13 +125,24 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		             clobber=True,_preprocess_function=quick_process_fun)
 		if os.path.exists(tmpWcsFile):
 			os.remove(tmpWcsFile)
-		# store the filter and exptime now before tmp file gets deleted
-		hdr0 = fits.getheader(tmpFile,0)
-		filt = hdr0['FILTER']
-		expTime = hdr0['EXPTIME']
+		# crashes on cori/edison in memmap unless it is off
+		tmpFits = fits.open(tmpFile,mode='update',memmap=False)
+		filt = tmpFits[0].header['FILTER']
+		expTime = tmpFits[0].header['EXPTIME']
+		ra = tmpFits[1].header['CRVAL1']
+		dec = tmpFits[1].header['CRVAL2']
 		# use astrometry.net to find the image center in world coords
-		solve_bass_image(tmpFile,extns=[1])
-		wcsHdr = fits.Header.fromfile(tmpWcsFile)
+		solve_bass_image(tmpFile,extns=[1],ra=ra,dec=dec)
+#		sextract(tmpFile,frompv=False,redo=True,
+#		         withpsf=True,redopsf=True,psfpath=None,onlypsf=True)
+#		#import pdb; pdb.set_trace()
+#		solve_bass_image('tmp.ldac_cat.fits',extns=2,ra=ra,dec=dec,fromcat=True)
+		try:
+			wcsHdr = fits.Header.fromfile(tmpWcsFile)
+		except IOError:
+			# XXX log the error
+			break
+			continue
 		wcs1 = WCS(wcsHdr)
 		ra0,dec0 = wcs1.all_pix2world(x0,y0,1,ra_dec_order=True)
 		ra1,dec1 = wcs1.all_pix2world(xc,yc,1,ra_dec_order=True)
@@ -141,8 +152,6 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		#  should be very close
 		ra2,dec2 = distortWcs1.all_pix2world(xc,yc,1,ra_dec_order=True)
 		# and update the image with these coords, including the offset
-		#   crashes on cori/edison in memmap unless it is off
-		tmpFits = fits.open(tmpFile,mode='update',memmap=False)
 		avsky = np.zeros(4,dtype=np.float32)
 		#avskyamp = np.zeros((4,4),dtype=np.float32)
 		for ccdNum in range(1,5):
@@ -150,7 +159,7 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 			tmpFits[ccdNum].header['CRVAL1'] = float(ra0+(ra1-ra2))
 			tmpFits[ccdNum].header['CRVAL2'] = float(dec0+(dec1-dec2))
 			skypix = tmpFits[ccdNum].data[ccdcenterpix]
-			avsky[ccdNum-1] = sigma_clip(skypix).mean()
+			avsky[ccdNum-1] = sigma_clip(skypix,iters=1).mean()
 		hdrWcs = _hextract_wcs(tmpFits)
 		tmpFits.close()
 		# run sextractor+psfex to get object catalogs and PSF models

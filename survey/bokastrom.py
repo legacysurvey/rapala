@@ -9,11 +9,12 @@ import bass
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 
-pxscl = 0.45
+pxscl = 0.455
 cfgpath = '/project/projectdirs/desi/users/imcgreer/astrometry-index-4200/cfg'
 
 def solve_bass_image(imagepath,ra=None,dec=None,redo=False,center=False,
-                     convert2pv=False,extns='all',writehead=False):
+                     convert2pv=False,extns='all',writehead=False,
+                     fromcat=False):
 	if not os.path.exists(imagepath):
 		print imagepath,' does not exist; skipping'
 		return
@@ -24,7 +25,7 @@ def solve_bass_image(imagepath,ra=None,dec=None,redo=False,center=False,
 		dec = c.dec.value
 	sip2pv = os.path.join(os.environ['HOME'],'soft','sip2pv')
 	solveargs = ['solve-field','--config',cfgpath]
-	solveargs += ['--ra','%.7f'%ra,'--dec','%.7f'%dec,'--radius','1.0']
+	solveargs += ['--ra','%.7f'%ra,'--dec','%.7f'%dec,'--radius','0.1']
 	solveargs += ['-L','%.2s' % (0.9*pxscl)]
 	solveargs += ['-U','%.2s' % (1.1*pxscl)]
 	solveargs += ['-u','arcsecperpix']
@@ -32,6 +33,15 @@ def solve_bass_image(imagepath,ra=None,dec=None,redo=False,center=False,
 	              '--uniformize','0','--no-fits2fits']
 	solveargs += ['-N','none','-U','none','-S','none','-M','none',
 	              '--rdls','none','--corr','none']
+	solveargs += ['--depth','20,30,40']
+	#solveargs += ['--no-verify'] crashed
+	if fromcat:
+		if extns is not 'all':
+			solveargs += ['--fields',str(extns)]
+			extns = [0]
+		solveargs += ['--x-column','X_IMAGE','--y-column','Y_IMAGE']
+		solveargs += ['--sort-column','FLUX_AUTO']
+		solveargs += ['--width','4096','--height','4032']
 	if center:
 		solveargs += ['--crpix-center']
 	if convert2pv:

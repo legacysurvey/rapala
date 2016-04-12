@@ -31,6 +31,7 @@ def process_dr3_frames(overwrite=False):
 	dr3files = [ os.path.join(rawDir,f['utDir'],f['fileName']+'.fits.fz')
 	                for f in frames ]
 	outputdir = os.path.join(os.environ['SCRATCH'],'imageval','dr3')
+	print 'processing ',len(dr3files),' images'
 	bokframechar.process_images(dr3files,outputDir=outputdir,
 	                            overwrite=overwrite)
 
