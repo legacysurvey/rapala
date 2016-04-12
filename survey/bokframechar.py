@@ -141,7 +141,8 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		#  should be very close
 		ra2,dec2 = distortWcs1.all_pix2world(xc,yc,1,ra_dec_order=True)
 		# and update the image with these coords, including the offset
-		tmpFits = fits.open(tmpFile,mode='update')
+		#   crashes on cori/edison in memmap unless it is off
+		tmpFits = fits.open(tmpFile,mode='update',memmap=False)
 		avsky = np.zeros(4,dtype=np.float32)
 		#avskyamp = np.zeros((4,4),dtype=np.float32)
 		for ccdNum in range(1,5):
