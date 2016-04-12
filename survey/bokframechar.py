@@ -129,8 +129,10 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		tmpFits = fits.open(tmpFile,mode='update',memmap=False)
 		filt = tmpFits[0].header['FILTER']
 		expTime = tmpFits[0].header['EXPTIME']
-		ra = tmpFits[1].header['CRVAL1']
-		dec = tmpFits[1].header['CRVAL2']
+		# offset from the focal plane center to the CCD center
+		dec = tmpFits[1].header['CRVAL2'] + (59+yc)*0.455/3600
+		cosdec = np.cos(np.radians(dec))
+		ra = tmpFits[1].header['CRVAL1'] + (182+xc)*0.455*cosdec/3600
 		# use astrometry.net to find the image center in world coords
 		solve_bass_image(tmpFile,extns=[1],ra=ra,dec=dec)
 #		sextract(tmpFile,frompv=False,redo=True,
@@ -141,7 +143,6 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 			wcsHdr = fits.Header.fromfile(tmpWcsFile)
 		except IOError:
 			# XXX log the error
-			break
 			continue
 		wcs1 = WCS(wcsHdr)
 		ra0,dec0 = wcs1.all_pix2world(x0,y0,1,ra_dec_order=True)
