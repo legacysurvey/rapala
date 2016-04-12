@@ -418,10 +418,17 @@ def nightly_report(logf):
 	data = fits[2].read()
 	gainrn_report(data)
 
+def calc_overheads(logdata):
+	dt = np.diff(logdata['mjd'])*24*3600 - logdata['expTime'][:-1]
+	imt = {'zero':0,'dark':1,'flat':2,'object':3}
+	imts = [imt[img['imType'].strip()] for img in logdata[:-1]]
+	return imts,logdata['mjd'][:-1],dt
+
 def combined_report(logdir):
 	logfiles = sorted(glob(os.path.join(logdir,'log_*.fits')))
 	data1,data2 = [],[]
 	utbreaks1,utbreaks2 = [0,],[0,]
+	oheads = []
 	for i,logf in enumerate(logfiles):
 		fits = fitsio.FITS(logf)
 		try:
@@ -434,8 +441,12 @@ def combined_report(logdir):
 			utbreaks2.append(len(data2[-1])+utbreaks2[-1])
 		except:
 			pass
+		log = fits[1].read()
+		oheads.append(calc_overheads(log))
 	data1 = vstack(data1)
 	data2 = vstack(data2)
+	oheads = np.hstack(oheads)
+	np.savetxt('bass_overheads.txt',oheads.transpose())
 	with open('bass_summary.txt','w') as outf:
 		gainrn_report(data1,outf,utbreaks1[1:])
 		bit_report(data2,outf,utbreaks2[1:])
