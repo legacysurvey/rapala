@@ -116,13 +116,14 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 	ccdcenterpix = stats_region('ccd_central_quadrant')
 	# 
 	for image in images:
+		print 'processing ',image
 		imFile = os.path.basename(image).replace('.fz','')
 		catFile = os.path.join(outputDir,imFile.replace('.fits','.cat.fits'))
 		psfFile = os.path.join(outputDir,imFile.replace('.fits','.psf'))
 		metaFile = os.path.join(outputDir,imFile.replace('.fits','.meta'))
 		# check if all the output files exists 
 		if ( os.path.exists(catFile) and os.path.exists(psfFile) and
-		       os.path.exists(metaFile) and not overwrite ):
+		       os.path.exists(metaFile+'.npz') and not overwrite ):
 			continue
 		combine_ccds([image],output_map=lambda s: tmpFile,
 		             clobber=True,_preprocess_function=quick_process_fun)
@@ -180,9 +181,11 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		metadata['avsky'] = avsky
 		np.savez(metaFile,**metadata)
 	if cleanup:
-		os.remove(tmpFile)
-		os.remove(tmpWcsFile)
-		os.remove(tmpFile.replace('.fits','.axy'))
+		for f in [tmpFile,tmpWcsFile,tmpFile.replace('.fits','.axy')]:
+			try:
+				os.remove(f)
+			except:
+				pass
 	_tmpf.close()
 
 def process_idm_images(images,outputDir='./',overwrite=False):

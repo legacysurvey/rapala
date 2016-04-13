@@ -23,17 +23,27 @@ def get_bass_frames(obsLogFile):
 	frames = frames[isbass]
 	return frames
 
-def process_dr3_frames(overwrite=False):
+def process_dr3_frames(overwrite=False,nproc=5,frames=None):
+	import multiprocessing
 	import bokframechar
-	frames = get_bass_frames('bassdr3frames.fits')
+	dr3frames = get_bass_frames('bassdr3frames.fits')
+	if frames is not None:
+		dr3frames = dr3frames[frames[0]:frames[1]+1]
 	# XXX use env
 	rawDir = '/global/project/projectdirs/cosmo/staging/bok/BOK_Raw'
 	dr3files = [ os.path.join(rawDir,f['utDir'],f['fileName']+'.fits.fz')
-	                for f in frames ]
+	                for f in dr3frames ]
 	outputdir = os.path.join(os.environ['SCRATCH'],'imageval','dr3')
 	print 'processing ',len(dr3files),' images'
-	bokframechar.process_images(dr3files,outputDir=outputdir,
-	                            overwrite=overwrite)
+	kwargs = {'outputDir':outputdir,'overwrite':overwrite}
+	if nproc==1:
+		bokframechar.process_raw_images(dr3files,**kwargs)
+	else:
+		for i in range(nproc):
+			_files = dr3files[i::nproc]
+			p = multiprocessing.Process(target=bokframechar.process_raw_images,
+			                            args=(_files,),kwargs=kwargs)
+			p.start()
 
 #def match_results(ccds,etcVals):
 #	ccds['seeing'][ii] = etcVals['seeing'][jj]
@@ -202,11 +212,37 @@ def _tmp_dr3():
 	t.write(outf,overwrite=True)
 
 if __name__=='__main__':
-	import sys
-	if len(sys.argv)>1:
-		procdir = os.environ['BASSFRAMEDIR']
-		frames = get_bass_frames(sys.argv[1])
-		frames2ccds(frames,procdir)
+	import argparse
+	parser = argparse.ArgumentParser()
+	parser.add_argument("inputFiles",type=str,nargs='*',
+	       help="input FITS tables with image entries")
+	parser.add_argument("-f","--ccdsfile",type=str,
+	                    default='bass-ccds-tmp.fits',
+	       help="name of output CCDs file")
+	parser.add_argument("-n","--framenums",type=str,
+	       help="subset of frames to process (e.g., '1,200')")
+	parser.add_argument("-o","--outputdir",type=str,
+	                    default=os.environ.get('BASSFRAMEDIR'),
+	       help="directory containing processed data [default:$BASSFRAMEDIR]")
+	parser.add_argument("-p","--process",action="store_true",
+	       help="run processing on raw images instead of making CCDs file")
+	parser.add_argument("-R","--redo",action="store_true",
+	       help="reprocess and overwrite existing files")
+	parser.add_argument("-m","--multiproc",type=int,default=1,
+	       help="number of processes to launch if doing processing")
+	parser.add_argument("--dr3",action="store_true",
+	       help="select only DR3 frames")
+	args = parser.parse_args()
+	if args.process:
+		frames = None
+		if args.framenums is not None:
+			frames = [int(v)-1 for v in args.framenums.split(',')]
+		if args.dr3:
+			process_dr3_frames(overwrite=args.redo,nproc=args.multiproc,
+			                   frames=frames)
+		else:
+			raise NotImplementedError
 	else:
-		process_dr3_frames()
+		frames = vstack([get_bass_frames(t) for t in args.inputFiles])
+		frames2ccds(frames,args.outputdir,args.ccdsfile)
 
