@@ -14,7 +14,7 @@ cfgpath = '/project/projectdirs/desi/users/imcgreer/astrometry-index-4200/cfg'
 
 def solve_bass_image(imagepath,ra=None,dec=None,redo=False,center=False,
                      convert2pv=False,extns='all',writehead=False,
-                     fromcat=False):
+                     fromcat=False,searchrad=0.25):
 	if not os.path.exists(imagepath):
 		print imagepath,' does not exist; skipping'
 		return
@@ -25,7 +25,8 @@ def solve_bass_image(imagepath,ra=None,dec=None,redo=False,center=False,
 		dec = c.dec.value
 	sip2pv = os.path.join(os.environ['HOME'],'soft','sip2pv')
 	solveargs = ['solve-field','--config',cfgpath]
-	solveargs += ['--ra','%.7f'%ra,'--dec','%.7f'%dec,'--radius','0.1']
+	solveargs += ['--ra','%.7f'%ra,'--dec','%.7f'%dec,
+	              '--radius','%.2f'%searchrad]
 	solveargs += ['-L','%.2s' % (0.9*pxscl)]
 	solveargs += ['-U','%.2s' % (1.1*pxscl)]
 	solveargs += ['-u','arcsecperpix']

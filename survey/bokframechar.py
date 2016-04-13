@@ -142,7 +142,7 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		try:
 			wcsHdr = fits.Header.fromfile(tmpWcsFile)
 		except IOError:
-			# XXX log the error
+			print image,' WCS FAILED!!!'
 			continue
 		wcs1 = WCS(wcsHdr)
 		ra0,dec0 = wcs1.all_pix2world(x0,y0,1,ra_dec_order=True)
