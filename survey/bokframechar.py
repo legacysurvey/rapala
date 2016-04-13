@@ -4,6 +4,7 @@ import os,shutil
 import glob
 from collections import defaultdict
 import numpy as np
+import tempfile
 
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -101,7 +102,9 @@ def _hextract_wcs(hdus):
 	return {k:np.array(v) for k,v in tmp.items()}
 
 def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
-	tmpFile = 'tmp.fits'
+	_tmpf = tempfile.NamedTemporaryFile()
+	tmpFile = _tmpf.name+'.fits'
+	#
 	tmpWcsFile = tmpFile.replace('.fits','_ext1.wcs')
 	# read in the reference distortion map
 	distortCfg = os.path.join(os.environ['BOKPIPE'],'..','survey',
@@ -135,9 +138,9 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		ra = tmpFits[1].header['CRVAL1'] + (182+xc)*0.455*cosdec/3600
 		# use astrometry.net to find the image center in world coords
 		solve_bass_image(tmpFile,extns=[1],ra=ra,dec=dec)
+#		# trying here to send in sextractor catalog instead of finding srcs
 #		sextract(tmpFile,frompv=False,redo=True,
 #		         withpsf=True,redopsf=True,psfpath=None,onlypsf=True)
-#		#import pdb; pdb.set_trace()
 #		solve_bass_image('tmp.ldac_cat.fits',extns=2,ra=ra,dec=dec,fromcat=True)
 		try:
 			wcsHdr = fits.Header.fromfile(tmpWcsFile)
@@ -167,12 +170,8 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		sextract(tmpFile,frompv=False,redo=True,
 		         withpsf=True,redopsf=True,psfpath=None,onlypsf=True)
 		# rename the output files to the original filename
-		shutil.move('tmp.ldac_cat.fits',catFile)
-		shutil.move('tmp.ldac_cat.psf',psfFile)
-		if cleanup:
-			os.remove(tmpFile)
-			os.remove(tmpWcsFile)
-			os.remove('tmp.axy')
+		shutil.move(tmpFile.replace('.fits','.ldac_cat.fits'),catFile)
+		shutil.move(tmpFile.replace('.fits','.ldac_cat.psf'),psfFile)
 		# calculate the zeropoint from PS1
 		ps1m = ps1cal.match_ps1(catFile,isldac=True)
 		zps = get_ps1_zpastrom(ps1m,filt,expTime)
@@ -180,6 +179,11 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		metadata = dict(zps.items()+hdrWcs.items())
 		metadata['avsky'] = avsky
 		np.savez(metaFile,**metadata)
+	if cleanup:
+		os.remove(tmpFile)
+		os.remove(tmpWcsFile)
+		os.remove(tmpFile.replace('.fits','.axy'))
+	_tmpf.close()
 
 def process_idm_images(images,outputDir='./',overwrite=False):
 	# 
