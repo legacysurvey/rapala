@@ -100,7 +100,7 @@ def _hextract_wcs(hdus):
 			tmp[k.lower()].append(hdus[ccdNum].header[k])
 	return {k:np.array(v) for k,v in tmp.items()}
 
-def process_images(images,outputDir='./',overwrite=False,cleanup=True):
+def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 	tmpFile = 'tmp.fits'
 	tmpWcsFile = tmpFile.replace('.fits','_ext1.wcs')
 	# read in the reference distortion map
@@ -181,6 +181,48 @@ def process_images(images,outputDir='./',overwrite=False,cleanup=True):
 		metadata['avsky'] = avsky
 		np.savez(metaFile,**metadata)
 
+def process_idm_images(images,outputDir='./',overwrite=False):
+	# 
+	for image in images:
+		print 'processing ',image
+		imFile = os.path.basename(image).replace('.fz','')
+		catFile = image.replace('.fits','.cat.fits')
+		psfFile = image.replace('.fits','.psf.fits')
+		metaFile = os.path.join(outputDir,imFile.replace('.fits','.meta'))
+		# check if all the output files exists 
+		if ( os.path.exists(catFile) and os.path.exists(psfFile) and
+		       os.path.exists(metaFile) and not overwrite ):
+			continue
+		tmpFits = fits.open(image)
+		hdrWcs = _hextract_wcs(tmpFits)
+		filt = tmpFits[0].header['FILTER']
+		expTime = tmpFits[0].header['EXPTIME']
+		avrawgain = np.zeros(4,dtype=np.float32)
+		avsky = np.zeros(4,dtype=np.float32)
+		#avskyamp = np.zeros((4,4),dtype=np.float32)
+		for ccdNum in range(1,5):
+			hdr = tmpFits[ccdNum].header
+			# this would include all of the gain corrections applied
+			#gains = [(hdr['GAIN%02dA'%ampNum]) 
+			#           * (hdr['GAIN%02dB'%ampNum]) 
+			#            * hdr['CCDGAIN'] 
+			#             for ampNum in range(4*ccdNum,4*(ccdNum+1))]
+			# this does not
+			gains = [(hdr['GAIN%02dA'%ampNum]) 
+			             for ampNum in range(4*(ccdNum-1)+1,4*ccdNum+1)]
+			avrawgain[ccdNum-1] = np.mean(gains)
+			skyvals = [(hdr['SKY%02dB'%ampNum]) 
+			             for ampNum in range(4*(ccdNum-1)+1,4*ccdNum+1)]
+			avsky[ccdNum-1] = np.mean(skyvals) / np.mean(gains)
+		# calculate the zeropoint from PS1
+		ps1m = ps1cal.match_ps1(catFile,isldac=False)
+		zps = get_ps1_zpastrom(ps1m,filt,expTime)
+		# join all the meta-data
+		metadata = dict(zps.items()+hdrWcs.items())
+		metadata['arawgain'] = avrawgain
+		metadata['avsky'] = avsky
+		np.savez(metaFile,**metadata)
+
 if __name__=='__main__':
 	import argparse
 	parser = argparse.ArgumentParser()
@@ -188,13 +230,20 @@ if __name__=='__main__':
 	                    help="input FITS images")
 	parser.add_argument("-o","--outputdir",type=str,default='./',
 	                    help="output directory")
+	parser.add_argument("-r","--raw",action="store_true",
+	                    help="input is raw images, not processed")
 	parser.add_argument("-R","--redo",action="store_true",
 	                    help="reprocess and overwrite existing files")
 	parser.add_argument("--noclean",action="store_true",
 	                    help="don't delete temporary files")
 	args = parser.parse_args()
-	process_images(args.inputFiles,
-	               outputDir=args.outputdir,
-	               overwrite=args.redo,
-	               cleanup=not args.noclean)
+	if args.raw:
+		process_raw_images(args.inputFiles,
+		                   outputDir=args.outputdir,
+		                   overwrite=args.redo,
+		                   cleanup=not args.noclean)
+	else:
+		process_idm_images(args.inputFiles,
+		                   outputDir=args.outputdir,
+		                   overwrite=args.redo)
 

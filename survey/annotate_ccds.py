@@ -56,7 +56,8 @@ def _temp_fn2expid_map(archivelistf):
 			fnmap[noaofn] = expid
 	return fnmap
 
-def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits'):
+def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
+	use_objname = kwargs.get('use_objname',False)
 	framesOrig = frames
 	frames = frames.copy()
 	errlog = open(outfn.replace('.fits','_errors.log'),'w')
@@ -75,10 +76,17 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits'):
 	frames['outtemp'] = 5.0/9.0 * (frames['outtemp']-32) # F->C
 	frames['filter'][frames['filter']=='bokr'] = 'r'
 	frames['propid'] = 'BASS'
-	frames['image_filename'] = \
-	            np.core.defchararray.add(frames['image_filename'],'.fits.fz')
+	fns = np.core.defchararray.add(frames['image_filename'],'.fits.fz')
+	if use_objname:
+		# XXX this is really a hack for the Nov15 legacy fields...
+		#     just undo their silly naming scheme!!!
+		frames['image_filename'] = \
+		   np.core.defchararray.add(framesOrig['objName'],'.fits')
+		frames['image_filename'] = [_f.replace('bokr','r') for _f in frames['image_filename']]
+	else:
+		frames['image_filename'] = fns
 	fnmap = _temp_fn2expid_map('nersc_noaoarchive_thru20160216.log') # XXX
-	frames['expnum'] = [ fnmap[fn] for fn in frames['image_filename'] ]
+	frames['expnum'] = [ fnmap[fn] for fn in fns ]
 	frames['width'] = np.int32(4096)
 	frames['height'] = np.int32(4032)
 	# allocate dummy entries for per-ccd items
@@ -108,7 +116,7 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits'):
 	# and those that need to be renamed from the meta-data file
 	frmkmap = {'zpt':'zpim'}
 	# ditto, but for values which are common to each CCD
-	perccdkeys = ['crpix1','crpix2','crval1','crval2',
+	perccdkeys = ['arawgain','crpix1','crpix2','crval1','crval2',
 	              'cd1_1','cd1_2','cd2_1','cd2_2',
 	              'ccdzpt','ccdphrms','ccdnmatch','ccdmdncol',
 	              'ccdraoff','ccddecoff']
@@ -133,7 +141,8 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits'):
 			# not a BASS tile
 			pass
 		#  now try to access processing results if they exist
-		metadatf = os.path.join(procdir,fn.replace('.fits.fz','.meta.npz'))
+		_fn = fn.replace('.fz','')
+		metadatf = os.path.join(procdir,_fn.replace('.fits','.meta.npz'))
 		try:
 			metaDat = np.load(metadatf)
 		except IOError:
@@ -151,7 +160,10 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits'):
 				for k in perampkeys:
 					ccds[j][k+aname][i] = metaDat[ampkmap.get(k,k)][j,ai]
 		# finally extract PSF data
-		psfexf = os.path.join(procdir,fn.replace('.fits.fz','.psf'))
+		psfexf = os.path.join(procdir,_fn.replace('.fits','.psf'))
+		#   XXX a hacky workaround for file naming inconsistency
+		if not os.path.exists(psfexf):
+			psfexf += '.fits'
 		try:
 			psfs = bokdepth.make_PSFEx_psf_fromfile(psfexf,2048,2016)
 		except IOError:
@@ -173,6 +185,21 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits'):
 	allccds.sort(['expnum','ccdnum'])
 	allccds.write(outfn,overwrite=True)
 	errlog.close()
+
+def _tmp_dr3():
+	#frames = Table.read('../basschute/config/nov2015_mod.fits')
+	#  XXX need to update this by copying in "good" field from _mod
+	frames = Table.read('../basschute/config/nov2015_new.fits')
+	ii = np.concatenate([np.arange(33,70),np.arange(98,111)])
+	frames = frames[ii]
+	frames = frames[frames['objName'] != 'null']
+	outf = 'bass-ccds-idmnov2015.fits'
+	frames2ccds(frames,'/global/homes/i/imcgreer/bok/reduced/nov15data_ian/',
+	            outf,use_objname=True)
+	t = Table.read(outf)
+	for s in ['','a','b','c','d']:
+		t['ccdzpt'+s] += -2.5*np.log10(t['arawgain'])
+	t.write(outf,overwrite=True)
 
 if __name__=='__main__':
 	import sys
