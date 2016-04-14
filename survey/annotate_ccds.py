@@ -19,7 +19,8 @@ def get_bass_frames(obsLogFile):
 	  )
 	# XXX need to verify tile id!!!!
 	#      this is a hacky way
-	isbass &= [ len(s)==5 and s[-1] in '123' for s in frames['objName'] ]
+	#isbass &= [ len(s)==5 and s[-1] in '123' for s in frames['objName'] ]
+	isbass &= (frames['expTime'] > 20)
 	frames = frames[isbass]
 	return frames
 
@@ -233,16 +234,18 @@ if __name__=='__main__':
 	parser.add_argument("--dr3",action="store_true",
 	       help="select only DR3 frames")
 	args = parser.parse_args()
+	frames = None
+	if args.framenums is not None:
+		frames = [int(v)-1 for v in args.framenums.split(',')]
 	if args.process:
-		frames = None
-		if args.framenums is not None:
-			frames = [int(v)-1 for v in args.framenums.split(',')]
 		if args.dr3:
 			process_dr3_frames(overwrite=args.redo,nproc=args.multiproc,
 			                   frames=frames)
 		else:
 			raise NotImplementedError
 	else:
-		frames = vstack([get_bass_frames(t) for t in args.inputFiles])
-		frames2ccds(frames,args.outputdir,args.ccdsfile)
+		_frames = vstack([get_bass_frames(t) for t in args.inputFiles])
+		if frames is not None:
+			_frames = _frames[frames[0]:frames[1]+1]
+		frames2ccds(_frames,args.outputdir,args.ccdsfile)
 

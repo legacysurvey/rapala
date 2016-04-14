@@ -157,6 +157,7 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		#  should be very close
 		ra2,dec2 = distortWcs1.all_pix2world(xc,yc,1,ra_dec_order=True)
 		# and update the image with these coords, including the offset
+		avrawgain = np.zeros(4,dtype=np.float32)
 		avsky = np.zeros(4,dtype=np.float32)
 		#avskyamp = np.zeros((4,4),dtype=np.float32)
 		for ccdNum in range(1,5):
@@ -178,6 +179,7 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		zps = get_ps1_zpastrom(ps1m,filt,expTime)
 		# join all the meta-data
 		metadata = dict(zps.items()+hdrWcs.items())
+		metadata['arawgain'] = avrawgain
 		metadata['avsky'] = avsky
 		np.savez(metaFile,**metadata)
 	if cleanup:
