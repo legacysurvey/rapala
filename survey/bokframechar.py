@@ -211,13 +211,10 @@ def process_idm_images(images,outputDir='./',overwrite=False):
 		#avskyamp = np.zeros((4,4),dtype=np.float32)
 		for ccdNum in range(1,5):
 			hdr = tmpFits[ccdNum].header
-			# this would include all of the gain corrections applied
-			#gains = [(hdr['GAIN%02dA'%ampNum]) 
-			#           * (hdr['GAIN%02dB'%ampNum]) 
-			#            * hdr['CCDGAIN'] 
-			#             for ampNum in range(4*ccdNum,4*(ccdNum+1))]
-			# this does not
+			# include all of the gain corrections applied
 			gains = [(hdr['GAIN%02dA'%ampNum]) 
+			           * (hdr['GAIN%02dB'%ampNum]) 
+			            * hdr['CCDGAIN'] 
 			             for ampNum in range(4*(ccdNum-1)+1,4*ccdNum+1)]
 			avrawgain[ccdNum-1] = np.mean(gains)
 			skyvals = [(hdr['SKY%02dB'%ampNum]) 
