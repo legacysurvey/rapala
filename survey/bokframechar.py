@@ -49,8 +49,10 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 	ps1gi = np.diff(matchedCat['MEDIAN'][:,[2,0]],axis=1).squeeze()
 	ps1bokmag = ps1mag + np.polyval(ps1colorterms,ps1gi)
 	# the intrinsic Bok magnitude
-	bokflux = np.ma.array(matchedCat['FLUX_APER'][:,apNum],
-	                      mask=((matchedCat['FLUX_APER'][:,apNum]<=0)|~good))
+	flux = matchedCat['FLUX_APER']
+	if len(flux.shape) > 1:
+		flux = flux[:,apNum]
+	bokflux = np.ma.array(flux,mask=((flux<=0)|~good))
 	bokmag = -2.5*np.ma.log10(bokflux/expTime)
 	# find the average zeropoint over the full image
 	dmag = sigma_clip(ps1bokmag-bokmag)
@@ -73,6 +75,8 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 	ampIndex = get_amp_index(matchedCat['X_IMAGE'],matchedCat['Y_IMAGE'])
 	for ccdNum in range(1,5):
 		ii = np.where(matchedCat['ccdNum']==ccdNum)[0]
+		if len(ii)<10:
+			continue
 		dmag = sigma_clip(ps1bokmag[ii]-bokmag[ii])
 		zpCCD[ccdNum-1] = dmag.mean()
 		zprmsCCD[ccdNum-1] = dmag.std()
@@ -165,7 +169,7 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 			tmpFits[ccdNum].header['CRVAL1'] = float(ra0+(ra1-ra2))
 			tmpFits[ccdNum].header['CRVAL2'] = float(dec0+(dec1-dec2))
 			skypix = tmpFits[ccdNum].data[ccdcenterpix]
-			avsky[ccdNum-1] = sigma_clip(skypix,iters=1).mean()
+			avsky[ccdNum-1] = float(sigma_clip(skypix,iters=1).mean())
 		hdrWcs = _hextract_wcs(tmpFits)
 		tmpFits.close()
 		# run sextractor+psfex to get object catalogs and PSF models
@@ -176,6 +180,9 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		shutil.move(tmpFile.replace('.fits','.ldac_cat.psf'),psfFile)
 		# calculate the zeropoint from PS1
 		ps1m = ps1cal.match_ps1(catFile,isldac=True)
+		if ps1m is None:
+			print image,' PS1CAL FAILED!!!'
+			continue
 		zps = get_ps1_zpastrom(ps1m,filt,expTime)
 		# join all the meta-data
 		metadata = dict(zps.items()+hdrWcs.items())
