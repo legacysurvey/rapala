@@ -3,8 +3,10 @@
 #from __future__ import print_function
 
 import os
+import time
 import numpy as np
 from astropy.table import Table,join,vstack
+from astropy.io import fits
 
 from bass import reform_filename,files2tiles,load_obsdb
 import bokdepth
@@ -67,8 +69,70 @@ def _temp_fn2expid_map(archivelistf):
 			fnmap[noaofn] = expid
 	return fnmap
 
+def _extract_metadata_fromheader(ccds,i,expnum,oframe):
+	expstr = str(expnum)
+	rdxdir = os.path.join(os.environ['BASSDATA'],'reduced')
+	fdir = oframe['utDir']
+	# XXX shouldn't be here...
+	# gains taken from Mike Lesser's doc on 23-Sep-15
+	gains = [ [1.39,1.72,1.31,1.46],
+	          [1.48,1.43,1.53,1.48],
+	          [1.37,1.35,1.43,1.53],
+	          [1.35,1.31,1.66,1.39] ]
+	if not os.path.exists(os.path.join(rdxdir,fdir)):
+		# some of the dirs have been appended with the filter
+		fdir += oframe['filter'][-1]
+	for ccdNum,ccd in enumerate(ccds,start=1):
+		imfn = ''.join(['p',expstr[:4],oframe['filter'],expstr[4:],
+		                '_%d'%ccdNum,'.fits'])
+		fpath = os.path.join(fdir,imfn)
+		# extensions are not always named so use number
+		hdr = fits.getheader(os.path.join(rdxdir,fpath),0)#'CCD%d'%ccdNum)
+		for k in ['seeing','crpix1','crpix2','crval1','crval2',
+		          'cd1_1','cd1_2','cd2_1','cd2_2']:
+			ccd[k][i] = hdr[k.upper()]
+		for k in ['zpt','zpta','zptb','zptc','zptd','phrms','nstar']:
+			ccd['ccd'+k][i] = hdr['CCD'+k.upper()]
+		for k in ['nmatch','nmatcha','nmatchb','nmatchc','nmatchd',
+		          'mdncol','skyrms','raoff','decoff']:
+			ccd['ccd'+k][i] = hdr[k.upper()]
+		ccd['avsky'][i] = hdr['SKADU']
+		ccd['arawgain'][i] = np.mean(gains[ccdNum-1])
+		ccd['image_filename'][i] = fpath
+	return ccds
+
+# values derived from images that are common to the whole frame
+perframekeys = ['seeing','zpt']
+# and those that need to be renamed from the meta-data file
+frmkmap = {'zpt':'zpim'}
+# ditto, but for values which are common to each CCD
+perccdkeys = ['arawgain','crpix1','crpix2','crval1','crval2',
+              'cd1_1','cd1_2','cd2_1','cd2_2',
+              'ccdzpt','ccdphrms','ccdnmatch','ccdmdncol',
+              'ccdraoff','ccddecoff']
+ccdkmap = {'ccdzpt':'zpccd','ccdphrms':'zprmsCCD',
+           'ccdnmatch':'nstarsccd','ccdmdncol':'medgicolor',
+           'ccdraoff':'raoff','ccddecoff':'decoff'}
+# ditto, but for values which are common to each amp
+perampkeys = ['ccdzpt','ccdnmatch']
+ampkmap = {'ccdzpt':'zpamp','ccdnmatch':'nstarsamp'}
+
+def _extract_metadata_fromfile(ccds,i,metadatf):
+	metaDat = np.load(metadatf)
+	for j,ccdNum in enumerate(range(1,5)):
+		# even though these are per-frame still need a copy for each ccd
+		ccds[j]['avsky'][i] = np.mean(metaDat['avsky'])
+		for k in perframekeys:
+			ccds[j][k][i] = metaDat[frmkmap.get(k,k)]
+		for k in perccdkeys:
+			ccds[j][k][i] = metaDat[ccdkmap.get(k,k)][j]
+		for ai,aname in enumerate('abcd'):
+			for k in perampkeys:
+				ccds[j][k+aname][i] = metaDat[ampkmap.get(k,k)][j,ai]
+	return ccds
+
 def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
-	use_objname = kwargs.get('use_objname',False)
+	imgsource = kwargs.get('imgsource','raw')
 	framesOrig = frames
 	frames = frames.copy()
 	errlog = open(outfn.replace('.fits','_errors.log'),'w')
@@ -87,15 +151,20 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 	frames['outtemp'] = 5.0/9.0 * (frames['outtemp']-32) # F->C
 	frames['filter'][frames['filter']=='bokr'] = 'r'
 	frames['propid'] = 'BASS'
+	frames['camera'] = '90prime'
 	fns = np.core.defchararray.add(frames['image_filename'],'.fits.fz')
-	if use_objname:
+	if imgsource=='nov2015idm':
 		# XXX this is really a hack for the Nov15 legacy fields...
 		#     just undo their silly naming scheme!!!
 		frames['image_filename'] = \
 		   np.core.defchararray.add(framesOrig['objName'],'.fits')
 		frames['image_filename'] = [_f.replace('bokr','r') for _f in frames['image_filename']]
-	else:
+	elif imgsource=='reduced':
+		pass
+	elif imgsource=='raw':
 		frames['image_filename'] = fns
+	else:
+		raise ValueError('imgsource %s not recognized' % imgsource)
 	fnmap = _temp_fn2expid_map('nersc_noaoarchive_thru20160216.log') # XXX
 	frames['expnum'] = [ fnmap[fn] for fn in fns ]
 	frames['width'] = np.int32(4096)
@@ -105,7 +174,7 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 	frames['tilepass'] = np.uint8(0)
 	for k in ['seeing','zpt','avsky','arawgain',
 	          'crpix1','crpix2','cd1_1','cd1_2','cd2_1','cd2_2',
-	          'ccdphrms','frameskyrms','ccdraoff','ccddecoff',
+	          'ccdphrms','ccdskyrms','ccdraoff','ccddecoff',
 	          'ccdzpt','ccdmdncol',
 	          'psfnorm_mean','ebv']:
 		frames[k] = np.float32(0)
@@ -122,25 +191,8 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 	for j,ccdNum in enumerate(range(1,5)):
 		ccds[j]['ccdnum'] = ccdNum
 		ccds[j]['ccdname'] = 'CCD%d' % ccdNum
-	# values derived from images that are common to the whole frame
-	perframekeys = ['seeing','zpt']
-	# and those that need to be renamed from the meta-data file
-	frmkmap = {'zpt':'zpim'}
-	# ditto, but for values which are common to each CCD
-	perccdkeys = ['arawgain','crpix1','crpix2','crval1','crval2',
-	              'cd1_1','cd1_2','cd2_1','cd2_2',
-	              'ccdzpt','ccdphrms','ccdnmatch','ccdmdncol',
-	              'ccdraoff','ccddecoff']
-	ccdkmap = {'ccdzpt':'zpccd','ccdphrms':'zprmsCCD',
-	           'ccdnmatch':'nstarsccd','ccdmdncol':'medgicolor',
-	           'ccdraoff':'raoff','ccddecoff':'decoff'}
-	# ditto, but for values which are common to each amp
-	perampkeys = ['ccdzpt','ccdnmatch']
-	ampkmap = {'ccdzpt':'zpamp','ccdnmatch':'nstarsamp'}
 	# iterate over the frames and extract values from the meta-data files
 	for i,frame in enumerate(frames):
-		fn = frame['image_filename']
-		print 'processing ',fn
 		# first extract the tile specifier from the log file
 		objnm = framesOrig['objName'][i]
 		try:
@@ -151,32 +203,37 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 		except ValueError:
 			# not a BASS tile
 			pass
-		#  now try to access processing results if they exist
-		_fn = fn.replace('.fz','')
-		metadatf = os.path.join(procdir,_fn.replace('.fits','.meta.npz'))
+		print 'processing frame ',i+1,frame['expnum'],frame['image_filename']
+		# now try to extract processing results if they exist
 		try:
-			metaDat = np.load(metadatf)
-		except IOError:
+			if imgsource=='reduced':
+				ccds = _extract_metadata_fromheader(ccds,i,frame['expnum'],
+				                                    framesOrig[i])
+			else:
+				fn = frame['image_filename']
+				_fn = fn.replace('.fz','')
+				metadatf = os.path.join(procdir,
+				                        _fn.replace('.fits','.meta.npz'))
+				ccds = _extract_metadata_fromfile(ccds,i,metadatf)
+		except (IOError,KeyError) as e:
 			errlog.write('no processing for %s/%s\n' % 
 			               tuple(framesOrig['utDir','fileName'][i]))
 			continue
-		for j,ccdNum in enumerate(range(1,5)):
-			# even though these are per-frame still need a copy for each ccd
-			ccds[j]['avsky'][i] = np.mean(metaDat['avsky'])
-			for k in perframekeys:
-				ccds[j][k][i] = metaDat[frmkmap.get(k,k)]
-			for k in perccdkeys:
-				ccds[j][k][i] = metaDat[ccdkmap.get(k,k)][j]
-			for ai,aname in enumerate('abcd'):
-				for k in perampkeys:
-					ccds[j][k+aname][i] = metaDat[ampkmap.get(k,k)][j,ai]
 		# finally extract PSF data
-		psfexf = os.path.join(procdir,_fn.replace('.fits','.psf'))
-		#   XXX a hacky workaround for file naming inconsistency
-		if not os.path.exists(psfexf):
-			psfexf += '.fits'
 		try:
-			psfs = bokdepth.make_PSFEx_psf_fromfile(psfexf,2048,2016)
+			if imgsource=='reduced':
+				rdxdir = os.path.join(os.environ['BASSDATA'],'reduced')
+				psffns = [ os.path.join(rdxdir,
+				              ccd['image_filename'][i].replace('.fits','.psf'))
+				            for ccd in ccds ]
+				psfs = [ bokdepth.make_PSFEx_psf_fromfile(psffn,2048,2016)
+				            for psffn in psffns ]
+			else:
+				psfexf = os.path.join(procdir,_fn.replace('.fits','.psf'))
+				#   XXX a hacky workaround for file naming inconsistency
+				if not os.path.exists(psfexf):
+					psfexf += '.fits'
+				psfs = bokdepth.make_PSFEx_psf_fromfile(psfexf,2048,2016)
 		except IOError:
 			errlog.write('no PSFEx model for %s/%s\n' % 
 			               tuple(framesOrig['utDir','fileName'][i]))
@@ -192,6 +249,10 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 	# works, but watch out if it changes...
 	allccds['ra_bore'] = allccds['crval1']
 	allccds['dec_bore'] = allccds['crval2']
+	if imgsource=='reduced':
+		allccds['image_hdu'] = 0
+	else:
+		allccds['image_hdu'] = allccds['ccdnum']
 	# finally sort by exposure number and then ccd number
 	allccds.sort(['expnum','ccdnum'])
 	allccds.write(outfn,overwrite=True)
@@ -206,7 +267,7 @@ def _tmp_dr3():
 	frames = frames[frames['objName'] != 'null']
 	outf = 'bass-ccds-idmnov2015.fits'
 	frames2ccds(frames,'/global/homes/i/imcgreer/bok/reduced/nov15data_ian/',
-	            outf,use_objname=True)
+	            outf,imgsource='nov2015idm')
 	t = Table.read(outf)
 	for s in ['','a','b','c','d']:
 		t['ccdzpt'+s] += -2.5*np.log10(t['arawgain'])
@@ -227,6 +288,10 @@ if __name__=='__main__':
 	       help="directory containing processed data [default:$BASSFRAMEDIR]")
 	parser.add_argument("-p","--process",action="store_true",
 	       help="run processing on raw images instead of making CCDs file")
+	parser.add_argument("--check",action="store_true",
+	       help="check processing status instead of making CCDs file")
+	parser.add_argument("-r","--raw",action="store_true",
+	                    help="input is raw images, not processed")
 	parser.add_argument("-R","--redo",action="store_true",
 	       help="reprocess and overwrite existing files")
 	parser.add_argument("-m","--multiproc",type=int,default=1,
@@ -247,5 +312,14 @@ if __name__=='__main__':
 		_frames = vstack([get_bass_frames(t) for t in args.inputFiles])
 		if frames is not None:
 			_frames = _frames[frames[0]:frames[1]+1]
-		frames2ccds(_frames,args.outputdir,args.ccdsfile)
+		imgsrc = 'raw' if args.raw else 'reduced'
+		if args.check:
+			for i,_f in enumerate(_frames,start=1):
+				_fn = _f['fileName']
+				metadatf = os.path.join(args.outputdir,_fn+'.meta.npz')
+				if os.path.exists(metadatf):
+					t = time.ctime(os.path.getmtime(metadatf))
+					print '%4d %s %s' % (i,_fn,t)
+		else:
+			frames2ccds(_frames,args.outputdir,args.ccdsfile,imgsource=imgsrc)
 
