@@ -60,6 +60,8 @@ def match_ps1(catf,stars=True,isldac=False,radius=10.):
 			ps1objs = get_ps1_stars(cat['ALPHA_J2000'],cat['DELTA_J2000'])
 		else:
 			ps1objs = read_ps1cat(cat['ALPHA_J2000'],cat['DELTA_J2000'])
+		if len(ps1objs)<10:
+			continue
 		m1,m2,d = srcor(ps1objs['RA'],ps1objs['DEC'],
 		                cat['ALPHA_J2000'],cat['DELTA_J2000'],
 		                radius,return_sep=True)
@@ -68,6 +70,8 @@ def match_ps1(catf,stars=True,isldac=False,radius=10.):
 		t2['ccdNum'] = ccdNum
 		t2['separation'] = d
 		cats.append(hstack([Table(ps1objs[m1]),t2]))
+	if len(cats)==0:
+		return None
 	return vstack(cats)
 
 def match_nov15data():
