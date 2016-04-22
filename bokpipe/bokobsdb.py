@@ -13,7 +13,8 @@ from astropy.table import Table
 
 badfloat = -9999.99
 
-def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
+def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
+                 extraFields=(),extraTypes=(),extra_cb=None):
 	# load all FITS files in the specified directories
 	if filePattern is None:
 		filePattern = '*.fits*'
@@ -36,7 +37,8 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 	                 'outsideTemp','outsideHumidity','outsideDewpoint',
 	                 'insideTemp','insideHumidity',
 	                 'mirrorCellTemp','primaryTemp','strutTemp','primeTemp',
-	                 'windSpeed','windDir','airTemp','relHumid','barom'),
+	                 'windSpeed','windDir','airTemp','relHumid','barom')
+	                 +extraFields,
 	          dtype=('i4','S15','S35','S8','S10',
 	                 'S8','S8','S35','f4',
 	                 'i4','i4','f4','f4','f4',
@@ -48,7 +50,8 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 	                 'f4','f4','f4',
 	                 'f4','f4',
 	                 'f4','f4','f4','f4',
-	                 'f4','f4','f4','f4','f'))
+	                 'f4','f4','f4','f4','f4')
+	                 +extraTypes)
 	# enter the files as table rows
 	for i,f in enumerate(files):
 		try:
@@ -187,6 +190,8 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None):
 		row.extend([inTemp,inHum])
 		row.extend([mirrorCellTemp,primaryTemp,strutTemp,primeTemp])
 		row.extend([windSpeed,windDir,airTemp,relHumid,barom])
+		if len(extraFields)>0:
+			row.extend([extra_cb(xf,h[xf]) for xf in extraFields])
 		t.add_row(row)
 		sys.stdout.write("\r%d/%d" % (i+1,len(files)))
 		sys.stdout.flush()
