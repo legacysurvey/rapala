@@ -26,16 +26,13 @@ def get_bass_frames(obsLogFile):
 	frames = frames[isbass]
 	return frames
 
-def process_dr3_frames(overwrite=False,nproc=5,frames=None):
+def process_dr3_frames(frames,overwrite=False,nproc=5):
 	import multiprocessing
 	import bokframechar
-	dr3frames = get_bass_frames('bassdr3frames.fits')
-	if frames is not None:
-		dr3frames = dr3frames[frames[0]:frames[1]+1]
 	# XXX use env
 	rawDir = '/global/project/projectdirs/cosmo/staging/bok/BOK_Raw'
 	dr3files = [ os.path.join(rawDir,f['utDir'],f['fileName']+'.fits.fz')
-	                for f in dr3frames ]
+	                for f in frames ]
 	outputdir = os.path.join(os.environ['SCRATCH'],'imageval','dr3')
 	print 'processing ',len(dr3files),' images'
 	kwargs = {'outputDir':outputdir,'overwrite':overwrite}
@@ -275,30 +272,44 @@ if __name__=='__main__':
 	       help="reprocess and overwrite existing files")
 	parser.add_argument("-m","--multiproc",type=int,default=1,
 	       help="number of processes to launch if doing processing")
+	parser.add_argument("-v","--verbose",action="store_true",
+	       help="increase verbosity")
+	parser.add_argument("-x","--exclude",type=str,
+	       help="file with list of images to exclude")
 	parser.add_argument("--dr3",action="store_true",
 	       help="select only DR3 frames")
 	args = parser.parse_args()
-	frames = None
+	frames = vstack([get_bass_frames(t) for t in args.inputFiles])
 	if args.framenums is not None:
-		frames = [int(v)-1 for v in args.framenums.split(',')]
+		i1,i2 = [int(v) for v in args.framenums.split(',')]
+		frames = frames[i1-1:i2]
+	if args.exclude is not None:
+		with open(args.exclude) as xf:
+			badlist = { l.strip():True for l in xf }
+		drop = []
+		for i,f in enumerate(frames):
+			if f['fileName'] in badlist:
+				drop.append(i)
+		frames.remove_rows(drop)
 	if args.process:
 		if args.dr3:
-			process_dr3_frames(overwrite=args.redo,nproc=args.multiproc,
-			                   frames=frames)
+			process_dr3_frames(frames,overwrite=args.redo,
+			                   nproc=args.multiproc)
 		else:
 			raise NotImplementedError
 	else:
-		_frames = vstack([get_bass_frames(t) for t in args.inputFiles])
-		if frames is not None:
-			_frames = _frames[frames[0]:frames[1]+1]
 		imgsrc = 'raw' if args.raw else 'reduced'
 		if args.check:
-			for i,_f in enumerate(_frames,start=1):
+			nfound = 1
+			for i,_f in enumerate(frames,start=1):
 				_fn = _f['fileName']
 				metadatf = os.path.join(args.outputdir,_fn+'.meta.npz')
 				if os.path.exists(metadatf):
-					t = time.ctime(os.path.getmtime(metadatf))
-					print '%4d %s %s' % (i,_fn,t)
+					if args.verbose:
+						t = time.ctime(os.path.getmtime(metadatf))
+						print '%4d %s %s' % (i,_fn,t)
+					nfound += 1
+			print nfound,len(frames)
 		else:
-			frames2ccds(_frames,args.outputdir,args.ccdsfile,imgsource=imgsrc)
+			frames2ccds(frames,args.outputdir,args.ccdsfile,imgsource=imgsrc)
 
