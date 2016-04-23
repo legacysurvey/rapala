@@ -48,27 +48,6 @@ def process_dr3_frames(overwrite=False,nproc=5,frames=None):
 			                            args=(_files,),kwargs=kwargs)
 			p.start()
 
-#def match_results(ccds,etcVals):
-#	ccds['seeing'][ii] = etcVals['seeing'][jj]
-#	ccds['zpt'][ii] = etcVals['finalCal'][jj] + 25. \
-#	                    - 2.5*np.log10(etcVals['expTime'][jj])
-#	ccds['avsky'][ii] = etcVals['skyFlux'][jj]
-#	ccds['ebv'][ii] = etcVals['E(B-V)'][jj]
-
-def _temp_fn2expid_map(archivelistf):
-	fnmap = {}
-	with open(archivelistf) as archivef:
-		for l in archivef:
-			d = l.strip().split()
-			noaofn = d[1]#.replace('.fz','').replace('.fits','')
-			bokfn = d[2]
-			try:
-				expid = np.int32(bokfn[1:5]+bokfn[6:10])
-			except:
-				continue
-			fnmap[noaofn] = expid
-	return fnmap
-
 def _extract_metadata_fromheader(ccds,i,expnum,oframe):
 	expstr = str(expnum)
 	rdxdir = os.path.join(os.environ['BASSDATA'],'reduced')
@@ -165,8 +144,8 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 		frames['image_filename'] = fns
 	else:
 		raise ValueError('imgsource %s not recognized' % imgsource)
-	fnmap = _temp_fn2expid_map('nersc_noaoarchive_thru20160216.log') # XXX
-	frames['expnum'] = [ fnmap[fn] for fn in fns ]
+	frames['expnum'] = [ np.int32(fn[1:5]+fn[6:10]) 
+	                           for fn in framesOrig['DTACQNAM'] ]
 	frames['width'] = np.int32(4096)
 	frames['height'] = np.int32(4032)
 	# allocate dummy entries for per-ccd items
