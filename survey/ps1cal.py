@@ -9,6 +9,9 @@ from astropy.table import Table,hstack,vstack
 from astropy.stats import sigma_clip
 import healpy
 
+class NoCalibrationStars(Exception):
+	pass
+
 def srcor(ra1,dec1,ra2,dec2,sep,return_sep=False):
 	from astropy.coordinates import SkyCoord,match_coordinates_sky
 	from astropy import units as u
@@ -35,7 +38,10 @@ def read_ps1cat(ra,dec):
 		fname = path+'ps1-%05d.fits'%pix
 		if os.path.exists(fname):
 			cat.append(fits.getdata(fname,1))
-	return np.concatenate(cat)
+	if not cat:
+		raise NoCalibrationStars
+	else:
+		return np.concatenate(cat)
 
 def get_ps1_stars(ra,dec):
 	ps1cat = read_ps1cat(ra,dec)
@@ -56,10 +62,13 @@ def match_ps1(catf,stars=True,isldac=False,radius=10.):
 			cat = fitscat[2*ccdNum].data
 		else:
 			cat = fitscat[ccdNum].data
-		if stars:
-			ps1objs = get_ps1_stars(cat['ALPHA_J2000'],cat['DELTA_J2000'])
-		else:
-			ps1objs = read_ps1cat(cat['ALPHA_J2000'],cat['DELTA_J2000'])
+		try:
+			if stars:
+				ps1objs = get_ps1_stars(cat['ALPHA_J2000'],cat['DELTA_J2000'])
+			else:
+				ps1objs = read_ps1cat(cat['ALPHA_J2000'],cat['DELTA_J2000'])
+		except NoCalibrationStars:
+			continue
 		if len(ps1objs)<10:
 			continue
 		m1,m2,d = srcor(ps1objs['RA'],ps1objs['DEC'],
@@ -70,7 +79,7 @@ def match_ps1(catf,stars=True,isldac=False,radius=10.):
 		t2['ccdNum'] = ccdNum
 		t2['separation'] = d
 		cats.append(hstack([Table(ps1objs[m1]),t2]))
-	if len(cats)==0:
+	if not cats:
 		return None
 	return vstack(cats)
 
