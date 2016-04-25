@@ -65,7 +65,7 @@ def _extract_metadata_fromheader(ccds,i,expnum,oframe):
 		# extensions are not always named so use number
 		hdr = fits.getheader(os.path.join(rdxdir,fpath),0)#'CCD%d'%ccdNum)
 		for k in ['seeing','crpix1','crpix2','crval1','crval2',
-		          'cd1_1','cd1_2','cd2_1','cd2_2']:
+		          'cd1_1','cd1_2','cd2_1','cd2_2','cali_ref']:
 			ccd[k][i] = hdr[k.upper()]
 		for k in ['zpt','zpta','zptb','zptc','zptd','phrms','nstar']:
 			ccd['ccd'+k][i] = hdr['CCD'+k.upper()]
@@ -162,6 +162,7 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 	for amp in ['','a','b','c','d']:
 		frames['ccdzpt'+amp] = np.float32(0)
 		frames['ccdnmatch'+amp] = np.int16(0)
+	frames['cali_ref'] = 'NULLCAL'
 	# now explode the frames by 4 copies to make the per-CCD entries
 	ccds = [ frames.copy() for i in range(4) ]
 	for j,ccdNum in enumerate(range(1,5)):
@@ -210,7 +211,7 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 				if not os.path.exists(psfexf):
 					psfexf += '.fits'
 				psfs = bokdepth.make_PSFEx_psf_fromfile(psfexf,2048,2016)
-		except IOError:
+		except:
 			errlog.write('no PSFEx model for %s/%s\n' % 
 			               tuple(framesOrig['utDir','fileName'][i]))
 			continue
