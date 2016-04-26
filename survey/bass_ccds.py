@@ -26,7 +26,7 @@ def get_bass_frames(obsLogFile):
 	frames = frames[isbass]
 	return frames
 
-def process_dr3_frames(frames,overwrite=False,nproc=5):
+def process_dr3_frames(frames,overwrite=False,nproc=5,searchrad=None):
 	import multiprocessing
 	import bokframechar
 	# XXX use env
@@ -36,6 +36,8 @@ def process_dr3_frames(frames,overwrite=False,nproc=5):
 	outputdir = os.path.join(os.environ['SCRATCH'],'imageval','dr3')
 	print 'processing ',len(dr3files),' images'
 	kwargs = {'outputDir':outputdir,'overwrite':overwrite}
+	if searchrad:
+		kwargs['searchrad'] = searchrad
 	if nproc==1:
 		bokframechar.process_raw_images(dr3files,**kwargs)
 	else:
@@ -279,6 +281,8 @@ if __name__=='__main__':
 	       help="file with list of images to exclude")
 	parser.add_argument("--dr3",action="store_true",
 	       help="select only DR3 frames")
+	parser.add_argument("--searchradius",type=float,
+	       help="WCS search radius in deg when processing")
 	args = parser.parse_args()
 	frames = vstack([get_bass_frames(t) for t in args.inputFiles])
 	if args.framenums is not None:
@@ -293,9 +297,10 @@ if __name__=='__main__':
 				drop.append(i)
 		frames.remove_rows(drop)
 	if args.process:
+		kwargs = {'searchrad':args.searchradius}
 		if args.dr3:
 			process_dr3_frames(frames,overwrite=args.redo,
-			                   nproc=args.multiproc)
+			                   nproc=args.multiproc,**kwargs)
 		else:
 			raise NotImplementedError
 	else:

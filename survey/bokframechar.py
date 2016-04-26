@@ -105,7 +105,8 @@ def _hextract_wcs(hdus):
 			tmp[k.lower()].append(hdus[ccdNum].header[k])
 	return {k:np.array(v) for k,v in tmp.items()}
 
-def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
+def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
+	                   searchrad=0.25):
 	_tmpf = tempfile.NamedTemporaryFile()
 	tmpFile = _tmpf.name+'.fits'
 	#
@@ -129,8 +130,12 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		if ( os.path.exists(catFile) and os.path.exists(psfFile) and
 		       os.path.exists(metaFile+'.npz') and not overwrite ):
 			continue
-		combine_ccds([image],output_map=lambda s: tmpFile,
-		             clobber=True,_preprocess_function=quick_process_fun)
+		try:
+			combine_ccds([image],output_map=lambda s: tmpFile,
+			             clobber=True,_preprocess_function=quick_process_fun)
+		except IOError:
+			print image,' COMBINE FAILED!!!'
+			continue
 		if os.path.exists(tmpWcsFile):
 			os.remove(tmpWcsFile)
 		# crashes on cori/edison in memmap unless it is off
@@ -142,7 +147,7 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True):
 		cosdec = np.cos(np.radians(dec))
 		ra = tmpFits[1].header['CRVAL1'] + (182+xc)*0.455*cosdec/3600
 		# use astrometry.net to find the image center in world coords
-		solve_bass_image(tmpFile,extns=[1],ra=ra,dec=dec)
+		solve_bass_image(tmpFile,extns=[1],ra=ra,dec=dec,searchrad=searchrad)
 #		# trying here to send in sextractor catalog instead of finding srcs
 #		sextract(tmpFile,frompv=False,redo=True,
 #		         withpsf=True,redopsf=True,psfpath=None,onlypsf=True)
