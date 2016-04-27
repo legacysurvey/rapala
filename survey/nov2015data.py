@@ -78,6 +78,8 @@ def match_stripe82():
 			tab['tIndex'] = s82_ii
 			tab['tMag'] = truth['psfMag_'+filt[-1]]
 			tab['tErr'] = truth['psfMagErr_'+filt[-1]]
+			tab['tGR'] = truth['psfMag_g']-truth['psfMag_r']
+			tab['tGI'] = truth['psfMag_g']-truth['psfMag_i']
 			tab['NUMBER'][:] = -1
 			for fNum,field in enumerate(fields):
 				imf = os.path.join(bokdir,filt,field+'.fits')
