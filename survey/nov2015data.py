@@ -68,7 +68,7 @@ def match_stripe82():
 			truth = s82[s82_ii]
 			nTruth = len(s82_ii)
 			nFields = len(fields)
-			dtype = [('tIndex','i4'),('tMag','f4'),('tErr','f4'),
+			dtype = [('tIndex','i4'),('tMag','f4'),('tErr','f4'),('tGR','f4'),
 			         ('ccdNum','i4',(nFields,))]
 			dtype.extend([(c,cdtypes.get(c,'f4'),(nFields,)) 
 			                 for c in cols if 'APER' not in c])
@@ -79,7 +79,6 @@ def match_stripe82():
 			tab['tMag'] = truth['psfMag_'+filt[-1]]
 			tab['tErr'] = truth['psfMagErr_'+filt[-1]]
 			tab['tGR'] = truth['psfMag_g']-truth['psfMag_r']
-			tab['tGI'] = truth['psfMag_g']-truth['psfMag_i']
 			tab['NUMBER'][:] = -1
 			for fNum,field in enumerate(fields):
 				imf = os.path.join(bokdir,filt,field+'.fits')
@@ -116,19 +115,30 @@ def flux2mag(tab,band,which='PSF',zp=None):
 	mag = zp - 2.5*np.ma.log10(flux/exptimes)
 	return mag
 
-def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
+def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False,
+                    applycolorterms=True):
 	if zp is None:
 		zp = bok_zpt0[{'g':'g','r':'bokr'}[band]]
 	aperMag = flux2mag(tab,band,'APER',zp=zp)
-	ref_star = (tab['tMag']>16.5) & (tab['tMag']<19.7)
+	ref_star = ( (tab['tMag']>16.5) & (tab['tMag']<19.7) & 
+	             (tab['tGR']>0.3) & (tab['tGR']<1.2) )
 	nImages = tab['NUMBER'].shape[1]
 	ampIndex = get_amp_index(tab['X_IMAGE'],tab['Y_IMAGE'])
 	zpIm = np.zeros((nImages))
 	zpCCD = np.zeros((nImages,4))
 	zpAmp = np.zeros((nImages,4,4))
+	if applycolorterms:
+		cterms = np.loadtxt('stripe82cterms.dat')
+		cterms = cterms['gr'.find(band)]
+		refMag = tab['tMag'] + np.polyval(cterms,tab['tGR'])
+		if False:
+			ddd = (refMag-tab['tMag'])[ref_star]
+			print np.mean(ddd),np.std(ddd)
+	else:
+		refMag = tab['tMag']
 	for j in range(nImages):
 		ii = np.where(~aperMag.mask[:,j,apNum] & ref_star)[0]
-		dm = sigma_clip(aperMag[ii,j,apNum] - tab['tMag'][ii])
+		dm = sigma_clip(aperMag[ii,j,apNum] - refMag[ii])
 		if savedelta:
 			zpIm[j] = dm.mean()
 		else:
@@ -136,7 +146,7 @@ def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 		for ccdNum in range(1,5):
 			ii = np.where(~aperMag.mask[:,j,apNum] & ref_star &
 			              (tab['ccdNum'][:,j]==ccdNum))[0]
-			dm = sigma_clip(aperMag[ii,j,apNum] - tab['tMag'][ii])
+			dm = sigma_clip(aperMag[ii,j,apNum] - refMag[ii])
 			if savedelta:
 				zpCCD[j,ccdNum-1] = dm.mean()
 			else:
@@ -145,7 +155,7 @@ def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False):
 				ii = np.where(~aperMag.mask[:,j,apNum] & ref_star &
 				              (tab['ccdNum'][:,j]==ccdNum) & 
 				              (ampIndex[:,j]==ai))[0]
-				dm = sigma_clip(aperMag[ii,j,apNum] - tab['tMag'][ii])
+				dm = sigma_clip(aperMag[ii,j,apNum] - refMag[ii])
 				if savedelta:
 					zpAmp[j,ccdNum-1,ai] = dm.mean()
 				else:
@@ -484,13 +494,16 @@ def get_colors():
 	tab['ref_gr'] = tab['ref_g'] - tab['ref_r']
 	return tab
 
-def color_terms(tab,nIter=3):
+def color_terms(tab=None,nIter=3):
+	if not tab:
+		tab = get_colors()
 	plt.figure(figsize=(9,4))
 	plt.subplots_adjust(0.08,0.12,0.95,0.95,0.3,0.3)
 	xedges = np.arange(-0.5,2.01,0.05)
 	yedges = np.arange(-0.5,0.51,0.02)
 	xbins = xedges[:-1] + np.diff(xedges)/2
 	ybins = yedges[:-1] + np.diff(yedges)/2
+	cfits = []
 	for pnum,b in enumerate('gr',start=1):
 		dmag = tab['bok_'+b] - tab['ref_'+b]
 		dmag = sigma_clip(dmag,sigma=5.0)
@@ -503,6 +516,7 @@ def color_terms(tab,nIter=3):
 			dmag[np.abs(resid)>3.5*resid.std()] = np.ma.masked
 			print iterNum,fit,dmag.mask.sum()
 		print
+		cfits.append(fit)
 		xx = np.array([-0.5,2.0])
 		n,_,_ = np.histogram2d(tab['ref_gr'],dmag,[xedges,yedges])
 		ax = plt.subplot(1,2,pnum)
@@ -521,6 +535,7 @@ def color_terms(tab,nIter=3):
 		         r'$%s(Bok) = %s(SDSS) %.2f\times(g-r) + %.2f$' %
 		         ((b,b)+tuple(fit)),
 		         size=13,bbox=dict(facecolor='w',alpha=0.8))
+	np.savetxt('stripe82cterms.dat',cfits)
 
 
 def etc_check():
