@@ -73,6 +73,7 @@ def build_obsdb(update=False,which='good',newest=True):
 	good_files = ['obsed-g-2015-good.txt','obsed-r-2015-good.txt',
 	              'obsed-g-2016-0102-good.txt','obsed-r-2016-0102-good.txt',
 	              'obsed-g-2016-03-good.txt','obsed-r-2016-03-good.txt',
+	              'obsed-g-2016-04-good.txt','obsed-r-2016-04-good.txt',
 	]
 	obsfiles_good = [os.path.join(bass_dir,'database',f) for f in good_files]
 	nov15_files = glob.glob(os.path.join(bass_dir,'database',
