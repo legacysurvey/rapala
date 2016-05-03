@@ -182,10 +182,10 @@ def get_coverage(obsdb,tiledb):
 				tileCov[i,1,row['ditherId']-1] += 1
 	return tileCov
 
-def obs_summary(which='good',newest=True,
+def obs_summary(which='good',newest=True,tiles=None,
                 mjdstart=None,mjdend=None,
                 doplot=False,smallplot=False,saveplot=None,
-                decalsstyle=False):
+                decalsstyle=False,verbose=False):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb(get_obsdb_filename(which,newest))
@@ -204,6 +204,8 @@ def obs_summary(which='good',newest=True,
 				i = np.where(tid==row['tileId'])[0][0]
 			except:
 				print 'tile ',row['tileId'],' is not in db'
+				continue
+			if tiles is not None and row['tileId'] not in tiles:
 				continue
 			tileList[row['ditherId']][row['tileId']].append(n)
 			if row['filter']=='g':
@@ -236,6 +238,20 @@ def obs_summary(which='good',newest=True,
 			print '  ',
 		print
 	print
+	if tiles is not None and verbose:
+		for t in tiles:
+			i = np.where(t==tid)[0][0]
+			print t,
+			for j,b in enumerate('gr'):
+				for k in range(3):
+					if tileCov[i,j,k]:
+						kk = np.where((obsdb['tileId']==t)&
+						              (obsdb['ditherId']==k+1))[0]
+						print '%7d' % obsdb['mjd'][kk[-1]],
+					else:
+						print '%7s' % '---',
+			print
+		print
 	#
 	if doplot:
 		import matplotlib.pyplot as plt
@@ -376,6 +392,27 @@ def load_etc_maglim_file(maglimf='maglim_result_2016.txt',obsdb=None):
 #	return hstack([tab,Table(obsdb)[ii]])
 	return tab
 
+def cfhtw3_tiles(observed=True):
+	w3west,w3east = 15*(13.+50/60.), 15*(14+45./60)
+	w3south,w3north = 50.7, 56.2
+	return region_tiles(w3west,w3east,w3south,w3north,observed=observed)
+
+def ndwfs_tiles(observed=True):
+	ndwest,ndeast = 15*14.37, 15*14.62
+	ndsouth,ndnorth = 32.5, 36.1
+	return region_tiles(ndwest,ndeast,ndsouth,ndnorth,observed=observed)
+
+def panstarrs_md_tiles(mdfield,observed=True):
+	mdfields = {'MD03':(130.592,+44.317),
+                'MD05':(161.917,+58.083),
+                'MD06':(185.000,+47.117),
+                'MD07':(213.704,+53.083),
+                'MD08':(242.787,+54.950)}
+	ra,dec = mdfields[mdfield]
+	dra = 3.5/np.cos(np.radians(dec))
+	return region_tiles(ra-dra,ra+dra,dec-3.5,dec+3.5,
+	                    observed=observed)
+
 if __name__=='__main__':
 	import sys,argparse
 	parser = argparse.ArgumentParser()
@@ -403,6 +440,10 @@ if __name__=='__main__':
 	                    help="local date range (night1,night2), '*' for any")
 	parser.add_argument("--plotfile",type=str,
 	                    help="filename to save plot in")
+	parser.add_argument("--legacyfield",type=str,
+	                    help="select tiles within legacy field")
+	parser.add_argument("-v","--verbose",action="store_true",
+	                    help="increase verbosity")
 	args = parser.parse_args()
 	mjds = [None,None]
 	if args.mjd is not None:
@@ -421,10 +462,25 @@ if __name__=='__main__':
 	if args.obsdb:
 		build_obsdb(update=args.update,which=args.tiles,newest=args.newest)
 	elif args.summary:
-		obs_summary(which=args.tiles,newest=args.newest,
+		if args.legacyfield:
+			if args.legacyfield.upper() == 'CFHTW3':
+				tiles = cfhtw3_tiles(observed=False)
+			elif args.legacyfield.upper() == 'NDWFS':
+				tiles = ndwfs_tiles(observed=False)
+			elif args.legacyfield.upper().startswith('MD'):
+				tiles = panstarrs_md_tiles(args.legacyfield.upper(),
+				                           observed=False)
+			else:
+				raise ValueError
+			tiles = np.array([int(tid) for tid in tiles['TID']])
+			print args.legacyfield,len(tiles),tiles
+		else:
+			tiles = None
+		obs_summary(which=args.tiles,newest=args.newest,tiles=tiles,
 		            mjdstart=mjds[0],mjdend=mjds[1],
 		            doplot=args.plot,smallplot=args.smallplot,
-		            saveplot=args.plotfile,decalsstyle=True)
+		            saveplot=args.plotfile,decalsstyle=True,
+		            verbose=args.verbose)
 	#kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
 	#print kwargs
 	#nersc_archive_list(**kwargs)
