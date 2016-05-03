@@ -97,6 +97,23 @@ def match_nov15data():
 			print field,len(cat)
 			cat.write(os.path.join('ps1qz',field+'_ps1qz.fits'))
 
+def match_nov15merged():
+	# first align the g+r cats
+	gcat = Table.read('s82calg_ra334_merged.fits')
+	rcat = Table.read('s82calr_ra334_merged.fits')
+	mask = (gcat['ALPHA_J2000']==0) | (rcat['ALPHA_J2000']==0)
+	ra = np.ma.array(gcat['ALPHA_J2000'],mask=mask)
+	dec = np.ma.array(gcat['DELTA_J2000'],mask=mask)
+	ra = ra.mean(axis=1)
+	dec = dec.mean(axis=1)
+	ii = np.where(~ra.mask)[0]
+	print len(ra),len(ii)
+	# then match to ps1
+	ps1objs = get_ps1_stars(ra[ii],dec[ii])
+	m1,m2 = srcor(ps1objs['RA'],ps1objs['DEC'],ra[ii],dec[ii],2.0)
+	print len(ps1objs),len(m1)
+	return hstack([gcat[ii[m2]],rcat[ii[m2]],Table(ps1objs[m1])])
+
 def nov15_ps1_zps(apNum=2,doplots=False):
 	import nov2015data
 	fluxk = 'FLUX_APER'
