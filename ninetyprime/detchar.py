@@ -424,6 +424,13 @@ def calc_overheads(logdata):
 	imts = [imt[img['imType'].strip()] for img in logdata[:-1]]
 	return imts,logdata['mjd'][:-1],dt
 
+def overhead_report(oheads):
+	if type(oheads) is str:
+		oheads = np.loadtxt(oheads,unpack=True)
+	imt,mjd,dt = oheads
+	imt = imt.astype(np.int32)
+	plt.scatter(mjd,dt,c=np.choose(imt,['gray','black','cyan','blue']))
+
 def combined_report(logdir):
 	logfiles = sorted(glob(os.path.join(logdir,'log_*.fits')))
 	data1,data2 = [],[]
