@@ -155,9 +155,11 @@ def calc_color_terms(doplots=False,savefit=False):
 					dmag = sigma_clip(mag-refmag,axis=0)
 					zp0 = dmag.mean(axis=0)
 					bokmag = mag - zp0[np.newaxis,:]
-					ii = np.where(~dmag.mask)
+					ii = np.where(~dmag.mask)[0]
 					dmag_all[ref].append(np.array(bokmag-refmag)[ii])
 					refclr_all[ref].append(np.array(refclr[ref][ii]))
+					print '%s amp %2d field %d %4s --> %4d stars' % \
+					         (b,amp,field,ref,len(ii))
 		# iteratively fit a polynomial of increasing order to the
 		# magnitude differences
 		cterms = {}
@@ -218,6 +220,37 @@ def calc_color_terms(doplots=False,savefit=False):
 					ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.1))
 					ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.02))
 				fig.savefig('%s_%s_to_bok_colors.png'%(b,ref))
+
+def calc_zeropoints(ref='ps1'):
+	t = load_nov2015_data()
+	refclr = {'sdss':t['sdss_mag_g']-t['sdss_mag_z'],
+	           'ps1':t['ps1_mag_g']-t['ps1_mag_i']}[ref]
+	zp = np.zeros((12,2,16))
+	for j,b in enumerate('gr'):
+		coeff = np.loadtxt('config/bok2%s_%s_coeff.dat'%(ref,b))
+		refmag = t[ref+'_mag_'+b] + np.polyval(coeff,refclr.filled(0))
+		refmag = refmag[:,np.newaxis]
+		# find the zeropoint offsets for each image and amplifier independently
+		for k,amp in enumerate(range(1,17)):
+			is_amp = t['bok_amp_'+b]==amp
+			for field in range(2):
+				# split the two fields
+				if field==0:
+					is_field = t['sdss_ra'] > 345
+				else:
+					is_field = t['sdss_ra'] < 345
+				mag = t['bok_mag_'+b].copy()
+				mag.mask |= refclr.mask[:,np.newaxis]
+				mag.mask[~(is_field[:,np.newaxis]&is_amp)] = True
+				dmag = sigma_clip(refmag-mag,axis=0)
+				if field==0:
+					zp[:6,j,k] = dmag.mean(axis=0)
+				else:
+					zp[6:,j,k] = dmag.mean(axis=0)
+	# np.savez('foo',zpEl=zp,zpADU=...,gain=)
+	return zp
+
+# TODO convert zps back to ADU and apply nominal ext corr
 
 
 

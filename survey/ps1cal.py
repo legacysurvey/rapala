@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.table import Table,hstack,vstack
 from astropy.stats import sigma_clip
-import healpy
+#import healpy
 
 class NoCalibrationStars(Exception):
 	pass
@@ -25,6 +25,7 @@ def srcor(ra1,dec1,ra2,dec2,sep,return_sep=False):
 		return ii,idx[ii]
 
 def read_ps1cat(ra,dec):
+	import healpy
 	#
 	path = '/global/project/projectdirs/cosmo/work/ps1/cats/chunks-qz-star-v2/'
 	#
