@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
 import os
+import itertools
 import numpy as np
 from astropy.io import fits
-from astropy.table import Table,join
+from astropy.table import Table,join,vstack
 from astropy.stats import sigma_clip
 from astropy.wcs import WCS
 import fitsio
@@ -11,8 +12,8 @@ import fitsio
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
-from boketc import bok_zpt0
 from bass import ampNums,get_amp_index
+import ps1cal
 
 test_exptimes = np.array([100.]*6 + [25.,50.,100.,200.,400.])
 
@@ -47,120 +48,178 @@ def has_coverage(truth,objs):
 def load_obsdb():
 	return Table.read('../basschute/config/nov2015_mod.fits')
 
-def match_stripe82():
-	from collections import defaultdict
-	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
-	                      'bokpipe_v0.2','nov15data')
-	s82 = load_stripe82_truth()
-	cols = ['NUMBER','FLUX_APER','FLUXERR_APER','FLUX_AUTO','FLUXERR_AUTO',
-	        'BACKGROUND','X_IMAGE','Y_IMAGE','ALPHA_J2000','DELTA_J2000',
-	        'ELONGATION','ELLIPTICITY','FWHM_IMAGE','FLAGS','CLASS_STAR',
-	        'FLUX_RADIUS','FLUX_MAX','SNR_WIN','FLUX_PSF','FLUXERR_PSF']
-	nAper = 3
-	cdtypes = {'NUMBER':'i4','ALPHA_J2000':'f8','DELTA_J2000':'f8',
-	           'FLAGS':'i8'}
-	for filt in ['g','r']:
-		s82_1 = s82_ra_slice(s82,(333.5,336.0))
-		s82_2 = s82_ra_slice(s82,(351.0,353.5))
-		fields1 = ['s82cal%s_ra334_%s' % (filt,n) for n in '123456abcde']
-		fields2 = ['deep2%s_ra352_%s' % (filt,n) for n in '123456']
-		for s82_ii,fields in zip([s82_1,s82_2],[fields1,fields2]):
-			truth = s82[s82_ii]
-			nTruth = len(s82_ii)
-			nFields = len(fields)
-			dtype = [('tIndex','i4'),('tMag','f4'),('tErr','f4'),('tGR','f4'),
-			         ('ccdNum','i4',(nFields,))]
-			dtype.extend([(c,cdtypes.get(c,'f4'),(nFields,)) 
-			                 for c in cols if 'APER' not in c])
-			dtype.extend([(c,cdtypes.get(c,'f4'),(nFields,nAper)) 
-			                 for c in cols if 'APER' in c])
-			tab = np.zeros(nTruth,dtype=dtype)
-			tab['tIndex'] = s82_ii
-			tab['tMag'] = truth['psfMag_'+filt[-1]]
-			tab['tErr'] = truth['psfMagErr_'+filt[-1]]
-			tab['tGR'] = truth['psfMag_g']-truth['psfMag_r']
-			tab['NUMBER'][:] = -1
-			for fNum,field in enumerate(fields):
-				imf = os.path.join(bokdir,filt,field+'.fits')
-				catf = os.path.join(bokdir,filt,field+'.cat.fits')
-				cat = fits.open(catf)
-				for ccdNum in range(1,5):
-					objs = cat[ccdNum].data
-					ii = np.where(has_coverage(truth,objs))[0]
-					m1,m2,d = srcor(objs['ALPHA_J2000'],objs['DELTA_J2000'],
-					                truth['ra'][ii],truth['dec'][ii],2.0,
-					                return_sep=True)
-					print ' %20s[%d] matched %4d out of %4d (%.2f)' % \
-					       (field,ccdNum,len(m1),len(ii),np.median(d))
-					for col in cols:
-						tab[col][ii[m2],fNum] = objs[col][m1]
-					tab['ccdNum'][ii[m2],fNum] = ccdNum
-				print
-			tab = Table(tab)
-			fn = fields[0][:-2].replace('bokr','r')
-			tab.write(fn+'_merged.fits',overwrite=True)
+def stripe82_catalogs(bokdir):
+	alltabs = []
+	# start with the Stripe 82 truth table as a base catalog
+	s82truth = load_stripe82_truth()
+	# iterate over the two S82 fields observed (Deep2F3 and a random spot)
+	for field,ra_range in zip(['s82cal%s_ra334_%s','deep2%s_ra352_%s'],
+	                          [(333.5,336.0),(351.0,353.5)]):
+		ii = s82_ra_slice(s82truth,ra_range)
+		s82 = s82truth[ii]
+		# initialize the table with Stripe 82 fields and do some renaming
+		# for convenience
+		t = Table(s82truth[ii],masked=True)
+		for cn in t.colnames:
+			cn_new = cn.replace('psfmagerr','err')
+			cn_new = cn_new.replace('psfmag','mag')
+			t.rename_column(cn,'sdss_'+cn_new)
+		t['sdss_idx'] = ii
+		# match the Bok catalogs
+		for k,dtyp in [('x','f4'),('y','f4'),('ra','f8'),('dec','f8'),
+		               ('idx','i4'),('mag','f4'),('err','f4'),
+		               ('ccd','i4'),('amp','i4')]:
+			for b in 'gr':
+				t['bok_'+k+'_'+b] = np.zeros((len(ii),6),dtype=dtyp)
+		for b in 'gr':
+			t['bok_mag_'+b].mask = True
+		for b,n in itertools.product('gr',range(6)):
+			sfx = '123456abcde'[n]
+			catf = os.path.join(bokdir,field%(b,sfx)+'.cat.fits')
+			cat = fits.open(catf)
+			for ccdNum in range(1,5):
+				objs = cat[ccdNum].data
+				ii = np.where(has_coverage(s82,objs))[0]
+				m1,m2,d = srcor(objs['ALPHA_J2000'],objs['DELTA_J2000'],
+				                s82['ra'][ii],s82['dec'][ii],
+				                2.0,return_sep=True)
+				print ' %20s[%d] matched %4d out of %4d (%.2f)' % \
+				       (field%(b,sfx),ccdNum,len(m1),len(ii),np.median(d))
+				t['bok_idx_'+b][ii[m2],n] = objs['NUMBER'][m1]
+				t['bok_ccd_'+b][ii[m2],n] = ccdNum
+				ampIndex = get_amp_index(objs['X_IMAGE'][m1],
+				                         objs['Y_IMAGE'][m1])
+				t['bok_amp_'+b][ii[m2],n] = 4*(ccdNum-1) + ampIndex + 1
+				for k1,k2 in [('x','X_IMAGE'),('y','Y_IMAGE'),
+				              ('ra','ALPHA_J2000'),('dec','DELTA_J2000')]:
+					t['bok_'+k1+'_'+b][ii[m2],n] = objs[k2][m1]
+				flux = np.ma.array(objs['FLUX_APER'][m1,1],
+				                   mask=((objs['FLUX_APER'][m1,1]<=0) |
+				                         (objs['FLAGS'][m1]>0)))
+				fluxerr = objs['FLUXERR_APER'][m1,1]
+				mag = -2.5*np.ma.log10(flux/test_exptimes[n])
+				t['bok_mag_'+b][ii[m2],n] = mag
+				t['bok_mag_'+b][ii[m2],n].mask = mag.mask
+				t['bok_err_'+b][ii[m2],n] = 1.0856*np.ma.divide(fluxerr,flux)
+		# eliminate entries without Bok coverage in both bands
+		ii = np.where(~(t['bok_mag_g'].mask.all(axis=1) &
+		                t['bok_mag_r'].mask.all(axis=1)))[0]
+		t = t[ii]
+		# now bring in PS1
+		for k,dtyp in [('ra','f8'),('dec','f8'),('idx','i4')]:
+			t['ps1_'+k] = np.zeros(len(t),dtype=dtyp)
+		for j,b in enumerate('grizy'):
+			t['ps1_mag_'+b] = np.zeros(len(t),dtype='f4')
+		ps1objs = ps1cal.get_ps1_stars(t['sdss_ra'],t['sdss_dec'])
+		m1,m2 = srcor(ps1objs['RA'],ps1objs['DEC'],
+		              t['sdss_ra'],t['sdss_dec'],2.0)
+		for k1,k2 in [('ra','RA'),('dec','DEC'),('idx','OBJ_ID')]:
+			t['ps1_'+k1][m2] = ps1objs[k2][m1]
+		for j,b in enumerate('grizy'):
+			t['ps1_mag_'+b][m2] = ps1objs['MEDIAN'][m1,j]
+		# 
+		alltabs.append(t)
+	vstack(alltabs).write('stripe82bok_nov2015.fits',overwrite=True)
 
-def flux2mag(tab,band,which='PSF',zp=None):
-	assert which in ['APER','AUTO','PSF']
-	if zp is None:
-		zp = bok_zpt0[{'g':'g','r':'bokr'}[band]]
-	k = 'FLUX_'+which
-	mask = tab['NUMBER'] < 0
-	if which=='APER':
-		mask = np.dstack([mask]*tab[k].shape[-1])
-	flux = np.ma.array(tab[k],mask=mask)
-	exptimes = test_exptimes[:flux.shape[1]][np.newaxis,:]
-	if which=='APER':
-		exptimes = exptimes[:,:,np.newaxis]
-	mag = zp - 2.5*np.ma.log10(flux/exptimes)
-	return mag
+def load_nov2015_data():
+	t = Table.read('stripe82bok_nov2015.fits')
+	# multi-dim Table columns written to FITS lose their masks...
+	t['bok_mag_g'].mask = np.isnan(t['bok_mag_g'])
+	t['bok_mag_r'].mask = np.isnan(t['bok_mag_r'])
+	for b in 'grizy':
+		t['ps1_mag_'+b].mask = t['ps1_mag_'+b]==0
+	return t
 
-def calc_zeropoints(tab,band,apNum=2,zp=None,savedelta=False,
-                    applycolorterms=True):
-	if zp is None:
-		zp = bok_zpt0[{'g':'g','r':'bokr'}[band]]
-	aperMag = flux2mag(tab,band,'APER',zp=zp)
-	ref_star = ( (tab['tMag']>16.5) & (tab['tMag']<19.7) & 
-	             (tab['tGR']>0.3) & (tab['tGR']<1.2) )
-	nImages = tab['NUMBER'].shape[1]
-	ampIndex = get_amp_index(tab['X_IMAGE'],tab['Y_IMAGE'])
-	zpIm = np.zeros((nImages))
-	zpCCD = np.zeros((nImages,4))
-	zpAmp = np.zeros((nImages,4,4))
-	if applycolorterms:
-		cterms = np.loadtxt('stripe82cterms.dat')
-		cterms = cterms['gr'.find(band)]
-		refMag = tab['tMag'] + np.polyval(cterms,tab['tGR'])
-		if False:
-			ddd = (refMag-tab['tMag'])[ref_star]
-			print np.mean(ddd),np.std(ddd)
-	else:
-		refMag = tab['tMag']
-	for j in range(nImages):
-		ii = np.where(~aperMag.mask[:,j,apNum] & ref_star)[0]
-		dm = sigma_clip(aperMag[ii,j,apNum] - refMag[ii])
-		if savedelta:
-			zpIm[j] = dm.mean()
-		else:
-			zpIm[j] = zp - dm.mean()
-		for ccdNum in range(1,5):
-			ii = np.where(~aperMag.mask[:,j,apNum] & ref_star &
-			              (tab['ccdNum'][:,j]==ccdNum))[0]
-			dm = sigma_clip(aperMag[ii,j,apNum] - refMag[ii])
-			if savedelta:
-				zpCCD[j,ccdNum-1] = dm.mean()
-			else:
-				zpCCD[j,ccdNum-1] = zp - dm.mean()
-			for ai in range(4):
-				ii = np.where(~aperMag.mask[:,j,apNum] & ref_star &
-				              (tab['ccdNum'][:,j]==ccdNum) & 
-				              (ampIndex[:,j]==ai))[0]
-				dm = sigma_clip(aperMag[ii,j,apNum] - refMag[ii])
-				if savedelta:
-					zpAmp[j,ccdNum-1,ai] = dm.mean()
+def calc_color_terms(doplots=False,savefit=False):
+	t = load_nov2015_data()
+	n = t['bok_mag_g'].shape[1]
+	refclr = {'sdss':np.tile(t['sdss_mag_g']-t['sdss_mag_z'],(n,1)).transpose(),
+	           'ps1':np.tile(t['ps1_mag_g']-t['ps1_mag_i'],(n,1)).transpose()}
+	for b in 'gr':
+		refclr_all = {'sdss':[],'ps1':[]}
+		dmag_all = {'sdss':[],'ps1':[]}
+		# find the zeropoint offsets for each image and amplifier independently
+		for amp in range(1,17):
+			is_amp = ( (t['bok_amp_g']==amp) &
+			           (t['bok_amp_g']==t['bok_amp_r']) )
+			for field in range(2):
+				# split the two fields
+				if field==0:
+					is_field = t['sdss_ra'] > 345
 				else:
-					zpAmp[j,ccdNum-1,ai] = zp - dm.mean()
-	return zpIm,zpCCD,zpAmp
+					is_field = t['sdss_ra'] < 345
+				mag = t['bok_mag_'+b].copy()
+				mag.mask[~(is_field[:,np.newaxis]&is_amp)] = True
+				for ref in ['sdss','ps1']:
+					refmag = t[ref+'_mag_'+b][:,np.newaxis]
+					dmag = sigma_clip(mag-refmag,axis=0)
+					zp0 = dmag.mean(axis=0)
+					bokmag = mag - zp0[np.newaxis,:]
+					ii = np.where(~dmag.mask)
+					dmag_all[ref].append(np.array(bokmag-refmag)[ii])
+					refclr_all[ref].append(np.array(refclr[ref][ii]))
+		# iteratively fit a polynomial of increasing order to the
+		# magnitude differences
+		cterms = {}
+		for ref in ['sdss','ps1']:
+			_dmag = np.concatenate(dmag_all[ref])
+			_refclr = np.concatenate(refclr_all[ref])
+			mask = np.abs(_dmag) > 0.25
+			for iternum in range(3):
+				order = iternum+1
+				tmp_dmag = np.ma.array(_dmag,mask=mask)
+				fit = np.ma.polyfit(_refclr,tmp_dmag,order)
+				magoff = sigma_clip(_dmag-np.polyval(fit,_refclr))
+				mask = magoff.mask
+			cterms[ref] = fit
+			if savefit:
+				_fit = fit.copy()
+				# remove the lowest order term (absorbed by zeropoint)
+				_fit[-1] = 0
+				np.savetxt('config/bok2%s_%s_coeff.dat'%(ref,b),_fit)
+		if doplots:
+			for ref in ['sdss','ps1']:
+				_dmag = np.concatenate(dmag_all[ref])
+				_refclr = np.concatenate(refclr_all[ref])
+				fig = plt.figure(figsize=(10,6))
+				fig.subplots_adjust(0.09,0.1,0.98,0.92)
+				ax1 = fig.add_subplot(211)
+				#plt.scatter(_refclr,_dmag,
+				#            s=3,c='0.2',edgecolor='none')
+				ax1.hexbin(_refclr,_dmag,
+				           cmap=plt.get_cmap('gray_r'),bins='log')
+				ax1.axhline(0,c='c')
+				xx = np.linspace(-1,5,100)
+				ax1.plot(xx,np.polyval(cterms[ref],xx),c='r')
+				ax1.set_ylabel('%s(Bok) - %s(%s)'%(b,b,ref.upper()))
+				ax1.set_ylim(-0.25,0.25)
+				order = len(cterms[ref])-1
+				clrstr = {'sdss':'gz','ps1':'gi'}[ref]
+				polystr = ' '.join(['%+.5f*%s^%d'%(c,clrstr,order-d) 
+				                      for d,c in enumerate(cterms[ref])])
+				ax1.set_title(('$%s(Bok) - %s(%s) = '%(b,b,ref.upper())) +
+				              polystr+'$',size=14)
+				ax2 = fig.add_subplot(212)
+				ax2.hexbin(_refclr,_dmag-np.polyval(cterms[ref],_refclr),
+				           cmap=plt.get_cmap('gray_r'),bins='log')
+				ax2.axhline(0,c='r')
+				ax2.set_ylim(-0.15,0.15)
+				for ax in [ax1,ax2]:
+					if ref=='sdss':
+						ax.axvline(0.4,c='b')
+						ax.axvline(3.7,c='b')
+						ax.set_xlabel('SDSS g-z')
+						ax.set_xlim(0.2,3.9)
+					else:
+						ax.axvline(0.4,c='b')
+						ax.axvline(2.7,c='b')
+						ax.set_xlabel('PS1 g-i')
+						ax.set_xlim(0.3,2.8)
+					ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.1))
+					ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.02))
+				fig.savefig('%s_%s_to_bok_colors.png'%(b,ref))
+
+
 
 def dump_zeropoints(fieldname,band,byamp=False,showADU=True,**kwargs):
 	from boketc import k_ext

@@ -46,8 +46,10 @@ def read_ps1cat(ra,dec):
 def get_ps1_stars(ra,dec):
 	ps1cat = read_ps1cat(ra,dec)
 	gicolor = ps1cat['MEDIAN'][:,0] - ps1cat['MEDIAN'][:,2]
-	delta = 20./3660
+	delta = 20./3600
 	ii = np.where( (gicolor>0.4) & (gicolor<2.7) &
+	               (ps1cat['NMAG_OK'][:,0] >= 1) &
+	               (ps1cat['NMAG_OK'][:,2] >= 1) &
 	               (ps1cat['RA']<ra.max()+delta) &
 	               (ps1cat['RA']>ra.min()-delta) &
 	               (ps1cat['DEC']<dec.max()+delta) &
@@ -82,130 +84,4 @@ def match_ps1(catf,stars=True,isldac=False,radius=10.):
 	if not cats:
 		return None
 	return vstack(cats)
-
-def match_nov15data():
-	#bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
-	#                      'bokpipe_v0.2','nov15data')
-	bokdir = '/global/homes/i/imcgreer/bok/reduced/nov15data_ian/'
-	for filt in 'gr':
-		fields = ['s82cal%s_ra334_%s' % (filt,n) for n in '123456abcde']
-		fields += ['deep2%s_ra352_%s' % (filt,n) for n in '123456']
-		for field in fields:
-			imf = os.path.join(bokdir,filt,field+'.fits')
-			catf = imf.replace('.fits','.cat.fits')
-			cat = match_ps1(catf)
-			print field,len(cat)
-			cat.write(os.path.join('ps1qz',field+'_ps1qz.fits'))
-
-def match_nov15merged():
-	# first align the g+r cats
-	gcat = Table.read('s82calg_ra334_merged.fits')
-	rcat = Table.read('s82calr_ra334_merged.fits')
-	mask = (gcat['ALPHA_J2000']==0) | (rcat['ALPHA_J2000']==0)
-	ra = np.ma.array(gcat['ALPHA_J2000'],mask=mask)
-	dec = np.ma.array(gcat['DELTA_J2000'],mask=mask)
-	ra = ra.mean(axis=1)
-	dec = dec.mean(axis=1)
-	ii = np.where(~ra.mask)[0]
-	print len(ra),len(ii)
-	# then match to ps1
-	ps1objs = get_ps1_stars(ra[ii],dec[ii])
-	m1,m2 = srcor(ps1objs['RA'],ps1objs['DEC'],ra[ii],dec[ii],2.0)
-	print len(ps1objs),len(m1)
-	return hstack([gcat[ii[m2]],rcat[ii[m2]],Table(ps1objs[m1])])
-
-def nov15_ps1_zps(apNum=2,doplots=False):
-	import nov2015data
-	fluxk = 'FLUX_APER'
-	bokdir = '/global/homes/i/imcgreer/bok/reduced/nov15data_ian/'
-	d = defaultdict(list)
-	for j,band in enumerate('gr'):
-		fields = ['s82cal%s_ra334_%s' % (band,n) for n in '123456abcde']
-		fields += ['deep2%s_ra352_%s' % (band,n) for n in '123456']
-		exptimes = np.concatenate([nov2015data.test_exptimes,
-		                           nov2015data.test_exptimes[:-5]])
-		zp = nov2015data.bok_zpt0[{'g':'g','r':'bokr'}[band]]
-		for field,texp in zip(fields,exptimes):
-			cat = Table.read(os.path.join('ps1qz',field+'_ps1qz.fits'))
-			good = ( (cat['MEDIAN'][:,j] < 25) & (cat['MEDIAN'][:,j]>16) &
-			         (cat['FLAGS'] == 0) )
-			aperMag = zp - 2.5*np.log10(cat[fluxk]/texp)
-			ii = np.where(good)[0]
-			dm = sigma_clip(aperMag[ii,apNum] - cat['MEDIAN'][ii,j])
-			zpIm = zp - dm.mean()
-			zpCCD = np.zeros(4)
-			zpAmp = np.zeros((4,4))
-			ampIndex = nov2015data.get_amp_index(cat['X_IMAGE'],cat['Y_IMAGE'])
-			for ccdNum in range(1,5):
-				ii = np.where(good & (cat['ccdNum']==ccdNum))[0]
-				dm = sigma_clip(aperMag[ii,apNum] - cat['MEDIAN'][ii,j])
-				zpCCD[ccdNum-1] = zp - dm.mean()
-				for ai in range(4):
-					ii = np.where(good &
-					              (cat['ccdNum']==ccdNum) & 
-					              (ampIndex==ai))[0]
-					dm = sigma_clip(aperMag[ii,apNum] - cat['MEDIAN'][ii,j])
-					zpAmp[ccdNum-1,ai] = zp - dm.mean()
-			d['fileName'].append(field)
-			d['zpIm'].append(zpIm)
-			d['zpCCD'].append(zpCCD)
-			d['zpAmp'].append(zpAmp)
-	tab = Table(d)
-	tab.write('nov2015_ps1_zps.fits',overwrite=True)
-
-def ps1colorterms(doplots=False):
-	import nov2015data
-	fluxk = 'FLUX_APER'
-	bokdir = '/global/homes/i/imcgreer/bok/reduced/nov15data_ian/'
-	zptab = Table.read('nov2015_ps1_zps.fits')
-	zptab.add_index('fileName')
-	apNum=2 # XXX
-	if doplots:
-		plt.figure(figsize=(12,5))
-		plt.subplots_adjust(0.10,0.14,0.97,0.92,0.31,0.2)
-	for j,band in enumerate('gr'):
-		if doplots:
-			plt.subplot(1,2,j+1)
-		fields = ['s82cal%s_ra334_%s' % (band,n) for n in '123456abcde']
-		fields += ['deep2%s_ra352_%s' % (band,n) for n in '123456']
-		exptimes = np.concatenate([nov2015data.test_exptimes,
-		                           nov2015data.test_exptimes[:-5]])
-		gicolor = []
-		dmag = []
-		for field,texp in zip(fields,exptimes):
-			cat = Table.read(os.path.join('ps1qz',field+'_ps1qz.fits'))
-			good = ( (cat['MEDIAN'][:,j] < 25) & (cat['MEDIAN'][:,j]>16) &
-			         (cat['FLAGS'] == 0) )
-			ampIndex = nov2015data.get_amp_index(cat['X_IMAGE'],cat['Y_IMAGE'])
-			zp = zptab.loc[field]['zpAmp'][cat['ccdNum']-1,ampIndex]
-			aperMag = zp - 2.5*np.log10(cat[fluxk][:,apNum]/texp)
-			gicolor.append(np.diff(cat['MEDIAN'][:,[2,0]],axis=1).squeeze())
-			dmag.append(aperMag - cat['MEDIAN'][:,j])
-		gicolor = np.concatenate(gicolor)
-		dmag = np.concatenate(dmag)
-		if doplots:
-			ii = np.where(np.abs(dmag) < 0.2)[0]
-			plt.hexbin(gicolor[ii],dmag[ii],cmap=plt.get_cmap('gray_r'),
-			           bins='log')
-			plt.xlabel('PS1 g-i')
-			plt.ylabel('%s(Bok) - %s(PS1)' % (band,band))
-		order = 3
-		mask = np.abs(dmag) > 0.25
-		for iternum in range(3):
-			order = iternum+1
-			_dmag = np.ma.array(dmag,mask=mask)
-			fit = np.ma.polyfit(gicolor,_dmag,order)
-			magoff = sigma_clip(dmag-np.polyval(fit,gicolor))#,iters=1)
-			mask = magoff.mask
-			if doplots and iternum==2:
-				xx = np.linspace(0.4,2.7,100)
-				plt.plot(xx,np.polyval(fit,xx),c='gbr'[iternum])
-		if doplots:
-			polystr = ' '.join(['%+.5f*gi^%d'%(c,order-d) 
-			                      for d,c in enumerate(fit)])
-			plt.title(('$%s(Bok) - %s(PS1) = '%(band,band))+polystr+'$',
-			          size=11)
-		np.savetxt('bok2ps1_%s_coeff.txt'%band,fit)
-	if doplots:
-		plt.savefig('bok2ps1.png')
 
