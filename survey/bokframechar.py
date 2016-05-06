@@ -96,13 +96,19 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 	            seeing=seeing,medgicolor=medgicolor,
 	            nstarsim=nim,nstarsccd=nccd,nstarsamp=namp)
 
-def _hextract_wcs(hdus):
+def _hextract_wcs(hdus,fromldac=False):
 	tmp = defaultdict(list)
 	wcskeys = ['CRPIX1','CRPIX2','CRVAL1','CRVAL2',
 	           'CD1_1','CD1_2','CD2_1','CD2_2'] 
 	for ccdNum in range(1,5):
+		if fromldac:
+			hdrlist = hdus[1+2*(ccdNum-1)].data[0][0]
+			hdrstr = ''.join([c.ljust(80,' ') for c in hdrlist])
+			hdr = fits.Header.fromstring(hdrstr)
+		else:
+			hdr = hdus[ccdNum].header
 		for k in wcskeys:
-			tmp[k.lower()].append(hdus[ccdNum].header[k])
+			tmp[k.lower()].append(hdr[k])
 	return {k:np.array(v) for k,v in tmp.items()}
 
 def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
@@ -155,7 +161,7 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
 			expTime = tmphdr['EXPTIME']
 		wcsHdr = None
 		hdrWcs = None
-		if not os.path.exists(wcsFile) and not ignore_missing_wcs:
+		if not os.path.exists(wcsFile) and newimg:
 			# offset from the focal plane center to the CCD center
 			dec = tmpFits[1].header['CRVAL2'] + (59+yc)*0.455/3600
 			cosdec = np.cos(np.radians(dec))
@@ -208,6 +214,20 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
 			# rename the output files to the original filename
 			shutil.move(tmpFile.replace('.fits','.ldac_cat.fits'),catFile)
 			shutil.move(tmpFile.replace('.fits','.ldac_cat.psf'),psfFile)
+		else:
+			# at this point it means we're only missing the zeropoints and
+			# want to recalculate them. but we need to fill in the WCS and
+			# other info that would have been found above. can obtain it from
+			# the information stored in the sextractor catalogs.
+			catFits = fits.open(catFile)
+			hdrWcs = _hextract_wcs(catFits,fromldac=True)
+			avrawgain = np.zeros(4,dtype=np.float32)
+			# this is kind of hacky (but then so is everything else), but
+			# since we haven't processed the image, rather than calculate a
+			# rough sky estimate from pixels, use the background estimation
+			# from sextractor
+			avsky = np.array([np.median(catFits[n].data['BACKGROUND'])
+			                    for n in range(2,9,2)]).astype(np.float32)
 		if not os.path.exists(metaFile):
 			# calculate the zeropoint from PS1
 			ps1m = ps1cal.match_ps1(catFile,isldac=True)
@@ -216,10 +236,6 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
 				continue
 			zps = get_ps1_zpastrom(ps1m,filt,expTime)
 			# join all the meta-data
-			if hdrWcs is None:
-				hdrWcs = {} # without wcs file would need to extract from cat
-				avrawgain = np.zeros(4,dtype=np.float32)
-				avsky = np.zeros(4,dtype=np.float32)
 			metadata = dict(zps.items()+hdrWcs.items())
 			metadata['arawgain'] = avrawgain
 			metadata['avsky'] = avsky
