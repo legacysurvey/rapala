@@ -155,17 +155,17 @@ def calc_color_terms(doplots=False,savefit=False):
 					dmag = sigma_clip(mag-refmag,axis=0)
 					zp0 = dmag.mean(axis=0)
 					bokmag = mag - zp0[np.newaxis,:]
-					ii = np.where(~dmag.mask)[0]
+					ii = np.where(~dmag.mask)
 					dmag_all[ref].append(np.array(bokmag-refmag)[ii])
 					refclr_all[ref].append(np.array(refclr[ref][ii]))
 					print '%s amp %2d field %d %4s --> %4d stars' % \
-					         (b,amp,field,ref,len(ii))
+					         (b,amp,field,ref,len(ii[0]))
 		# iteratively fit a polynomial of increasing order to the
 		# magnitude differences
 		cterms = {}
 		for ref in ['sdss','ps1']:
-			_dmag = np.concatenate(dmag_all[ref])
-			_refclr = np.concatenate(refclr_all[ref])
+			_dmag = np.concatenate(dmag_all[ref]).flatten()
+			_refclr = np.concatenate(refclr_all[ref]).flatten()
 			mask = np.abs(_dmag) > 0.25
 			for iternum in range(3):
 				order = iternum+1
