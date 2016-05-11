@@ -239,13 +239,20 @@ def obs_summary(which='good',newest=True,tiles=None,
 		print
 	print
 	if tiles is not None and verbose:
+		print 'MJDs of completed tiles (last MJD shown when repeated)'
+		print '%6s    %s' % ('tile','g band'.center(23,'-')),
+		print ' %s' % ('r band'.center(23,'-'))
+		print '%6s    %7s %7s %7s %7s %7s %7s' % \
+		        tuple(['']+['P%d'%(_p) 
+		                for _b in 'gr' for _p in range(1,4)])
 		for t in tiles:
 			i = np.where(t==tid)[0][0]
-			print t,
+			print '%6d   ' % t,
 			for j,b in enumerate('gr'):
 				for k in range(3):
 					if tileCov[i,j,k]:
 						kk = np.where((obsdb['tileId']==t)&
+						              (obsdb['filter']==b)&
 						              (obsdb['ditherId']==k+1))[0]
 						print '%7d' % obsdb['mjd'][kk[-1]],
 					else:
@@ -323,40 +330,6 @@ def obs_summary(which='good',newest=True,tiles=None,
 				pdf.close()
 	return nobs,tileList
 
-def nersc_archive_list(dirs='*'):
-	import fitsio
-	from glob import glob
-	dirs = sorted(glob(os.path.join(os.environ['BASSDATA'],'BOK_Raw',dirs)))
-	logf = open('nersc_noaoarchive.log','w')
-#	errlogf = open('nersc_noaoarchive_errs.log','w')
-	print 'dirs is ',dirs
-	for utdir in dirs:
-		files = sorted(glob(os.path.join(utdir,'*.fits.fz')))
-		print utdir,' %d files' % len(files)
-		for f in files:
-			h = fitsio.read_header(f,0)
-			nersc_path,fn = os.path.split(f)
-			nersc_path,nersc_dir = os.path.split(nersc_path)
-			try:
-				orig_path,orig_fn = os.path.split(h['DTACQNAM'])
-			except ValueError:
-				orig_path,orig_fn = os.path.split(h['FILENAME'])
-#				if not orig_fn.startswith('d7'):
-#					errlogf.write('%s missing DTACQNAM/FILENAME\n' % f)
-#					continue
-			orig_path,orig_dir = os.path.split(orig_path)
-			orig_fn = orig_fn.rstrip('.fz')
-			exptime = h['EXPTIME']
-			imtype = h['IMAGETYP']
-			objname = h['OBJECT'].strip()
-			if len(objname)==0:
-				objname = '<null>'
-			logf.write('%8s %30s %18s %10s %6.1f %s\n' %
-			           (nersc_dir,fn,orig_fn,imtype,exptime,objname))
-		logf.flush()
-	logf.close()
-#	errlogf.close()
-
 def load_etc_results_file(resultsf='result.txt'):
 	names = ['fileName','ra','dec','magLimNie','expTime','finalCal',
 	         'skyFlux','skyRms','seeing','airmass','filter',
@@ -411,6 +384,16 @@ def panstarrs_md_tiles(mdfield,observed=True):
 	ra,dec = mdfields[mdfield]
 	dra = 3.5/np.cos(np.radians(dec))
 	return region_tiles(ra-dra,ra+dra,dec-3.5,dec+3.5,
+	                    observed=observed)
+
+def deep2_tiles(deep2f,observed=True):
+	d2f = {'Deep2F1':(214.25,52.5),
+	       'Deep2F2':(253.0 ,34.917),
+	       'Deep2F3':(352.5 ,0.0),
+	       'Deep2F4':( 37.5 ,0.0)}
+	ra,dec = d2f[deep2f]
+	dra = 1.5/np.cos(np.radians(dec))
+	return region_tiles(ra-dra,ra+dra,dec-0.5,dec+0.5,
 	                    observed=observed)
 
 if __name__=='__main__':
@@ -470,6 +453,8 @@ if __name__=='__main__':
 			elif args.legacyfield.upper().startswith('MD'):
 				tiles = panstarrs_md_tiles(args.legacyfield.upper(),
 				                           observed=False)
+			elif args.legacyfield.startswith('Deep2'):
+				tiles = deep2_tiles(args.legacyfield,observed=False)
 			else:
 				raise ValueError
 			tiles = np.array([int(tid) for tid in tiles['TID']])
