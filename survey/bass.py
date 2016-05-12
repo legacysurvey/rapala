@@ -213,9 +213,12 @@ def obs_summary(which='good',newest=True,tiles=None,
 			else:
 				nobs[i,1,row['ditherId']-1] += 1
 	tileCov = nobs > 0
-	nTiles = float(len(tid))
-	dec34 = np.where(tiledb['TDEC']>=34)[0]
-	nTiles34 = float(len(dec34))
+	if tiles is None:
+		nTiles = float(len(tid))
+		dec34 = np.where(tiledb['TDEC']>=34)[0]
+		nTiles34 = float(len(dec34))
+	else:
+		nTiles34 = nTiles = float(len(tiles))
 	print
 	print '  MJDs %d to %d' % (obsdb['mjd'].min(),obsdb['mjd'].max())
 	print
@@ -458,7 +461,8 @@ if __name__=='__main__':
 			else:
 				raise ValueError
 			tiles = np.array([int(tid) for tid in tiles['TID']])
-			print args.legacyfield,len(tiles),tiles
+			print '\nnumber of tiles covering %s: %d' % \
+			           (args.legacyfield,len(tiles))
 		else:
 			tiles = None
 		obs_summary(which=args.tiles,newest=args.newest,tiles=tiles,
