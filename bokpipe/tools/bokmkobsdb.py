@@ -17,9 +17,13 @@ parser.add_argument("-e","--extra",type=str,
                          " [e.g., 'HDRCARD:f4,...']")
 args = parser.parse_args()
 
-xargs = args.extra.split(',')
-xargs_names = tuple([x.split(':')[0] for x in xargs])
-xargs_dtypes = tuple([x.split(':')[1] for x in xargs])
+if args.extra:
+	xargs = args.extra.split(',')
+	xargs_names = tuple([x.split(':')[0] for x in xargs])
+	xargs_dtypes = tuple([x.split(':')[1] for x in xargs])
+else:
+	xargs_names = ()
+	xargs_dtypes = ()
 
 def xargs_remap(c,v):
 	if c=='DTACQNAM':
