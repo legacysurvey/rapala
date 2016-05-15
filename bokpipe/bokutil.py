@@ -6,6 +6,7 @@ from datetime import datetime
 from collections import OrderedDict
 import fitsio
 import numpy as np
+from scipy.ndimage.morphology import binary_closing
 from astropy.stats import sigma_clip
 
 from bokio import *
@@ -183,6 +184,13 @@ class TimerLog():
 		for t in zip(stages,itimes,times,ftimes):
 			print '%20s %8.3f %8.3f %8.3f' % t
 		print
+
+def correct_inverted_saturation(extName,data):
+	satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
+	mask = data > satVal
+	mask = binary_closing(mask,iterations=20)
+	data[mask] = 65535
+	return data,mask
 
 class BokMefImage(object):
 	'''A wrapper around fitsio that allows the MEF files to be iterated
