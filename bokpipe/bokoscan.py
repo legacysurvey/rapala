@@ -8,7 +8,7 @@ from scipy.ndimage.filters import median_filter
 from scipy.interpolate import LSQUnivariateSpline
 import fitsio
 
-from .bokutil import BokProcess,array_clip
+from .bokutil import BokProcess,array_clip,correct_inverted_saturation
 
 # argh
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
@@ -238,4 +238,10 @@ class BokOverscanSubtract(BokProcess):
 		return data,hdr
 	def _finish(self):
 		self._finish_oscan_images()
+
+class BokOverscanSubtractWithSatFix(BokOverscanSubtract):
+	def process_hdu(self,extName,data,hdr):
+		data,mask = correct_inverted_saturation(extName,data)
+		return super(BokOverscanSubtractWithSatFix,self).process_hdu(extName,
+		                                                             data,hdr)
 

@@ -11,7 +11,7 @@ from numpy.core.defchararray import add as char_add
 import fitsio
 from astropy.table import Table
 
-from .bokoscan import BokOverscanSubtract
+from .bokoscan import BokOverscanSubtract,BokOverscanSubtractWithSatFix
 from .badpixels import build_mask_from_flat
 from . import bokio
 from . import bokutil
@@ -334,10 +334,15 @@ def makeccd4image(dataMap,inputFile,outputFile=None,**kwargs):
 		ccd4map = lambda f: outputFile
 	bokproc.combine_ccds([inputFile,],output_map=ccd4map,**kwargs)
 
-def overscan_subtract(dataMap,**kwargs):
-	oscanSubtract = BokOverscanSubtract(input_map=dataMap('raw'),
-                                        output_map=dataMap('oscan'),
-                                        **kwargs)
+def overscan_subtract(dataMap,fixsaturation=False,**kwargs):
+	if fixsaturation:
+		oscanSubtract = BokOverscanSubtractWithSatFix(input_map=dataMap('raw'),
+	                                        output_map=dataMap('oscan'),
+	                                        **kwargs)
+	else:
+		oscanSubtract = BokOverscanSubtract(input_map=dataMap('raw'),
+	                                        output_map=dataMap('oscan'),
+	                                        **kwargs)
 	oscanSubtract.process_files(dataMap.getFiles())
 
 def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
@@ -635,7 +640,8 @@ def rmpipe(dataMap,**kwargs):
 	timerLog = bokutil.TimerLog()
 	biasMap = None
 	if 'oscan' in steps:
-		overscan_subtract(dataMap,**pipekwargs)
+		overscan_subtract(dataMap,fixsaturation=kwargs.get('fixsaturation'),
+		                  **pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
 		make_2d_biases(dataMap,writeccdim=writeccdims,**pipekwargs)
@@ -827,6 +833,8 @@ def init_pipeline_args(parser):
 	                help='increase output verbosity')
 	parser.add_argument('--calccdims',action='store_true',
 	                help='generate CCD-combined images for calibration data')
+	parser.add_argument('--fixsaturation',action='store_true',
+	                help='correct overflowed pixels to have saturation value')
 	parser.add_argument('--nobiascorr',action='store_true',
 	                help='do not apply bias correction')
 	parser.add_argument('--noflatcorr',action='store_true',

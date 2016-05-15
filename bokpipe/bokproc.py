@@ -400,16 +400,8 @@ class BokWeightMap(bokutil.BokProcess):
 			calFn = self.flat['file']
 		fits.outFits[0].write_keys({'FLATFILE':calFn})
 	def process_hdu(self,extName,data,hdr):
-		satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
-		mask = data > satVal
-		#mask = binary_fill_holes(mask)
-		for i in np.where(np.any(mask,axis=1))[0]:
-			jj = np.where(mask[i])[0]
-			if len(jj)>=2:
-				bb = np.where((np.diff(jj)>1)&(np.diff(jj)<100))[0]
-				for b in bb:
-					mask[i,jj[b]:jj[b+1]] = True
+		data,mask = bokutil.correct_inverted_saturation(extName,data)
 		mask |= ( (self.maskFits[extName].read() > 0) |
 		          (data==0) )
 		data -= np.median(oscan_cols)
