@@ -401,7 +401,7 @@ class BokWeightMap(bokutil.BokProcess):
 		fits.outFits[0].write_keys({'FLATFILE':calFn})
 	def process_hdu(self,extName,data,hdr):
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
-		data,mask = bokutil.correct_inverted_saturation(extName,data)
+		data,mask = bokutil.mask_saturation(extName,data)
 		mask |= ( (self.maskFits[extName].read() > 0) |
 		          (data==0) )
 		data -= np.median(oscan_cols)

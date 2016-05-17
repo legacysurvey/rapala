@@ -185,11 +185,13 @@ class TimerLog():
 			print '%20s %8.3f %8.3f %8.3f' % t
 		print
 
-def correct_inverted_saturation(extName,data):
+def mask_saturation(extName,data,correct_inverted=True):
 	satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
 	mask = data > satVal
-	mask = binary_closing(mask,iterations=20)
-	data[mask] = 65535
+	if correct_inverted:
+		filledmask = binary_closing(mask,iterations=20)
+		data[filledmask&~mask] = 65535
+		mask = filledmask
 	return data,mask
 
 class BokMefImage(object):
