@@ -74,6 +74,7 @@ def build_obsdb(update=False,which='good',newest=True):
 	              'obsed-g-2016-0102-good.txt','obsed-r-2016-0102-good.txt',
 	              'obsed-g-2016-03-good.txt','obsed-r-2016-03-good.txt',
 	              'obsed-g-2016-04-good.txt','obsed-r-2016-04-good.txt',
+	              'obsed-g-2016-05-good.txt','obsed-r-2016-05-good.txt',
 	]
 	obsfiles_good = [os.path.join(bass_dir,'database',f) for f in good_files]
 	nov15_files = glob.glob(os.path.join(bass_dir,'database',
@@ -386,7 +387,7 @@ def panstarrs_md_tiles(mdfield,observed=True):
                 'MD08':(242.787,+54.950)}
 	ra,dec = mdfields[mdfield]
 	dra = 3.5/np.cos(np.radians(dec))
-	return region_tiles(ra-dra,ra+dra,dec-3.5,dec+3.5,
+	return region_tiles(ra-dra,ra+dra,dec-3.6,dec+3.6,
 	                    observed=observed)
 
 def deep2_tiles(deep2f,observed=True):
@@ -396,7 +397,7 @@ def deep2_tiles(deep2f,observed=True):
 	       'Deep2F4':( 37.5 ,0.0)}
 	ra,dec = d2f[deep2f]
 	dra = 1.5/np.cos(np.radians(dec))
-	return region_tiles(ra-dra,ra+dra,dec-0.5,dec+0.5,
+	return region_tiles(ra-dra,ra+dra,dec-1.6,dec+1.6,
 	                    observed=observed)
 
 if __name__=='__main__':
