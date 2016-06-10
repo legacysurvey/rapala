@@ -423,8 +423,7 @@ def stripe82zps():
 	plt.ion()
 
 def stripe82_seeing():
-	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
-	                      'bokpipe_v0.2','nov15data')
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'nov15data')
 	for filt in 'gr':
 		fields = ['s82cal%s_ra334_%s' % (filt,n) for n in '123456abcde']
 		for field in fields:
@@ -632,15 +631,21 @@ def color_terms(tab=None,nIter=3):
 
 def etc_check():
 	from boketc import texp_onsky,k_ext,bok_zpt0
-	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
-	                      'bokpipe_v0.2','nov15data')
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'nov15data')
 	ebv = 0.04 # rough average in the field
 	exptime = 100. # all the same
-	deep2g = Table.read('deep2g_ra352_merged.fits')
-	deep2r = Table.read('deep2r_ra352_merged.fits')
-	zps = {b:get_zeropoints(tab,calc_zeropoints(tab,b),'image').squeeze()
-	          for b,tab in [('g',deep2g),('r',deep2r)]}
+#	deep2g = Table.read('deep2g_ra352_merged.fits')
+#	deep2r = Table.read('deep2r_ra352_merged.fits')
+#	zps = {b:get_zeropoints(tab,calc_zeropoints(tab,b),'image').squeeze()
+#	          for b,tab in [('g',deep2g),('r',deep2r)]}
+	zps = {'g':[25.909,25.914,25.922,25.913,25.921,25.926,25.934,
+	            25.932,25.936,25.936,25.938],
+	       'r':[25.753,25.761,25.756,25.750,25.707,25.732,25.739,
+	            25.746,25.749,25.737,25.753]}
 	for filt in 'gr':
+		print '[%s] %10s  %4s %6s %6s %5s %7s %10s' % \
+		        (filt,'field  ','secz','skyext','skymag','fwhm','t_est',
+		         'depth_fac')
 		fields = ['deep2%s_ra352_%s' % (filt,n) for n in '123456']
 		for field,zp in zip(fields,zps[filt]):
 			imf = os.path.join(bokdir,filt,field+'.fits')
@@ -650,8 +655,18 @@ def etc_check():
 			b = {'g':'g','r':'bokr'}[filt]
 			zp += -2.5*np.log10(1.375) - k_ext[b]*(airmass-1)
 			skyextinction = np.clip(bok_zpt0[b]-zp,0,np.inf)
+			cat = fits.getdata(os.path.join(bokdir,filt,field+'.cat.fits'))
+			ii = np.where((cat['MAG_AUTO']-cat['MAG_PSF']>-0.08) &
+			              (cat['MAGERR_AUTO']<0.03) &
+			              (cat['FLAGS']==0))[0]
+			fwhm = np.ma.median(sigma_clip(cat['FWHM_IMAGE'][ii]))[0]
+			fwhm *= 0.455
+			skyeps = hdr1['SKYVAL']/exptime
+			skymag = -2.5*np.log10(skyeps) + bok_zpt0[b]
 			t = texp_onsky(b,airmass,ebv,skyextinction,
-			               skyeps=hdr1['SKYVAL']/exptime)
-			print '%s  %.1f' % (field,t/3)
+			               skyeps=skyeps,fwhm=fwhm)
+			dfac = -2.5*0.5*np.log10(100/(t/3))
+			print '%s  %4.2f %6.2f %6.2f %5.2f %7.1f %10.2f' % \
+			        (field,airmass,skyextinction,skymag,fwhm,t/3,dfac)
 		print
 
