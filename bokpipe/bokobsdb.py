@@ -3,18 +3,19 @@
 import os,sys
 import re
 from glob import glob
+from numpy import where
 import fitsio
 from math import cos,radians
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time,TimeDelta
-from astropy.table import Table
+from astropy.table import Table,vstack
 
 badfloat = -9999.99
 
 def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
-                 extraFields=(),extraTypes=(),extra_cb=None):
+                 inTable=None,extraFields=(),extraTypes=(),extra_cb=None):
 	# load all FITS files in the specified directories
 	if filePattern is None:
 		filePattern = '*.fits*'
@@ -54,15 +55,22 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 	                 +extraTypes)
 	# enter the files as table rows
 	for i,f in enumerate(files):
+		fn = os.path.basename(f)
+		fn = fn[:fn.find('.fits')]
+		utDir = os.path.split(os.path.split(f)[0])[1]
+		if inTable is not None:
+			# assumes this combination is unique
+			_i = where((inTable['fileName']==fn) &
+			           (inTable['utDir']==utDir))[0]
+			if len(_i)>0:
+				print 'skipping ',f
+				continue
 		try:
 			h = fitsio.read_header(f,0)
 		except:
 			print 'ERROR: failed to open file: ',f
 			continue
 		row = []
-		fn = os.path.basename(f)
-		fn = fn[:fn.find('.fits')]
-		utDir = os.path.split(os.path.split(f)[0])[1]
 		imageType = h['IMAGETYP'].strip()
 		filt = h['FILTER'].strip()
 		if filters is not None and filt not in filters:
@@ -178,7 +186,11 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 		except:
 			barom = badfloat
 		#
-		row.extend([i,utDir,fn,utDate,h['DATE-OBS']])
+		if inTable is None:
+			indx = i
+		else:
+			indx = len(inTable) + i
+		row.extend([indx,utDir,fn,utDate,h['DATE-OBS']])
 		row.extend([imageType,filt,objName,h['EXPTIME']])
 		row.extend([h['CCDBIN1'],h['CCDBIN2'],focA,focB,focC])
 		row.extend([hdrAirmass,airmass])
@@ -196,5 +208,8 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 		sys.stdout.write("\r%d/%d" % (i+1,len(files)))
 		sys.stdout.flush()
 	print
+	if inTable is not None:
+		t = vstack([inTable,t])
+		t.sort('mjd')
 	t.write(logFile,overwrite=True)
 

@@ -2,6 +2,7 @@
 
 import os
 import argparse
+from astropy.table import Table
 
 from bokpipe import bokobsdb
 
@@ -31,10 +32,16 @@ def xargs_remap(c,v):
 	else:
 		return v
 
+if os.path.exists(args.output):
+	inTable = Table.read(args.output)
+else:
+	inTable = None
+
 bokobsdb.generate_log(args.inputDirs,args.output,
                       filters=args.filters,
                       objFilter=None,
                       filePattern=None,
+                      inTable=inTable,
                       extraFields=xargs_names,extraTypes=xargs_dtypes,
                       extra_cb=xargs_remap)
 
