@@ -186,7 +186,7 @@ def get_coverage(obsdb,tiledb):
 def obs_summary(which='good',newest=True,tiles=None,
                 mjdstart=None,mjdend=None,
                 doplot=False,smallplot=False,saveplot=None,
-                decalsstyle=False,verbose=False):
+                decalsstyle=False,byfilter=False,verbose=False):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb(get_obsdb_filename(which,newest))
@@ -304,6 +304,34 @@ def obs_summary(which='good',newest=True,tiles=None,
 				if _pass==2:
 					plt.ylabel('Dec')
 				plt.text(270,55,'pass %d'%_pass)
+			if saveplot is not None:
+				plt.savefig(saveplot)
+			else:
+				plt.show()
+		elif byfilter:
+			fig = plt.figure(figsize=(12,6))
+			plt.subplots_adjust(0.06,0.08,0.98,0.95,0.0,0.0)
+			sz1,sz2 = 15,25
+			for bi,filt in enumerate('gr'):
+				ax = plt.subplot(1,2,bi+1)
+				npass = tileCov[:,bi,:].sum(axis=-1)
+				ii = np.where(npass==0)[0]
+				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
+				            marker='+',s=sz1,c='0.7')
+				ii = np.where(npass>0)[0]
+				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
+				       marker='s',
+				       c=np.choose(npass[ii],
+				            ['0.5','#5f7ae3','#3d58c1','#031e84']),
+				       edgecolor='none',s=sz2)
+				plt.xlim(85,305)
+				plt.ylim(29,75)
+				plt.title('%s band'%filt,size=14)
+				if filt=='g':
+					plt.ylabel('Dec',size=14)
+				else:
+					ax.yaxis.set_ticklabels([])
+			plt.figtext(0.5,0.01,'R.A.',ha='center',size=14)
 			if saveplot is not None:
 				plt.savefig(saveplot)
 			else:
@@ -429,6 +457,8 @@ if __name__=='__main__':
 	                    help="filename to save plot in")
 	parser.add_argument("--legacyfield",type=str,
 	                    help="select tiles within legacy field")
+	parser.add_argument("--byfilter",action="store_true",
+	                    help="plot coverage by filter instead of by pass")
 	parser.add_argument("-v","--verbose",action="store_true",
 	                    help="increase verbosity")
 	args = parser.parse_args()
@@ -469,8 +499,8 @@ if __name__=='__main__':
 		obs_summary(which=args.tiles,newest=args.newest,tiles=tiles,
 		            mjdstart=mjds[0],mjdend=mjds[1],
 		            doplot=args.plot,smallplot=args.smallplot,
-		            saveplot=args.plotfile,decalsstyle=True,
-		            verbose=args.verbose)
+		            saveplot=args.plotfile,decalsstyle=not args.byfilter,
+		            byfilter=args.byfilter,verbose=args.verbose)
 	#kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
 	#print kwargs
 	#nersc_archive_list(**kwargs)
