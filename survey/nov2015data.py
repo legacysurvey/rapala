@@ -523,6 +523,34 @@ def stripe82_linearity_plot(s82tab,peak=False):
 	plt.figtext(0.01,0.5,r'$flux / <flux>$',size=14,va='center',
 	            rotation='vertical')
 
+def rename_proc_files():
+	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced','20151111')
+	outdir = os.path.join(os.environ['BASSRDXDIR'],'reduced','nov15data')
+	if not os.path.exists(outdir):
+		os.mkdir(outdir)
+	log = Table.read('bass_Nov2015toFeb2016.fits')
+	ii = np.where(log['utDate']=='20151112')[0]
+	for i in ii:
+		for sfx in ['','.wht']:
+			field = log['objName'][i]
+			if not (field.startswith('cosmos') or field.startswith('deep2')
+			         or field.startswith('s82cal')):
+				continue
+			outfn = os.path.join(outdir,field+sfx+'.fits')
+			if os.path.exists(outfn): continue
+			d = log['DTACQNAM'][i].split('.')
+			filt = log['filter'][i]
+			hdus = [fits.PrimaryHDU()]
+			try:
+				for ccd in range(1,5):
+					fn = 'p'+d[0][1:]+filt+d[1]+'_%d%s.fits' % (ccd,sfx)
+					im,hdr = fits.getdata(os.path.join(bokdir,fn),header=True)
+					hdus.append(fits.ImageHDU(im,hdr,'CCD%d'%ccd))
+				hdul = fits.HDUList(hdus)
+				hdul.writeto(outfn)
+			except IOError:
+				pass
+
 def plot_pointings():
 	from matplotlib.patches import Rectangle
 	from astrotools.idmstuff import radec_fromstr
