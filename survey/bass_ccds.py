@@ -26,23 +26,29 @@ def get_bass_frames(obsLogFile):
 	frames = frames[isbass]
 	return frames
 
-def process_dr3_frames(frames,overwrite=False,nproc=5,searchrad=None):
+def process_frames(frames,overwrite=False,nproc=5,searchrad=None,dr3=False):
 	import multiprocessing
 	import bokframechar
 	# XXX use env
 	rawDir = '/global/project/projectdirs/cosmo/staging/bok/BOK_Raw'
-	dr3files = [ os.path.join(rawDir,f['utDir'],f['fileName']+'.fits.fz')
+	files = [ os.path.join(rawDir,f['utDir'],f['fileName']+'.fits.fz')
 	                for f in frames ]
-	outputdir = os.path.join(os.environ['SCRATCH'],'imageval','dr3')
-	print 'processing ',len(dr3files),' images'
+	outputdir = os.path.join(os.environ['SCRATCH'],'imageval')
+	if dr3:
+		outputdir = os.path.join(outputdir,'dr3')
+	else:
+		outputdir = os.path.join(outputdir,'test')
+	if not os.path.exists(outputdir):
+		os.makedirs(outputdir)
+	print 'processing ',len(files),' images'
 	kwargs = {'outputDir':outputdir,'overwrite':overwrite}
 	if searchrad:
 		kwargs['searchrad'] = searchrad
 	if nproc==1:
-		bokframechar.process_raw_images(dr3files,**kwargs)
+		bokframechar.process_raw_images(files,**kwargs)
 	else:
 		for i in range(nproc):
-			_files = dr3files[i::nproc]
+			_files = files[i::nproc]
 			p = multiprocessing.Process(target=bokframechar.process_raw_images,
 			                            args=(_files,),kwargs=kwargs)
 			p.start()
@@ -74,7 +80,10 @@ def _extract_metadata_fromheader(ccds,i,expnum,oframe):
 		for k in ['nmatch','nmatcha','nmatchb','nmatchc','nmatchd',
 		          'mdncol','skyrms','raoff','decoff']:
 			ccd['ccd'+k][i] = hdr[k.upper()]
-		ccd['avsky'][i] = hdr['SKADU']
+		try:
+			ccd['avsky'][i] = hdr['SKADU']
+		except KeyError:
+			pass
 		ccd['arawgain'][i] = np.mean(gains[ccdNum-1])
 		ccd['image_filename'][i] = fpath
 	return ccds
@@ -240,7 +249,8 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 def _tmp_dr3():
 	#frames = Table.read('../basschute/config/nov2015_mod.fits')
 	#  XXX need to update this by copying in "good" field from _mod
-	frames = Table.read('../basschute/config/nov2015_new.fits')
+	#frames = Table.read('../basschute/config/nov2015_new.fits')
+	frames = Table.read('bass_Nov2015toFeb2016.fits')
 	ii = np.concatenate([np.arange(33,70),np.arange(98,111)])
 	frames = frames[ii]
 	frames = frames[frames['objName'] != 'null']
@@ -298,11 +308,8 @@ if __name__=='__main__':
 		frames.remove_rows(drop)
 	if args.process:
 		kwargs = {'searchrad':args.searchradius}
-		if args.dr3:
-			process_dr3_frames(frames,overwrite=args.redo,
-			                   nproc=args.multiproc,**kwargs)
-		else:
-			raise NotImplementedError
+		process_frames(frames,overwrite=args.redo,
+		               nproc=args.multiproc,dr3=args.dr3,**kwargs)
 	else:
 		imgsrc = 'raw' if args.raw else 'reduced'
 		if args.check:

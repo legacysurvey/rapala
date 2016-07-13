@@ -4,7 +4,7 @@ import os
 import re
 import numpy as np
 from astropy.io import fits
-from astropy.table import Table,vstack,join
+from astropy.table import Table,vstack,join,unique
 from astropy.time import Time,TimeDelta
 
 ampNums = [ [ 4,2,3,1 ] , [ 7,5,8,6 ], [ 10,12,9,11 ], [ 13,15,14,16] ]
@@ -399,6 +399,44 @@ def deep2_tiles(deep2f,observed=True):
 	dra = 1.5/np.cos(np.radians(dec))
 	return region_tiles(ra-dra,ra+dra,dec-1.6,dec+1.6,
 	                    observed=observed)
+
+def checkarchive(logf,archivef,outfn=None):
+	if True:
+		bassfiles = []
+		with open(archivef) as basslog:
+			for l in basslog:
+				utdfn = re.match('.* /data/primefocus/bass/(.*)\/(.*)\n',l).groups()
+				bassfiles.append(utdfn)
+				bassfiles.append(utdfn)
+		_archive = Table(rows=bassfiles,names=('utDir','DTACQNAM'))
+		archive = unique(_archive,keys='DTACQNAM')
+		print 'archive log returned %d unique files out of %d' % \
+		            (len(archive),len(_archive))
+	_log = Table.read(logf)
+	log = unique(_log,keys='DTACQNAM')
+	print 'NERSC log returned %d unique files out of %d' % (len(log),len(_log))
+	# join the tables based on the unique (?!) file handle
+	t = join(archive,log,keys='DTACQNAM',join_type='outer')
+	if outfn:
+		outf = open(outfn,'w')
+	if True:
+		is2016 = [str(utd).startswith('2016') for utd in t['utDir_1']]
+		initmask = np.array(is2016)
+	# files in archive but not on NERSC
+	not_on_nersc = t['frameIndex'].mask
+	# files on NERSC but not archive (???)
+	not_in_archive_log = t['utDir_1'].mask
+	# summary info about missing files
+	utds = np.unique(t['utDir_1'][initmask&not_on_nersc])
+	utds = np.array(utds)
+	for utd in utds:
+		if 'bad' in utd: continue # files moved manually
+		ii = np.where(t['utDir_1']==utd)[0]
+		missing = not_on_nersc[ii]
+		print '%s missing %d/%d files' % (utd,missing.sum(),len(ii))
+		for i in ii[missing]:
+			outf.write('%s %s\n' % (t['utDir_1'][i],t['DTACQNAM'][i]))
+	outf.close()
 
 if __name__=='__main__':
 	import sys,argparse
