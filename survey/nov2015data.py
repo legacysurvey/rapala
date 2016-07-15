@@ -12,6 +12,8 @@ import fitsio
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
+from bokpipe.bokphot import aper_phot_image
+
 from bass import ampNums,get_amp_index
 import ps1cal
 
@@ -432,47 +434,48 @@ def stripe82_seeing():
 			fwhm = np.ma.median(sigma_clip(cat['FWHM_IMAGE'][ii]))[0]
 			print '%s %.2f %.2f' % (field,fwhm,fwhm*0.455)
 
-def stripe82_phot(imageFile,s82cat,aperRad=2.5):
-	from bokpipe.bokphot import aper_phot_image
-	aperRad /= 0.455
-	bpmask = fitsio.FITS(imageFile.replace('.fits','.wht.fits'))
-	ph = aper_phot_image(imageFile,s82cat['ra'],s82cat['dec'],[aperRad],
-	                     badPixMask=bpmask,calc_peak=True)
-	ph['refMag'] = s82cat['psfMag_g'][ph['objId']]
-	ph['ra'] = s82cat['ra'][ph['objId']]
-	ph['dec'] = s82cat['dec'][ph['objId']]
-	return ph
-
-def stripe82_linearity(filt,**kwargs):
-	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
-	                      'bokpipe_v0.2','nov15data')
-	s82all = load_stripe82_truth(ra_range=(332,336))
-	fields = ['s82cal%s_ra334_%s' % (filt,n) for n in 'abcde']
-	ph = [ stripe82_phot(os.path.join(bokdir,filt,field+'.fits'),
-	                     s82all,**kwargs)
-	                 for field in fields ]
-	tab = np.zeros(len(s82all),
-	               dtype=[('x','5f4'),('y','5f4'),
-	                      ('counts','5f4'),('countsErr','5f4'),
-	                      ('flags','5i4'),('ccdNum','i4'),
-	                      ('peakCounts','5f4')])
-	for j,p in enumerate(ph):
-		for k in ['x','y','counts','countsErr','flags','peakCounts']:
-			tab[k][p['objId'],j] = p[k].squeeze()
-		tab['ccdNum'][p['objId']] = p['ccdNum']
-	# actually had coverage
-	ii = np.where(tab['ccdNum']>0)[0]
-	tab = tab[ii]
-	tab = Table(tab)
-	tab['refMag'] = s82all['psfMag_'+filt[-1]][ii]
-	tab['refErr'] = s82all['psfMagErr_'+filt[-1]][ii]
-	tab['ampIndex'] = get_amp_index(tab['x'][:,-1],tab['y'][:,-1])
-	tab['ampNum'] = 4*(tab['ccdNum']-1) + tab['ampIndex'] + 1
-	exptime = np.array([25.,50.,100.,200.,400.])
-	tab['cps'] = tab['counts'] / exptime
-	tab['meanCps'] = np.average(tab['cps'],weights=exptime,axis=-1)
-	tab['snr'] = tab['counts']/tab['countsErr']
-	return tab
+def stripe82_aperphot_all(**kwargs):
+	idmredux = kwargs.pop('idmredux',False)
+	if idmredux:
+		bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
+		                      'bokpipe_v0.2','nov15data')
+	else:
+		bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced','nov15data')
+	aperRad = kwargs.pop('aperRad',7.0) / 0.455 # asec -> pix
+	s82cat = Table(load_stripe82_truth(ra_range=(332,336)),masked=True)
+	nfields = 11
+	exptime = np.array([100.]*6 + [25.,50.,100.,200.,400.])[:nfields]
+	cols = ['x','y','counts','countsErr','peakCounts','flags','ccdNum']
+	for k in cols:
+		dtype = np.float32 if k not in ['flag','ccdNum'] else np.int32
+		s82cat[k] = np.zeros((len(s82cat),nfields,2),dtype=dtype)
+	for i in range(nfields):
+		for j,filt in enumerate('gr'):
+			field = 's82cal%s_ra334_%s' % (filt,'123456abcde'[i])
+			try:
+				print 'calculating aperture phot for ',field,
+				imf = os.path.join(bokdir,field+'.fits')
+				bpmask = fitsio.FITS(imf.replace('.fits','.wht.fits'))
+				ph = aper_phot_image(imf,s82cat['ra'],s82cat['dec'],[aperRad],
+				                     badPixMask=bpmask,calc_peak=True)
+				print
+			except IOError:
+				print '--> MISSING'
+				continue
+			for k in cols:
+				s82cat[k][ph['objId'],i,j] = ph[k].squeeze()
+	# objects with no coverage have ccdNum==0 in all frames/filters
+	ii = np.where(s82cat['ccdNum'].sum(axis=-1).sum(axis=-1)>0)[0]
+	s82cat = s82cat[ii]
+	missing = s82cat['ccdNum']==0
+	for k in cols:
+		s82cat[k].mask |= missing
+	s82cat['ampIndex'] = get_amp_index(s82cat['x'],s82cat['y'])
+	s82cat['ampNum'] = 4*(s82cat['ccdNum']-1) + s82cat['ampIndex'] + 1
+	s82cat['cps'] = s82cat['counts'] / exptime[np.newaxis,:,np.newaxis]
+	s82cat['meanCps'] = np.average(s82cat['cps'],weights=exptime,axis=1)
+	s82cat['snr'] = s82cat['counts']/s82cat['countsErr']
+	return s82cat
 
 def stripe82_linearity_plot(s82tab,peak=False):
 	from scipy.stats import scoreatpercentile
@@ -536,7 +539,7 @@ def rename_proc_files():
 			if not (field.startswith('cosmos') or field.startswith('deep2')
 			         or field.startswith('s82cal')):
 				continue
-			outfn = os.path.join(outdir,field+sfx+'.fits')
+			outfn = os.path.join(outdir,field.replace('bokr','r')+sfx+'.fits')
 			if os.path.exists(outfn): continue
 			d = log['DTACQNAM'][i].split('.')
 			filt = log['filter'][i]
@@ -545,6 +548,8 @@ def rename_proc_files():
 				for ccd in range(1,5):
 					fn = 'p'+d[0][1:]+filt+d[1]+'_%d%s.fits' % (ccd,sfx)
 					im,hdr = fits.getdata(os.path.join(bokdir,fn),header=True)
+					for k in ['CTYPE1','CTYPE2']:
+						hdr[k] = hdr[k].replace('TAN','TPV')
 					hdus.append(fits.ImageHDU(im,hdr,'CCD%d'%ccd))
 				hdul = fits.HDUList(hdus)
 				hdul.writeto(outfn)
