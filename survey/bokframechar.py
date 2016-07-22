@@ -38,7 +38,7 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 	j = 'gr'.find(band) # index into PS1 arrays
 	# read in PS1 color terms
 	coeffsf = os.path.join(os.environ['BOKPIPE'],'..','survey',
-	                       'config','bok2ps1_%s_coeff.dat'%band)
+	                       'config','bok2ps1_%s_gicoeff.dat'%band)
 	ps1colorterms = np.loadtxt(coeffsf)
 	# select stars to use for zeropoint measurement
 	good = ( (matchedCat['MEDIAN'][:,j] < 19) & 
