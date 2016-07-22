@@ -50,8 +50,12 @@ def has_coverage(truth,objs):
 def load_obsdb():
 	return Table.read('../basschute/config/nov2015_mod.fits')
 
-def stripe82_catalogs(bokdir):
+def stripe82_catalogs(bokdir,ccdsfile='bass-ccds-idmnov2015.fits'):
+	from boketc import k_ext
 	alltabs = []
+	mrows = []
+	fieldNum = 1
+	ccdlist = Table.read(ccdsfile)
 	# start with the Stripe 82 truth table as a base catalog
 	s82truth = load_stripe82_truth()
 	# iterate over the two S82 fields observed (Deep2F3 and a random spot)
@@ -70,15 +74,20 @@ def stripe82_catalogs(bokdir):
 		# match the Bok catalogs
 		for k,dtyp in [('x','f4'),('y','f4'),('ra','f8'),('dec','f8'),
 		               ('idx','i4'),('mag','f4'),('err','f4'),
-		               ('ccd','i4'),('amp','i4')]:
+		               ('field','i4'),('ccd','i4'),('amp','i4'),
+		               ('kx','f4'),('apcorr','f4')]:
 			for b in 'gr':
-				t['bok_'+k+'_'+b] = np.zeros((len(ii),6),dtype=dtyp)
+				t['bok_'+k+'_'+b] = np.zeros((len(ii),11),dtype=dtyp)
 		for b in 'gr':
 			t['bok_mag_'+b].mask = True
-		for b,n in itertools.product('gr',range(6)):
+		for n,b in itertools.product(range(11),'gr'):
 			sfx = '123456abcde'[n]
-			catf = os.path.join(bokdir,field%(b,sfx)+'.cat.fits')
-			cat = fits.open(catf)
+			fieldName = field % (b,sfx)
+			catf = os.path.join(bokdir,fieldName+'.cat.fits')
+			try:
+				cat = fits.open(catf)
+			except IOError:
+				continue
 			for ccdNum in range(1,5):
 				objs = cat[ccdNum].data
 				ii = np.where(has_coverage(s82,objs))[0]
@@ -86,8 +95,9 @@ def stripe82_catalogs(bokdir):
 				                s82['ra'][ii],s82['dec'][ii],
 				                2.0,return_sep=True)
 				print ' %20s[%d] matched %4d out of %4d (%.2f)' % \
-				       (field%(b,sfx),ccdNum,len(m1),len(ii),np.median(d))
+				       (fieldName,ccdNum,len(m1),len(ii),np.median(d))
 				t['bok_idx_'+b][ii[m2],n] = objs['NUMBER'][m1]
+				t['bok_field_'+b][ii[m2],n] = fieldNum
 				t['bok_ccd_'+b][ii[m2],n] = ccdNum
 				ampIndex = get_amp_index(objs['X_IMAGE'][m1],
 				                         objs['Y_IMAGE'][m1])
@@ -103,6 +113,24 @@ def stripe82_catalogs(bokdir):
 				t['bok_mag_'+b][ii[m2],n] = mag
 				t['bok_mag_'+b][ii[m2],n].mask = mag.mask
 				t['bok_err_'+b][ii[m2],n] = 1.0856*np.ma.divide(fluxerr,flux)
+				# meta-data about the image
+				totflux = objs['FLUX_APER'][m1,-1]
+				apcorr = objs['FLUX_APER'][m1] / totflux[:,np.newaxis]
+				psfcorr = objs['FLUX_PSF'][m1] / totflux
+				fwhm = np.median(objs['FWHM_IMAGE'][m1])
+				apcorr = sigma_clip(apcorr[:,1]).mean()
+				ccdent = np.where((ccdlist['image_filename'] ==
+			                                 fieldName+'.fits') &
+				                        (ccdlist['ccdnum']==ccdNum))[0][0]
+				airmass = ccdlist['airmass'][ccdent]
+				mrows.append((fieldName,fieldNum,b,ccdNum,fwhm,apcorr,
+				              airmass,ccdlist['avsky'][ccdent],
+				              ccdlist['arawgain'][ccdent]))
+				# copy corrections into photo tab
+				t['bok_kx_'+b][ii[m2],n] = k_ext[b]*(airmass-1)
+				t['bok_apcorr_'+b][ii[m2],n] = 2.5*np.log10(apcorr)
+			if b=='r':
+				fieldNum += 1
 		# eliminate entries without Bok coverage in both bands
 		ii = np.where(~(t['bok_mag_g'].mask.all(axis=1) &
 		                t['bok_mag_r'].mask.all(axis=1)))[0]
@@ -121,13 +149,45 @@ def stripe82_catalogs(bokdir):
 			t['ps1_mag_'+b][m2] = ps1objs['MEDIAN'][m1,j]
 		# 
 		alltabs.append(t)
-	vstack(alltabs).write('stripe82bok_nov2015.fits',overwrite=True)
+	# combine tables & calculate residual per-amplifier offsets
+	tab = vstack(alltabs)
+	for b in 'gr':
+		mag = tab['bok_mag_'+b] - tab['bok_kx_'+b] + tab['bok_apcorr_'+b]
+		mivar = np.ma.power(tab['bok_err_'+b],-2)
+		mean_mag = np.ma.average(sigma_clip(mag,axis=1),weights=mivar,axis=1)
+		tab['bok_meanmag_'+b] = mean_mag
+		tab['bok_ampcorr_'+b] = np.zeros_like(tab['bok_mag_'+b])
+		print '\n%s band amp correction (millimag): ' % b
+		for amp in range(1,17):
+			amp_mags = np.ma.array(mag,mask=(mag.mask|tab['bok_amp_'+b]!=amp))
+			amp_dmag = sigma_clip(mean_mag[:,np.newaxis] - amp_mags)
+			ii = np.where(tab['bok_amp_'+b] == amp)
+			tab['bok_ampcorr_'+b][ii] = amp_dmag.mean()
+			tab.meta['AMPCOR%02d'%amp] = amp_dmag.mean()
+			print '%4d +/- %2d ' % (1e3*amp_dmag.mean(),1e3*amp_dmag.std()),
+			if (amp%4)==0: print
+		print
+		mag += tab['bok_ampcorr_'+b]
+		tab['bok_magcorr_'+b] = mag 
+		mean_mag = np.ma.average(sigma_clip(mag,axis=1),weights=mivar,axis=1)
+		tab['bok_meanmagcorr_'+b] = mean_mag 
+	# something weird here
+	for k in ['mag','magcorr','ampcorr']:
+		for b in 'gr':
+			tab['bok_'+k+'_'+b].fill_value = np.nan
+	tab.write('stripe82bok_nov2015stars.fits',overwrite=True)
+	#
+	metaTab = Table(rows=mrows,
+	                names=('field','fieldNum','filter','ccdNum',
+	                       'fwhm','apCorr','airmass','skyADU','gain'))
+	metaTab.write('stripe82bok_nov2015sum.fits',overwrite=True)
 
 def load_nov2015_data():
-	t = Table.read('stripe82bok_nov2015.fits')
+	t = Table.read('stripe82bok_nov2015stars.fits')
 	# multi-dim Table columns written to FITS lose their masks...
-	t['bok_mag_g'].mask = np.isnan(t['bok_mag_g'])
-	t['bok_mag_r'].mask = np.isnan(t['bok_mag_r'])
+	for k in ['mag','magcorr','meanmag','meanmagcorr']:
+		for b in 'gr':
+			t['bok_%s_%s'%(k,b)].mask = np.isnan(t['bok_%s_%s'%(k,b)])
 	for b in 'grizy':
 		t['ps1_mag_'+b].mask = t['ps1_mag_'+b]==0
 	return t
@@ -135,37 +195,27 @@ def load_nov2015_data():
 def calc_color_terms(doplots=False,savefit=False):
 	t = load_nov2015_data()
 	n = t['bok_mag_g'].shape[1]
-	refclr = {'sdss':np.tile(t['sdss_mag_g']-t['sdss_mag_z'],(n,1)).transpose(),
-	           'ps1':np.tile(t['ps1_mag_g']-t['ps1_mag_i'],(n,1)).transpose()}
+##	refclr = {'sdss':np.tile(t['sdss_mag_g']-t['sdss_mag_z'],(n,1)).transpose(),
+##	           'ps1':np.tile(t['ps1_mag_g']-t['ps1_mag_i'],(n,1)).transpose()}
+	refclr = {'sdss':t['sdss_mag_g']-t['sdss_mag_z'],
+	           'ps1':t['ps1_mag_g']-t['ps1_mag_i']}
+	refs = ['sdss','ps1']
 	for b in 'gr':
 		refclr_all = {'sdss':[],'ps1':[]}
 		dmag_all = {'sdss':[],'ps1':[]}
-		# find the zeropoint offsets for each image and amplifier independently
-		for amp in range(1,17):
-			is_amp = ( (t['bok_amp_g']==amp) &
-			           (t['bok_amp_g']==t['bok_amp_r']) )
-			for field in range(2):
-				# split the two fields
-				if field==0:
-					is_field = t['sdss_ra'] > 345
-				else:
-					is_field = t['sdss_ra'] < 345
-				mag = t['bok_mag_'+b].copy()
-				mag.mask[~(is_field[:,np.newaxis]&is_amp)] = True
-				for ref in ['sdss','ps1']:
-					refmag = t[ref+'_mag_'+b][:,np.newaxis]
-					dmag = sigma_clip(mag-refmag,axis=0)
-					zp0 = dmag.mean(axis=0)
-					bokmag = mag - zp0[np.newaxis,:]
-					ii = np.where(~dmag.mask)
-					dmag_all[ref].append(np.array(bokmag-refmag)[ii])
-					refclr_all[ref].append(np.array(refclr[ref][ii]))
-					print '%s amp %2d field %d %4s --> %4d stars' % \
-					         (b,amp,field,ref,len(ii[0]))
+		mag = t['bok_meanmagcorr_'+b]
+		for ref in refs:
+			refmag = t[ref+'_mag_'+b]
+			dmag = sigma_clip(mag-refmag)
+			zp0 = dmag.mean()
+			bokmag = mag - zp0
+			ii = np.where(~dmag.mask)
+			dmag_all[ref].append(np.array(bokmag-refmag)[ii])
+			refclr_all[ref].append(np.array(refclr[ref][ii]))
 		# iteratively fit a polynomial of increasing order to the
 		# magnitude differences
 		cterms = {}
-		for ref in ['sdss','ps1']:
+		for ref in refs:
 			_dmag = np.concatenate(dmag_all[ref]).flatten()
 			_refclr = np.concatenate(refclr_all[ref]).flatten()
 			mask = np.abs(_dmag) > 0.25
@@ -182,7 +232,7 @@ def calc_color_terms(doplots=False,savefit=False):
 				_fit[-1] = 0
 				np.savetxt('config/bok2%s_%s_coeff.dat'%(ref,b),_fit)
 		if doplots:
-			for ref in ['sdss','ps1']:
+			for ref in refs:
 				_dmag = np.concatenate(dmag_all[ref])
 				_refclr = np.concatenate(refclr_all[ref])
 				fig = plt.figure(figsize=(10,6))
@@ -195,6 +245,13 @@ def calc_color_terms(doplots=False,savefit=False):
 				ax1.axhline(0,c='c')
 				xx = np.linspace(-1,5,100)
 				ax1.plot(xx,np.polyval(cterms[ref],xx),c='r')
+				try:
+					oldcterms = np.loadtxt('config/bok2%s_%s_coeff.dat' %
+					                       (ref,b))
+					yoff = cterms[ref][-1]
+					ax1.plot(xx,yoff+np.polyval(oldcterms,xx),c='orange')
+				except:
+					pass
 				ax1.set_ylabel('%s(Bok) - %s(%s)'%(b,b,ref.upper()))
 				ax1.set_ylim(-0.25,0.25)
 				order = len(cterms[ref])-1
@@ -331,18 +388,31 @@ def dump_all_zeropoints():
 			print
 		print
 
-def check_scatter(tab,band):
+def check_scatter(_tab,band,j=None,colorcorr=False):
 	from scipy.stats import scoreatpercentile
-	psfMag = flux2mag(tab,band,'PSF')
-	for j in range(tab['NUMBER'].shape[1]):
-		print 'image %2d: ' % (j+1)
+	piles = [25,50,75,90,95]
+	for i in range(2):
+		if i==0:
+			tab = _tab[_tab['sdss_ra']<340]
+			print '\nStripe 82 RA=334'
+		else:
+			tab = _tab[_tab['sdss_ra']>340]
+			print '\nDeep2F3'
+		print '%8s ' % 'mag',
+		print ' -%2d%%- '*len(piles) % tuple(piles)
 		for mag1 in np.arange(17,21.1,0.5):
-			is_mag = (tab['tMag']>(mag1-0.25)) & (tab['tMag']<(mag1+0.25))
-			ii = np.where(~psfMag.mask[:,j] & is_mag)[0]
-			dm = psfMag[ii,j] - tab['tMag'][ii]
-			dist = scoreatpercentile(np.abs(dm-np.median(dm)),
-			                         [25,50,75,90,95])
-			print '  ',mag1,dist
+			is_mag = ( (tab['sdss_mag_'+band]>(mag1-0.25)) & 
+			           (tab['sdss_mag_'+band]<(mag1+0.25)) )
+			if j is None:
+				mag = tab['bok_meanmagcorr_'+band]
+			else:
+				mag = tab['bok_magcorr_'+band][:,j]
+			ii = np.where(~mag.mask & is_mag)[0]
+			dm = mag[ii] - tab['sdss_mag_'+band][ii]
+			dist = scoreatpercentile(np.abs(dm-np.median(dm)),piles)
+			print '%8.1f ' % mag1,
+			print '%6d '*len(piles) % tuple(1e3*dist)
+		print
 
 def get_zeropoints(tab,zps,zptype):
 	zpIm,zpCCD,zpAmp = zps
@@ -434,7 +504,7 @@ def stripe82_seeing():
 			fwhm = np.ma.median(sigma_clip(cat['FWHM_IMAGE'][ii]))[0]
 			print '%s %.2f %.2f' % (field,fwhm,fwhm*0.455)
 
-def stripe82_aperphot_all(**kwargs):
+def stripe82_aperphot_all(which='s82cal',**kwargs):
 	idmredux = kwargs.pop('idmredux',False)
 	if idmredux:
 		bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
@@ -442,8 +512,14 @@ def stripe82_aperphot_all(**kwargs):
 	else:
 		bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced','nov15data')
 	aperRad = kwargs.pop('aperRad',7.0) / 0.455 # asec -> pix
-	s82cat = Table(load_stripe82_truth(ra_range=(332,336)),masked=True)
-	nfields = 11
+	if which=='s82cal':
+		s82cat = Table(load_stripe82_truth(ra_range=(332,336)),masked=True)
+		nfields = 11
+		fname = 's82cal%s_ra334_%s'
+	else:
+		s82cat = Table(load_stripe82_truth(ra_range=(349,354)),masked=True)
+		nfields = 6
+		fname = 'deep2%s_ra352_%s'
 	exptime = np.array([100.]*6 + [25.,50.,100.,200.,400.])[:nfields]
 	cols = ['x','y','counts','countsErr','peakCounts','flags','ccdNum']
 	for k in cols:
@@ -451,7 +527,7 @@ def stripe82_aperphot_all(**kwargs):
 		s82cat[k] = np.zeros((len(s82cat),nfields,2),dtype=dtype)
 	for i in range(nfields):
 		for j,filt in enumerate('gr'):
-			field = 's82cal%s_ra334_%s' % (filt,'123456abcde'[i])
+			field = fname % (filt,'123456abcde'[i])
 			try:
 				print 'calculating aperture phot for ',field,
 				imf = os.path.join(bokdir,field+'.fits')
@@ -472,34 +548,48 @@ def stripe82_aperphot_all(**kwargs):
 		s82cat[k].mask |= missing
 	s82cat['ampIndex'] = get_amp_index(s82cat['x'],s82cat['y'])
 	s82cat['ampNum'] = 4*(s82cat['ccdNum']-1) + s82cat['ampIndex'] + 1
-	s82cat['cps'] = s82cat['counts'] / exptime[np.newaxis,:,np.newaxis]
+	if idmredux:
+		s82cat['cps'] = s82cat['counts'] / exptime[np.newaxis,:,np.newaxis]
+	else:
+		s82cat['cps'] = s82cat['counts'].copy()
+		s82cat['counts'] = s82cat['cps'] * exptime[np.newaxis,:,np.newaxis]
+		s82cat['countsErr'] *= exptime[np.newaxis,:,np.newaxis]
 	s82cat['meanCps'] = np.average(s82cat['cps'],weights=exptime,axis=1)
 	s82cat['snr'] = s82cat['counts']/s82cat['countsErr']
+	s82cat['cpsSig'] = np.ma.std(-2.5*np.ma.log10(
+	                       np.ma.divide(s82cat['cps'],
+	                              s82cat['meanCps'][:,np.newaxis,:])),axis=1)
+	s82cat['nobs'] = (~s82cat['counts'].mask).sum(axis=1)
 	return s82cat
 
-def stripe82_linearity_plot(s82tab,peak=False):
+def stripe82_linearity_plot(s82tab,filt='g',peak=False):
 	from scipy.stats import scoreatpercentile
 	from astrotools.idmstuff import binmean
 	countsk = 'counts' if not peak else 'peakCounts'
 	exptime = np.array([25.,50.,100.,200.,400.])
-	magrange = (s82tab['refMag']>17) & (s82tab['refMag']<22)
+	magrange = (s82tab['psfmag_'+filt]>17) & (s82tab['psfmag_'+filt]<22)
 	plt.figure(figsize=(8.5,9.5))
 	plt.subplots_adjust(0.10,0.06,0.96,0.98,0.02,0.02)
+	bk = 'gr'.find(filt)
+	ii = np.where(s82tab[countsk].mask[:,-5:,bk].sum(axis=1)==0)[0]
+	counts = s82tab[countsk][ii,-5:,bk].filled(-1)
+	cps = s82tab['cps'][ii,-5:,bk].filled(-1)
+	mean_cps = s82tab['meanCps'][ii,bk].filled(-1)
+	amps = s82tab['ampNum'][ii,-1,bk].filled(-1) # just use last im
+	flags = s82tab['flags'][ii,-5:,bk].filled(9999)
+	magrange = magrange[ii]
+	expected_cts = mean_cps[:,np.newaxis] * exptime
 	for ampNum in range(1,17):
 		ax = plt.subplot(8,2,ampNum)
-		ii = np.where((s82tab['ampNum']==ampNum) & magrange &
-		              np.all(s82tab['flags']==0,axis=1))[0]
-		cps = s82tab['cps']
-		mean_cps = s82tab['meanCps']
-		gt0 = np.where(mean_cps>0)[0]
+		ii = np.where((amps==ampNum) & magrange & (mean_cps>0) &
+		              np.all(flags==0,axis=1))[0]
 		xall,yall = [],[]
-		for j in range(5):
-			expected_cts = mean_cps * exptime[j]
-			ctsratio = s82tab[countsk][ii,j]/expected_cts
-			plt.scatter(np.log10(mean_cps[gt0]),ctsratio[gt0],
+		for j in range(len(exptime)):
+			ctsratio = counts[ii,j]/expected_cts[ii,j]
+			plt.scatter(np.log10(mean_cps[ii]),ctsratio,
 			            s=7,c='gray',edgecolor='none')
-			xall.append(np.log10(mean_cps[gt0]))
-			yall.append(ctsratio[gt0])
+			xall.append(np.log10(mean_cps[ii]))
+			yall.append(ctsratio)
 		xall = np.concatenate(xall)
 		yall = np.concatenate(yall)
 		plt.axhline(1.0,c='r')
