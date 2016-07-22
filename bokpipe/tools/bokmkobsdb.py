@@ -28,7 +28,10 @@ else:
 
 def xargs_remap(c,v):
 	if c=='DTACQNAM':
-		return os.path.basename(v)
+		if v:
+			return os.path.basename(v)
+		else:
+			return '<NULL>'
 	else:
 		return v
 

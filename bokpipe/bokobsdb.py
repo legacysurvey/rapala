@@ -203,7 +203,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 		row.extend([mirrorCellTemp,primaryTemp,strutTemp,primeTemp])
 		row.extend([windSpeed,windDir,airTemp,relHumid,barom])
 		if len(extraFields)>0:
-			row.extend([extra_cb(xf,h[xf]) for xf in extraFields])
+			row.extend([extra_cb(xf,h.get(xf)) for xf in extraFields])
 		t.add_row(row)
 		sys.stdout.write("\r%d/%d" % (i+1,len(files)))
 		sys.stdout.flush()
