@@ -197,7 +197,7 @@ def calc_color_terms(doplots=False,savefit=False):
 	n = t['bok_mag_g'].shape[1]
 ##	refclr = {'sdss':np.tile(t['sdss_mag_g']-t['sdss_mag_z'],(n,1)).transpose(),
 ##	           'ps1':np.tile(t['ps1_mag_g']-t['ps1_mag_i'],(n,1)).transpose()}
-	refclr = {'sdss':t['sdss_mag_g']-t['sdss_mag_z'],
+	refclr = {'sdss':t['sdss_mag_g']-t['sdss_mag_i'],
 	           'ps1':t['ps1_mag_g']-t['ps1_mag_i']}
 	refs = ['sdss','ps1']
 	for b in 'gr':
@@ -230,7 +230,7 @@ def calc_color_terms(doplots=False,savefit=False):
 				_fit = fit.copy()
 				# remove the lowest order term (absorbed by zeropoint)
 				_fit[-1] = 0
-				np.savetxt('config/bok2%s_%s_coeff.dat'%(ref,b),_fit)
+				np.savetxt('config/bok2%s_%s_gicoeff.dat'%(ref,b),_fit)
 		if doplots:
 			for ref in refs:
 				_dmag = np.concatenate(dmag_all[ref])
@@ -246,7 +246,7 @@ def calc_color_terms(doplots=False,savefit=False):
 				xx = np.linspace(-1,5,100)
 				ax1.plot(xx,np.polyval(cterms[ref],xx),c='r')
 				try:
-					oldcterms = np.loadtxt('config/bok2%s_%s_coeff.dat' %
+					oldcterms = np.loadtxt('config/bok2%s_%s_gicoeff.dat' %
 					                       (ref,b))
 					yoff = cterms[ref][-1]
 					ax1.plot(xx,yoff+np.polyval(oldcterms,xx),c='orange')
@@ -255,7 +255,7 @@ def calc_color_terms(doplots=False,savefit=False):
 				ax1.set_ylabel('%s(Bok) - %s(%s)'%(b,b,ref.upper()))
 				ax1.set_ylim(-0.25,0.25)
 				order = len(cterms[ref])-1
-				clrstr = {'sdss':'gz','ps1':'gi'}[ref]
+				clrstr = {'sdss':'gi','ps1':'gi'}[ref]
 				polystr = ' '.join(['%+.5f*%s^%d'%(c,clrstr,order-d) 
 				                      for d,c in enumerate(cterms[ref])])
 				ax1.set_title(('$%s(Bok) - %s(%s) = '%(b,b,ref.upper())) +
@@ -269,16 +269,17 @@ def calc_color_terms(doplots=False,savefit=False):
 					if ref=='sdss':
 						ax.axvline(0.4,c='b')
 						ax.axvline(3.7,c='b')
-						ax.set_xlabel('SDSS g-z')
-						ax.set_xlim(0.2,3.9)
+						ax.set_xlabel('SDSS g-i')
+						ax.set_xlim(-0.05,3.9)
 					else:
 						ax.axvline(0.4,c='b')
 						ax.axvline(2.7,c='b')
 						ax.set_xlabel('PS1 g-i')
-						ax.set_xlim(0.3,2.8)
+						ax.set_xlim(-0.05,2.8)
+					ax.axvline(0,c='MidnightBlue')
 					ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.1))
 					ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.02))
-				fig.savefig('%s_%s_to_bok_colors.png'%(b,ref))
+				fig.savefig('%s_%s_to_bok_gicolors.png'%(b,ref))
 
 def calc_zeropoints(ref='ps1'):
 	t = load_nov2015_data()
