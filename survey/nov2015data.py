@@ -163,7 +163,7 @@ def stripe82_catalogs(bokdir,ccdsfile='bass-ccds-idmnov2015.fits'):
 			amp_dmag = sigma_clip(mean_mag[:,np.newaxis] - amp_mags)
 			ii = np.where(tab['bok_amp_'+b] == amp)
 			tab['bok_ampcorr_'+b][ii] = amp_dmag.mean()
-			tab.meta['AMPCOR%02d'%amp] = amp_dmag.mean()
+			tab.meta['AMPC%s%02d'%(b.upper(),amp)] = amp_dmag.mean()
 			print '%4d +/- %2d ' % (1e3*amp_dmag.mean(),1e3*amp_dmag.std()),
 			if (amp%4)==0: print
 		print
