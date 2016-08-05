@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os
+import os,sys
 import re
 import numpy as np
 from astropy.io import fits
@@ -447,6 +447,8 @@ def checkarchive(logf,archivef,outfn=None):
 	t = join(archive,log,keys='DTACQNAM',join_type='outer')
 	if outfn:
 		outf = open(outfn,'w')
+	else:
+		outf = sys.stdout
 	if True:
 		is2016 = [str(utd).startswith('2016') for utd in t['utDir_1']]
 		initmask = np.array(is2016)
@@ -464,10 +466,11 @@ def checkarchive(logf,archivef,outfn=None):
 		print '%s missing %d/%d files' % (utd,missing.sum(),len(ii))
 		for i in ii[missing]:
 			outf.write('%s %s\n' % (t['utDir_1'][i],t['DTACQNAM'][i]))
-	outf.close()
+	if outfn:
+		outf.close()
 
 if __name__=='__main__':
-	import sys,argparse
+	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--obsdb",action="store_true",
 	                    help="build the observations database")
