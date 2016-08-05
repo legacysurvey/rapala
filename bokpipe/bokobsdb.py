@@ -15,7 +15,8 @@ from astropy.table import Table,vstack
 badfloat = -9999.99
 
 def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
-                 inTable=None,extraFields=(),extraTypes=(),extra_cb=None):
+                 inTable=None,include_singlechip=False,
+                 extraFields=(),extraTypes=(),extra_cb=None):
 	# load all FITS files in the specified directories
 	if filePattern is None:
 		filePattern = '*.fits*'
@@ -69,6 +70,9 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 			h = fitsio.read_header(f,0)
 		except:
 			print 'ERROR: failed to open file: ',f
+			continue
+		if h['NCCDS']==1 and not include_singlechip:
+			print 'WARNING: skipping single-chip image ',f
 			continue
 		row = []
 		imageType = h.get('IMAGETYP','null').strip()
