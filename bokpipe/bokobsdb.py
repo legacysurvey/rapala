@@ -71,11 +71,11 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 			print 'ERROR: failed to open file: ',f
 			continue
 		row = []
-		imageType = h['IMAGETYP'].strip()
-		filt = h['FILTER'].strip()
+		imageType = h.get('IMAGETYP','null').strip()
+		filt = h.get('FILTER','null').strip()
 		if filters is not None and filt not in filters:
 			continue
-		objName = h['OBJECT'].strip()
+		objName = h.get('OBJECT','null').strip()
 		if len(objName)==0:
 			objName = 'null'
 		if objFilter is not None and imageType == 'object' and \
@@ -86,17 +86,11 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 			airmass = badfloat
 		else:
 			airmass = 1/cos(radians(90.-h['ELEVAT']))
-			if abs(airmass-h['AIRMASS']) > 0.1:
+			if 'AIRMASS' in h and abs(airmass-h['AIRMASS']) > 0.1:
 				print airmass,h['AIRMASS'],h['ELEVAT']
 				raise ValueError
-		try:
-			hdrAirmass = h['AIRMASS']
-		except ValueError:
-			hdrAirmass = badfloat
-		try:
-			alt,az = h['ELEVAT'],h['AZIMUTH'] 
-		except ValueError:
-			alt,az = badfloat,badfloat
+		hdrAirmass = h.get('AIRMASS',badfloat)
+		alt,az = h.get('ELEVAT',badfloat),h.get('AZIMUTH',badfloat)
 		try:
 			ha,lst = h['HA'].strip(),h['LST-OBS'].strip()
 		except ValueError:
@@ -190,14 +184,14 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 			indx = i
 		else:
 			indx = len(inTable) + i
-		row.extend([indx,utDir,fn,utDate,h['DATE-OBS']])
-		row.extend([imageType,filt,objName,h['EXPTIME']])
-		row.extend([h['CCDBIN1'],h['CCDBIN2'],focA,focB,focC])
+		row.extend([indx,utDir,fn,utDate,h.get('DATE-OBS','null')])
+		row.extend([imageType,filt,objName,h.get('EXPTIME',-1)])
+		row.extend([h.get('CCDBIN1',-1),h.get('CCDBIN2',-1),focA,focB,focC])
 		row.extend([hdrAirmass,airmass])
 		row.extend([alt,az,ha,lst])
 		row.extend([ra,dec,coord])
-		row.extend([h['UT'],mjd])
-		row.extend([h['CAMTEMP'],h['DEWTEMP']])
+		row.extend([h.get('UT','null'),mjd])
+		row.extend([h.get('CAMTEMP',-99999),h.get('DEWTEMP',-99999)])
 		row.extend([outTemp,outHum,outDew])
 		row.extend([inTemp,inHum])
 		row.extend([mirrorCellTemp,primaryTemp,strutTemp,primeTemp])
