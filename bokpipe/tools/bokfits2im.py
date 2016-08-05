@@ -17,11 +17,17 @@ parser.add_argument("--vmin",type=float,
                     help="minimum range")
 parser.add_argument("--vmax",type=float,
                     help="maximum range")
+parser.add_argument("--siglo",type=float,default=2.5,
+                    help="minimum range")
+parser.add_argument("--sighi",type=float,default=5.0,
+                    help="maximum range")
 parser.add_argument("--cmap",type=str,
                     help="color map")
 args = parser.parse_args()
 
 make_fov_image_fromfile(args.fitsFile,args.imgFile,
                         nbin=args.nbin,coordsys=args.coordsys,
-                        vmin=args.vmin,vmax=args.vmax,cmap=args.cmap)
+                        vmin=args.vmin,vmax=args.vmax,
+                        lo=args.siglo,hi=args.sighi,
+                        cmap=args.cmap)
 
