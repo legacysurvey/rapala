@@ -4,11 +4,13 @@ import os,sys
 from glob import glob
 import numpy as np
 import fitsio
+from scipy.ndimage.filters import gaussian_filter
 from astropy.stats import sigma_clip
 from astropy.table import Table,vstack
 
+from bokpipe.bokoscan import overscan_subtract
 from bokpipe.bokproc import ampOrder
-from bokpipe.bokutil import stats_region,array_clip
+from bokpipe.bokutil import stats_region,array_clip,array_stats
 
 import matplotlib.pyplot as plt
 from matplotlib import ticker
@@ -40,10 +42,15 @@ def calc_gain_rdnoise(biases,flats):
 		data['flat2'] = os.path.basename(files[3])
 		skip = False
 		for ext in range(1,17):
-			bias1,bias2 = [ _data2arr(f[ext].read()[s],100,5000) 
-			                  for f in ff[:2]]
-			flat1,flat2 = [ _data2arr(f[ext].read()[s],100,50000) 
-			                  for f in ff[2:] ]
+			try:
+				bias1,bias2 = [ _data2arr(f[ext].read()[s],100,5000) 
+				                  for f in ff[:2]]
+				flat1,flat2 = [ _data2arr(f[ext].read()[s],100,50000) 
+				                  for f in ff[2:] ]
+			except:
+				print 'failed with ',ff
+				skip = True
+				break
 			_B1 = bias1.mean()
 			_B2 = bias2.mean()
 			_F1 = flat1.mean()
@@ -74,95 +81,6 @@ def calc_gain_rdnoise(biases,flats):
 			rv.append(data)
 	return np.concatenate(rv)
 
-
-def calc_all_gain_rdnoise(nmax=5,fn='bass'):
-	# XXX if keeping then update to use dataMap
-	raise NotImplementedError
-	if fn=='bass':
-		import basslog
-		datadir = get_BASS_datadir()
-		logs = basslog.load_Bok_logs('../survey/logs/')
-		dpfx = ''
-	else:
-		import boklog
-		datadir = os.environ['BOK90PRIMERAWDIR']
-		logs = boklog.load_Bok_logs()
-		dpfx = 'ut'
-	utds = sorted(logs.keys())
-	detData = []
-	fileData = []
-	for utd in utds:
-		if utd=='20131222': continue # something amiss with these
-		# always skip the first three
-		ii1 = np.where(logs[utd]['imType']=='zero')[0][3:]
-		if len(ii1)>nmax:
-			ii1 = ii1[:nmax]
-		elif len(ii1)==0:
-			continue
-		biases = [os.path.join(datadir,dpfx+utd,
-		                       logs[utd]['fileName'][i]+'.fits.gz')
-		           for i in ii1]
-		# always skip the first three
-		ii2 = np.where((logs[utd]['imType']=='flat') &
-		               (logs[utd]['expTime']>1.0) &
-		               (logs[utd]['filter']=='g'))[0][3:]
-		if len(ii2)>nmax:
-			ii2 = ii2[:nmax]
-		elif len(ii2)==0:
-			continue
-		flats = [os.path.join(datadir,dpfx+utd,
-		                      logs[utd]['fileName'][i]+'.fits.gz')
-		           for i in ii2]
-		if utd == '20150205':
-			# hack because this night had mixed readout modes
-			getims = lambda f1,f2: [os.path.join(datadir,'20150205',
-			                                     'd7058.%04d.fits.gz'%f)
-			                          for f in range(f1,f2+1)]
-			biases = getims(1,10)
-			flats = getims(51,60)
-		print 'utd: ',utd,len(ii1),len(ii2)
-		c = calc_gain_rdnoise(biases,flats)
-		n = c['gain'].shape[0]
-		detData.append(c)
-		fileData.extend([(utd,biasfn,flatfn) for biasfn,flatfn in
-		                        zip(logs[utd]['fileName'][ii1[:n]],
-		                            logs[utd]['fileName'][ii2[:n]])])
-	detData = np.concatenate(detData)
-	fileData = np.array(fileData,dtype=[('utDate','S8'),
-	                                 ('biasFn','S10'),('flatFn','S10')])
-	fitsio.write('bok90_%s_char.fits'%fn,detData,clobber=True)
-	fitsio.write('bok90_%s_char.fits'%fn,fileData)
-
-def bias_check():
-	# XXX if keeping update to use bokproc
-	raise NotImplementedError
-	import basslog
-	datadir = get_BASS_datadir()
-	logs = basslog.load_Bok_logs('../survey/logs/')
-	dtype = [('utDate','S8'),('fileName','S30'),('oscanMean','f4',16),
-	         ('meanResidual','f4',16),('rmsResidual','f4',16)]
-	biaslog = []
-	for utd in sorted(logs.keys()):
-		ii = np.where(logs[utd]['imType']=='zero')[0]
-		print utd,len(ii)
-		for i in ii:
-			f = fitsio.FITS(os.path.join(datadir,utd,
-		                                  logs[utd]['fileName'][i]+'.fits.gz'))
-			biasent = np.zeros(1,dtype=dtype)
-			biasent['utDate'] = utd
-			biasent['fileName'] = logs[utd]['fileName'][i]
-			for ext in range(1,17):
-				try:
-					im,bias = colbias(f[ext])
-				except:
-					continue
-				bias_residual = sigma_clip(im[512:1536,512:1536])
-				biasent['oscanMean'][0,ext-1] = bias
-				biasent['meanResidual'][0,ext-1] = bias_residual.mean()
-				biasent['rmsResidual'][0,ext-1] = bias_residual.std()
-			biaslog.append(biasent)
-	biaslog = np.concatenate(biaslog)
-	fitsio.write('bass_bias_log.fits',biaslog,clobber=True)
 
 def fastreadout_analysis():
 	datadir = get_BASS_datadir()
@@ -245,29 +163,6 @@ def plot_fastmode_analysis(det):
 				bins = np.arange(v.min()-eta,v.max()+2*eta,eta)
 				plt.hist(v,bins,histtype='step')
 
-def bias_drops():
-	# XXX if keeping update to use bokproc
-	raise NotImplementedError
-	import basslog
-	from ninetyprime import extract_colbias
-	nightlyLogs = basslog.load_Bok_logs('../survey/logs/')
-	extNum = 1
-	logf = open('bias_drops.txt','w')
-	for utd in sorted(nightlyLogs.keys())[1:]:
-		print utd
-		log = nightlyLogs[utd]
-		imdir = os.path.join(os.environ['BASSDATA'],utd)
-		for fn,imType in zip(log['fileName'],log['imType']):
-			imhdu = fitsio.FITS(os.path.join(imdir,fn+'.fits.gz'))
-			im,bias = extract_colbias(imhdu[extNum])
-			bias = bias.astype(np.float32)
-			centerbias = np.median(bias[500:-500,5:-5])
-			bias -= centerbias
-			if np.median(bias[5:20,5:-5]) < -15:
-				print utd,fn,imType
-				logf.write('%s %s %s\n' % (utd,fn,imType))
-	logf.close()
-
 def nightly_checks(utdir,logdir,redo=False):
 	from bokpipe.bokobsdb import generate_log
 	print 'running nightly check on ',utdir
@@ -338,6 +233,39 @@ def nightly_checks(utdir,logdir,redo=False):
 				nbit = np.sum((data&(1<<bit))>0)
 				bitbit['bitFreq'][i,j,bit] = nbit/npix
 	logFits.write(bitbit)
+	#
+	# bias ramps
+	#
+	biasrmp = np.zeros(len(biases),dtype=[('fileName','S15'),
+	                                      ('sliceMeanAdu','f4',(16,)),
+	                                      ('sliceRmsAdu','f4',(16,)),
+	                                      ('sliceRangeAdu','f4',(16,)),
+	                                      ('dropFlag','i1',(16,)),
+	                                      ('residualMeanAdu','f4',(16,)),
+	                                      ('residualRmsAdu','f4',(16,))])
+	for i,bias in enumerate(biases):
+		biasrmp['fileName'][i] = os.path.basename(bias)
+		fits = _open_fits(bias)
+		for j,hdu in enumerate(fits[1:]):
+			imNum = 'IM%d' % ampOrder[j]
+			data = hdu.read().astype(np.float32)
+			cslice = sigma_clip(data[1032:1048,2:-22],iters=1,sigma=3.0,axis=0)
+			cslice = cslice.mean(axis=0)
+			cslice = gaussian_filter(cslice,17)
+			biasrmp['sliceMeanAdu'][i,j] = cslice.mean()
+			biasrmp['sliceRmsAdu'][i,j] = cslice.std()
+			biasrmp['sliceRangeAdu'][i,j] = cslice.max() - cslice.min()
+			centerbias = np.median(data[500:-500,5:-5])
+			if np.median(data[5:20,5:-5]-centerbias) < -15:
+				print 'found drop in ',bias,j
+				biasrmp['dropFlag'][i,j] = 1
+			bias_residual = overscan_subtract(data,hdu.read_header())
+			s = stats_region('amp_central_quadrant')
+			mn,sd = array_stats(bias_residual[s],method='mean',rms=True,
+			                    clip_sig=5.0,clip_iters=2)
+			biasrmp['residualMeanAdu'][i,j] = mn
+			biasrmp['residualRmsAdu'][i,j] = sd
+	logFits.write(biasrmp)
 	# finish up
 	logFits.close()
 
@@ -461,11 +389,6 @@ def combined_report(logdir):
 
 if __name__=='__main__':
 	import argparse
-	#calc_all_gain_rdnoise(10)
-	#calc_all_gain_rdnoise(10,'sdss')
-	#linearity_check()
-	#bias_check()
-	#bias_drops()
 	plt.ioff()
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-n","--nightly",action='store_true',
