@@ -31,8 +31,8 @@ def calc_gain_rdnoise(biases,flats):
 	s = stats_region('amp_corner_ccdcenter_1024')
 	for files in zip(biases[:-1],biases[1:],flats[:-1],flats[1:]):
 		ff = [_open_fits(f) for f in files]
-		data = np.empty(1,dtype=[('bias1','S15'),('bias2','S15'),
-		                         ('flat1','S15'),('flat2','S15'),
+		data = np.empty(1,dtype=[('bias1','S30'),('bias2','S30'),
+		                         ('flat1','S30'),('flat2','S30'),
 		                         ('biasADU','f4',16),('flatADU','f4',16),
 		                      ('biasRmsADU','f4',16),('flatRmsADU','f4',16),
 		                         ('gain','f4',16),('rdnoise','f4',16)])
@@ -220,7 +220,7 @@ def nightly_checks(utdir,logdir,redo=False):
 	# bit integrity check
 	#
 	nbits = 8
-	bitbit = np.zeros(len(flats),dtype=[('fileName','S15'),
+	bitbit = np.zeros(len(flats),dtype=[('fileName','S30'),
 	                                    ('bitFreq','f4',(16,nbits))])
 	for i,flat in enumerate(flats):
 		bitbit['fileName'][i] = os.path.basename(flat)
@@ -236,7 +236,7 @@ def nightly_checks(utdir,logdir,redo=False):
 	#
 	# bias ramps
 	#
-	biasrmp = np.zeros(len(biases),dtype=[('fileName','S15'),
+	biasrmp = np.zeros(len(biases),dtype=[('fileName','S30'),
 	                                      ('sliceMeanAdu','f4',(16,)),
 	                                      ('sliceRmsAdu','f4',(16,)),
 	                                      ('sliceRangeAdu','f4',(16,)),
