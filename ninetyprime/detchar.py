@@ -172,6 +172,8 @@ def find_cal_sequences(log,min_len=5):
 	calseqs = {'zero':[],'flat':[],'zero_and_flat':[]}
 	for ut in t.groups:
 		iscal = np.where((ut['imType']=='zero')|(ut['imType']=='flat'))[0]
+		if len(iscal)==0:
+			continue
 		# this wouldn't work if someone changed the filter in the middle
 		# of a bias sequence... not worth worrying about
 		ut_type = ut[iscal].group_by(['imType','filter','expTime'])
