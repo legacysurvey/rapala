@@ -6,7 +6,7 @@ import numpy as np
 import fitsio
 from scipy.ndimage.filters import gaussian_filter
 from astropy.stats import sigma_clip
-from astropy.table import Table,vstack
+from astropy.table import Table,vstack,join
 
 from bokpipe.bokoscan import overscan_subtract
 from bokpipe.bokproc import ampOrder
@@ -385,6 +385,25 @@ def combined_report(logdir):
 	with open('bass_summary.txt','w') as outf:
 		gainrn_report(data1,outf,utbreaks1[1:])
 		bit_report(data2,outf,utbreaks2[1:])
+
+def bias_report(logf):
+	log = Table.read(logf,hdu=1)
+	biasdat = Table.read(logf,hdu=4)
+	### argh, strings won't match because they don't have same padding
+	c = [ fn.strip() for fn in biasdat['fileName'] ]
+	del biasdat['fileName']
+	biasdat['fileName'] = c
+	###
+	return join(log,biasdat,'fileName',join_type='outer')
+
+def all_bias_reports(logdir):
+	t = []
+	for logf in sorted(glob(os.path.join(logdir,'log_*.fits'))):
+		try:
+			t.append(bias_report(logf))
+		except:
+			print 'missing ',logf
+	return vstack(t)
 
 
 if __name__=='__main__':
