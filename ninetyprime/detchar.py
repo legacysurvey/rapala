@@ -4,9 +4,10 @@ import os,sys
 from glob import glob
 import numpy as np
 import fitsio
+import multiprocessing
 from scipy.ndimage.filters import gaussian_filter
 from astropy.stats import sigma_clip
-from astropy.table import Table,vstack,join
+from astropy.table import Table,vstack
 
 from bokpipe.bokoscan import overscan_subtract
 from bokpipe.bokproc import ampOrder
@@ -31,8 +32,8 @@ def calc_gain_rdnoise(biases,flats):
 	s = stats_region('amp_corner_ccdcenter_1024')
 	for files in zip(biases[:-1],biases[1:],flats[:-1],flats[1:]):
 		ff = [_open_fits(f) for f in files]
-		data = np.empty(1,dtype=[('bias1','S30'),('bias2','S30'),
-		                         ('flat1','S30'),('flat2','S30'),
+		data = np.empty(1,dtype=[('bias1','S35'),('bias2','S35'),
+		                         ('flat1','S35'),('flat2','S35'),
 		                         ('biasADU','f4',16),('flatADU','f4',16),
 		                      ('biasRmsADU','f4',16),('flatRmsADU','f4',16),
 		                         ('gain','f4',16),('rdnoise','f4',16)])
@@ -163,7 +164,134 @@ def plot_fastmode_analysis(det):
 				bins = np.arange(v.min()-eta,v.max()+2*eta,eta)
 				plt.hist(v,bins,histtype='step')
 
-def nightly_checks(utdir,logdir,redo=False):
+def find_cal_sequences(log,min_len=5):
+	# frameIndex isn't actually a straight table index, but rather a unique
+	# id. adding a running index makes the group sorting much clearer.
+	t = Table(log).group_by('utDir')
+	t['ii'] = np.arange(len(t))
+	calseqs = {'zero':[],'flat':[],'zero_and_flat':[]}
+	for ut in t.groups:
+		iscal = np.where((ut['imType']=='zero')|(ut['imType']=='flat'))[0]
+		# this wouldn't work if someone changed the filter in the middle
+		# of a bias sequence... not worth worrying about
+		ut_type = ut[iscal].group_by(['imType','filter','expTime'])
+		for utt in ut_type.groups:
+			if len(utt) < min_len:
+				continue
+			imType = utt['imType'][0] 
+			ii = np.arange(len(utt))
+			seqs = np.split(ii,1+np.where(np.diff(utt['frameIndex'])>1)[0])
+			seqs = [ np.array(utt['ii'][s]) 
+			               for s in seqs if len(s) >= min_len ]
+			calseqs[imType].extend(seqs)
+	# bias/flat sequences taken in succession, for gain/RN calculation
+	# kind of hacky, just look for a set of flats taken roughly close to
+	# each set of biases (as in, within 20 minutes)
+	max_deltat_minutes = 20.
+	bias_times = np.array([ t['mjd'][s[0]] for s in calseqs['zero'] ])
+	flat_times = np.array([ t['mjd'][s[0]] for s in calseqs['flat'] ])
+	for bt,bs in zip(bias_times,calseqs['zero']):
+		j = np.argmin(np.abs(bt-flat_times))
+		if 24*60*np.abs(bt-flat_times[j]) < max_deltat_minutes:
+			calseqs['zero_and_flat'].append((bs,calseqs['flat'][j]))
+	return calseqs
+
+def bias_checks(bias):
+	i = 0
+	rv = np.zeros(1,dtype=[('fileName','S35'),
+	                       ('sliceMeanAdu','f4',(16,)),
+	                       ('sliceRmsAdu','f4',(16,)),
+	                       ('sliceRangeAdu','f4',(16,)),
+	                       ('dropFlag','i4',(16,)),
+	                       ('residualMeanAdu','f4',(16,)),
+	                       ('residualRmsAdu','f4',(16,))])
+	fn = os.path.basename(bias).replace('.fz','').replace('.fits','')
+	rv['fileName'][i] = fn
+	fits = _open_fits(bias)
+	for j,hdu in enumerate(fits[1:]):
+		imNum = 'IM%d' % ampOrder[j]
+		try:
+			data = hdu.read().astype(np.float32)
+		except:
+			print 'ERROR: failed to read %s[%d]'%(fn,j+1)
+			continue
+		cslice = sigma_clip(data[1032:1048,2:-22],iters=1,sigma=3.0,axis=0)
+		cslice = cslice.mean(axis=0)
+		cslice = gaussian_filter(cslice,17)
+		rv['sliceMeanAdu'][i,j] = cslice.mean()
+		rv['sliceRmsAdu'][i,j] = cslice.std()
+		rv['sliceRangeAdu'][i,j] = cslice.max() - cslice.min()
+		centerbias = np.median(data[500:-500,5:-5])
+		if np.median(data[5:20,5:-5]-centerbias) < -15:
+			print 'found drop in ',bias,j
+			rv['dropFlag'][i,j] = 1
+		bias_residual = overscan_subtract(data,hdu.read_header())
+		s = stats_region('amp_central_quadrant')
+		mn,sd = array_stats(bias_residual[s],method='mean',rms=True,
+		                    clip_sig=5.0,clip_iters=2)
+		rv['residualMeanAdu'][i,j] = mn
+		rv['residualRmsAdu'][i,j] = sd
+	return rv
+
+def quick_parallel(fun,input,nproc):
+	if nproc > 1:
+		p = multiprocessing.Pool(nproc)
+		rv = p.map(fun,input)
+		p.close()
+		p.join()
+	else:
+		# instead of creating a 1-process pool just run the sequence
+		rv = [ fun(x) for x in input ]
+	return np.concatenate(rv)
+
+def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True):
+	imType = np.char.rstrip(log['imType'])
+	fileNames = np.char.rstrip(log['fileName'])
+	utDirs = np.char.rstrip(log['utDir'])
+	filePaths = np.char.add(np.char.add(utDirs,'/'),fileNames)
+	filePaths = np.char.add(np.char.add(datadir,filePaths),'.fits')
+	calseqs = find_cal_sequences(log)
+	for imtype in calseqs:
+		print 'found %d %s sequences' % (len(calseqs[imtype]),imtype)
+	#
+	# empirical gain/readnoise calculation
+	#
+	if dogainrn:
+		for bi,fi in calseqs['zero_and_flat']:
+			biases = filePaths[bi]
+			flats = filePaths[fi]
+			# skip the first image in each sequence
+			gainrdnoise = calc_gain_rdnoise(biases[1:],flats[1:])
+			logFits.write(gainrdnoise,extname='GAINRN')
+	#
+	# bit integrity check
+	#
+	if dobitcheck:
+		flats = filePaths[np.concatenate(calseqs['flat'])]
+		nbits = 8
+		bitbit = np.zeros(len(flats),dtype=[('fileName','S35'),
+		                                    ('bitFreq','f4',(16,nbits))])
+		for i,flat in enumerate(flats):
+			fn = os.path.basename(flat).replace('.fz','').replace('.fits','')
+			bitbit['fileName'][i] = fn
+			fits = _open_fits(flat)
+			for j,hdu in enumerate(fits[1:]):
+				imNum = 'IM%d' % ampOrder[j]
+				data = hdu.read().astype(np.int32)
+				npix = float(data.size)
+				for bit in range(nbits):
+					nbit = np.sum((data&(1<<bit))>0)
+					bitbit['bitFreq'][i,j,bit] = nbit/npix
+			print 'flat ',i,' out of ',len(flats)
+		logFits.write(bitbit,extname='BITCHK')
+	#
+	# bias ramps
+	#
+	biases = filePaths[np.concatenate(calseqs['zero'])]
+	biasrmp = quick_parallel(bias_checks,biases,nproc)
+	logFits.write(biasrmp,extname='BIASCHK')
+
+def run_nightly_checks(utdir,logdir,datadir,redo=False):
 	from bokpipe.bokobsdb import generate_log
 	print 'running nightly check on ',utdir
 	logf = os.path.join(logdir,'log_ut%s.fits' % os.path.basename(utdir))
@@ -181,92 +309,7 @@ def nightly_checks(utdir,logdir,redo=False):
 		generate_log([utdir],logf)
 		logFits = fitsio.FITS(logf,'rw')
 		log = logFits[1].read()
-	imType = np.char.rstrip(log['imType'])
-	fileNames = np.char.rstrip(log['fileName'])
-	# find first bias sequence
-	biases = []
-	is_bias = (imType == 'zero')
-	ii = np.where(is_bias)[0]
-	for _i,i in enumerate(ii):
-		for j in range(_i+1,len(ii)):
-			if ii[j] != ii[j-1]+1:
-				break
-		if (j-_i > 5):
-			biases = ii[:j-_i]
-			break
-	# find first flat sequence in any filter
-	flats = []
-	is_flat = (imType == 'flat')
-	ii = np.where(is_flat)[0]
-	for _i,i in enumerate(ii):
-		for j in range(_i+1,len(ii)):
-			if ( (ii[j] != ii[j-1]+1) or
-			     (log['filter'][ii[j]] != log['filter'][ii[j-1]]) or
-			     (log['expTime'][ii[j]] != log['expTime'][ii[j-1]]) ):
-				break
-		if (j-_i > 5):
-			flats = ii[:j-_i]
-			break
-	#
-	# empirical gain/readnoise calculation
-	#
-	biases = [ os.path.join(utdir,f+'.fits') for f in fileNames[biases] ]
-	flats = [ os.path.join(utdir,f+'.fits') for f in fileNames[flats] ]
-	if len(biases)>3 and len(flats)>3:
-		# skip the first image in each sequence
-		gainrdnoise = calc_gain_rdnoise(biases[1:],flats[1:])
-		logFits.write(gainrdnoise)
-	#
-	# bit integrity check
-	#
-	nbits = 8
-	bitbit = np.zeros(len(flats),dtype=[('fileName','S30'),
-	                                    ('bitFreq','f4',(16,nbits))])
-	for i,flat in enumerate(flats):
-		bitbit['fileName'][i] = os.path.basename(flat)
-		fits = _open_fits(flat)
-		for j,hdu in enumerate(fits[1:]):
-			imNum = 'IM%d' % ampOrder[j]
-			data = hdu.read().astype(np.int32)
-			npix = float(data.size)
-			for bit in range(nbits):
-				nbit = np.sum((data&(1<<bit))>0)
-				bitbit['bitFreq'][i,j,bit] = nbit/npix
-	logFits.write(bitbit)
-	#
-	# bias ramps
-	#
-	biasrmp = np.zeros(len(biases),dtype=[('fileName','S30'),
-	                                      ('sliceMeanAdu','f4',(16,)),
-	                                      ('sliceRmsAdu','f4',(16,)),
-	                                      ('sliceRangeAdu','f4',(16,)),
-	                                      ('dropFlag','i1',(16,)),
-	                                      ('residualMeanAdu','f4',(16,)),
-	                                      ('residualRmsAdu','f4',(16,))])
-	for i,bias in enumerate(biases):
-		biasrmp['fileName'][i] = os.path.basename(bias)
-		fits = _open_fits(bias)
-		for j,hdu in enumerate(fits[1:]):
-			imNum = 'IM%d' % ampOrder[j]
-			data = hdu.read().astype(np.float32)
-			cslice = sigma_clip(data[1032:1048,2:-22],iters=1,sigma=3.0,axis=0)
-			cslice = cslice.mean(axis=0)
-			cslice = gaussian_filter(cslice,17)
-			biasrmp['sliceMeanAdu'][i,j] = cslice.mean()
-			biasrmp['sliceRmsAdu'][i,j] = cslice.std()
-			biasrmp['sliceRangeAdu'][i,j] = cslice.max() - cslice.min()
-			centerbias = np.median(data[500:-500,5:-5])
-			if np.median(data[5:20,5:-5]-centerbias) < -15:
-				print 'found drop in ',bias,j
-				biasrmp['dropFlag'][i,j] = 1
-			bias_residual = overscan_subtract(data,hdu.read_header())
-			s = stats_region('amp_central_quadrant')
-			mn,sd = array_stats(bias_residual[s],method='mean',rms=True,
-			                    clip_sig=5.0,clip_iters=2)
-			biasrmp['residualMeanAdu'][i,j] = mn
-			biasrmp['residualRmsAdu'][i,j] = sd
-	logFits.write(biasrmp)
-	# finish up
+	run_qa(log,logFits,datadir)
 	logFits.close()
 
 def _reportfig_init8():
@@ -341,11 +384,6 @@ def bit_report(data,outf,utbreaks=None,save=True):
 	if save:
 		plt.savefig('bass_summary_%s.png'%'bits')
 
-def nightly_report(logf):
-	fits = fitsio.FITS(logf)
-	data = fits[2].read()
-	gainrn_report(data)
-
 def calc_overheads(logdata):
 	dt = np.diff(logdata['mjd'])*24*3600 - logdata['expTime'][:-1]
 	imt = {'zero':0,'dark':1,'flat':2,'object':3}
@@ -386,25 +424,6 @@ def combined_report(logdir):
 		gainrn_report(data1,outf,utbreaks1[1:])
 		bit_report(data2,outf,utbreaks2[1:])
 
-def bias_report(logf):
-	log = Table.read(logf,hdu=1)
-	biasdat = Table.read(logf,hdu=4)
-	### argh, strings won't match because they don't have same padding
-	c = [ fn.strip() for fn in biasdat['fileName'] ]
-	del biasdat['fileName']
-	biasdat['fileName'] = c
-	###
-	return join(log,biasdat,'fileName',join_type='outer')
-
-def all_bias_reports(logdir):
-	t = []
-	for logf in sorted(glob(os.path.join(logdir,'log_*.fits'))):
-		try:
-			t.append(bias_report(logf))
-		except:
-			print 'missing ',logf
-	return vstack(t)
-
 
 if __name__=='__main__':
 	import argparse
@@ -420,6 +439,17 @@ if __name__=='__main__':
 	parser.add_argument("-l","--logdir",type=str,
 	                    default="/home/mcgreer/basslogs/",
 	                    help="log file directory")
+	parser.add_argument("-o","--output",type=str,
+	                    default="bassqa.fits",
+	                    help="output file")
+	parser.add_argument("--logfile",type=str,
+	                    help="input log file")
+	parser.add_argument("--nogainrn",action='store_true',
+	                    help="skip gain/readnoise calc (SLOW)")
+	parser.add_argument("--nobitcheck",action='store_true',
+	                    help="skip bit integrity check")
+	parser.add_argument("--nproc",type=int,default=1,
+	                    help="set number of processes to run [default 1]")
 	parser.add_argument("-R","--redo",action='store_true',
 	                    help="ignore existing data and redo")
 	parser.add_argument("-u","--utdate",type=str,
@@ -432,7 +462,22 @@ if __name__=='__main__':
 		utdirs = sorted(glob(os.path.join(args.datadir,'201?????')))
 	if args.nightly:
 		for utdir in utdirs:
-			nightly_checks(utdir,args.logdir,redo=args.redo)
+			if args.logfile:
+				log = fitsio.read(args.logfile,1)
+				if os.path.exists(args.output):
+					os.remove(args.output)
+				logFits = fitsio.FITS(args.output,'rw')
+				logFits.write(None)
+				run_qa(log,logFits,args.datadir,nproc=args.nproc,
+				       dogainrn=(not args.nogainrn),
+				       dobitcheck=(not args.nobitcheck))
+				logFits.close()
+				# if this isn't here multiprocess gets stuck in an infinite
+				# loop... why?
+				sys.exit(0)
+			else:
+				run_nightly_checks(utdir,args.logdir,args.datadir,
+				                   redo=args.redo)
 	if args.report:
 		combined_report(args.logdir)
 
