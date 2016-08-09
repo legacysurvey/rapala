@@ -201,7 +201,6 @@ def find_cal_sequences(log,min_len=5):
 
 def bias_checks(bias,overscan=False):
 	i = 0
-	print 'overscan is ',overscan
 	rv = np.zeros(1,dtype=[('fileName','S35'),
 	                       ('sliceMeanAdu','f4',(16,)),
 	                       ('sliceRmsAdu','f4',(16,)),
@@ -210,6 +209,7 @@ def bias_checks(bias,overscan=False):
 	                       ('residualMeanAdu','f4',(16,)),
 	                       ('residualRmsAdu','f4',(16,))])
 	fn = os.path.basename(bias).replace('.fz','').replace('.fits','')
+	print 'checking ',fn
 	rv['fileName'][i] = fn
 	fits = _open_fits(bias)
 	for j,hdu in enumerate(fits[1:]):
@@ -221,7 +221,7 @@ def bias_checks(bias,overscan=False):
 			print 'ERROR: failed to read %s[%d]'%(fn,j+1)
 			continue
 		if overscan:
-			if hdu['OVRSCAN2'] == 20:
+			if hdr['OVRSCAN2'] == 20:
 				cslice = sigma_clip(data[-22:-2:,2:-22],
 				                    iters=1,sigma=3.0,axis=0)
 				centerbias = np.median(data[5:-5,-22:-2])
@@ -257,7 +257,7 @@ def quick_parallel(fun,input,nproc,**kwargs):
 		p.join()
 	else:
 		# instead of creating a 1-process pool just run the sequence
-		rv = [ fun(x) for x in input ]
+		rv = [ fun(x,**kwargs) for x in input ]
 	return np.concatenate(rv)
 
 def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True):
@@ -307,9 +307,11 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True):
 	biasrmp = quick_parallel(bias_checks,biases,nproc,overscan=False)
 	logFits.write(biasrmp,extname='BIASCHK')
 	ii = np.where((imType=='zero')|(imType=='object'))[0]
+	print 'checking overscans for ',len(ii),' images'
 	images = filePaths[ii]
 	biasrmp = quick_parallel(bias_checks,images,nproc,overscan=True)
-	biasrmp['imType'] = imType[ii]
+	biasrmp = np.lib.recfunctions.append_fields(biasrmp,'imType',imType[ii],
+	                                            dtypes=imType.dtype)
 	logFits.write(biasrmp,extname='BIASCHK2')
 
 def run_nightly_checks(utdir,logdir,datadir,redo=False):
