@@ -186,7 +186,7 @@ def get_coverage(obsdb,tiledb):
 def obs_summary(which='good',newest=True,tiles=None,
                 mjdstart=None,mjdend=None,
                 doplot=False,smallplot=False,saveplot=None,
-                decalsstyle=False,byfilter=False,verbose=False):
+                decalsstyle=False,byfilter=False,verbose=0):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb(get_obsdb_filename(which,newest))
@@ -242,13 +242,14 @@ def obs_summary(which='good',newest=True,tiles=None,
 			print '  ',
 		print
 	print
-	if tiles is not None and verbose:
+	if tiles is not None and verbose > 0:
 		print 'MJDs of completed tiles (last MJD shown when repeated)'
 		print '%6s    %s' % ('tile','g band'.center(23,'-')),
 		print ' %s' % ('r band'.center(23,'-'))
 		print '%6s    %7s %7s %7s %7s %7s %7s' % \
 		        tuple(['']+['P%d'%(_p) 
 		                for _b in 'gr' for _p in range(1,4)])
+		_mjds = []
 		for t in tiles:
 			i = np.where(t==tid)[0][0]
 			print '%6d   ' % t,
@@ -258,10 +259,16 @@ def obs_summary(which='good',newest=True,tiles=None,
 						kk = np.where((obsdb['tileId']==t)&
 						              (obsdb['filter']==b)&
 						              (obsdb['ditherId']==k+1))[0]
+						_mjds.append(obsdb['mjd'][kk[-1]])
 						print '%7d' % obsdb['mjd'][kk[-1]],
 					else:
 						print '%7s' % '---',
 			print
+		print
+		uts = [ Time(mjd,format='mjd').iso[:10] 
+		           for mjd in sorted(np.unique(_mjds)) ]
+		print 'unique set of UT dates covering these tiles: '
+		print '  '+'\n  '.join(uts)
 		print
 	#
 	if doplot:
