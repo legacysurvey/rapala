@@ -198,7 +198,7 @@ def find_cal_sequences(log,min_len=5):
 			calseqs['zero_and_flat'].append((bs,calseqs['flat'][j]))
 	return calseqs
 
-def bias_checks(bias):
+def bias_checks(bias,overscan=False):
 	i = 0
 	rv = np.zeros(1,dtype=[('fileName','S35'),
 	                       ('sliceMeanAdu','f4',(16,)),
@@ -217,13 +217,17 @@ def bias_checks(bias):
 		except:
 			print 'ERROR: failed to read %s[%d]'%(fn,j+1)
 			continue
-		cslice = sigma_clip(data[1032:1048,2:-22],iters=1,sigma=3.0,axis=0)
+		if overscan:
+			cslice = sigma_clip(data[-22:-2:,2:-22],iters=1,sigma=3.0,axis=0)
+			centerbias = np.median(data[5:-5,-22:-2])
+		else:
+			cslice = sigma_clip(data[1032:1048,2:-22],iters=1,sigma=3.0,axis=0)
+			centerbias = np.median(data[500:-500,500:-500])
 		cslice = cslice.mean(axis=0)
 		cslice = gaussian_filter(cslice,17)
 		rv['sliceMeanAdu'][i,j] = cslice.mean()
 		rv['sliceRmsAdu'][i,j] = cslice.std()
 		rv['sliceRangeAdu'][i,j] = cslice.max() - cslice.min()
-		centerbias = np.median(data[500:-500,5:-5])
 		if np.median(data[5:20,5:-5]-centerbias) < -15:
 			print 'found drop in ',bias,j
 			rv['dropFlag'][i,j] = 1
