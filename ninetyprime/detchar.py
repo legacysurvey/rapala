@@ -5,6 +5,7 @@ from glob import glob
 import numpy as np
 import fitsio
 import multiprocessing
+from functools import partial
 from scipy.ndimage.filters import gaussian_filter
 from astropy.stats import sigma_clip
 from astropy.table import Table,vstack
@@ -200,6 +201,7 @@ def find_cal_sequences(log,min_len=5):
 
 def bias_checks(bias,overscan=False):
 	i = 0
+	print 'overscan is ',overscan
 	rv = np.zeros(1,dtype=[('fileName','S35'),
 	                       ('sliceMeanAdu','f4',(16,)),
 	                       ('sliceRmsAdu','f4',(16,)),
@@ -241,10 +243,11 @@ def bias_checks(bias,overscan=False):
 		rv['residualRmsAdu'][i,j] = sd
 	return rv
 
-def quick_parallel(fun,input,nproc):
+def quick_parallel(fun,input,nproc,**kwargs):
 	if nproc > 1:
+		fun_with_args = partial(fun,**kwargs)
 		p = multiprocessing.Pool(nproc)
-		rv = p.map(fun,input)
+		rv = p.map(fun_with_args,input)
 		p.close()
 		p.join()
 	else:
@@ -296,7 +299,7 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True):
 	# bias ramps
 	#
 	biases = filePaths[np.concatenate(calseqs['zero'])]
-	biasrmp = quick_parallel(bias_checks,biases,nproc)
+	biasrmp = quick_parallel(bias_checks,biases,nproc)#,overscan=False)
 	logFits.write(biasrmp,extname='BIASCHK')
 
 def run_nightly_checks(utdir,logdir,datadir,redo=False):
