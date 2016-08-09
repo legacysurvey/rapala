@@ -262,7 +262,8 @@ def quick_parallel(fun,input,nproc,**kwargs):
 		rv = [ fun(x,**kwargs) for x in input ]
 	return np.concatenate(rv)
 
-def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True):
+def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True,
+	       nsplit=0,nrun=0):
 	imType = np.char.rstrip(log['imType'])
 	fileNames = np.char.rstrip(log['fileName'])
 	utDirs = np.char.rstrip(log['utDir'])
@@ -305,10 +306,17 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True):
 	#
 	# bias ramps
 	#
-	biases = filePaths[np.concatenate(calseqs['zero'])]
-	biasrmp = quick_parallel(bias_checks,biases,nproc,overscan=False)
-	logFits.write(biasrmp,extname='BIASCHK')
+	if False:
+		# this checks for bias features using the image region of biases,
+		# used to check that the overscan feature search works correctly
+		biases = filePaths[np.concatenate(calseqs['zero'])]
+		biasrmp = quick_parallel(bias_checks,biases,nproc,overscan=False)
+		logFits.write(biasrmp,extname='BIASCHK')
 	ii = np.where((imType=='zero')|(imType=='object'))[0]
+	if nsplit > 0:
+		print ii[0],len(ii),
+		ii = np.array_split(ii,nsplit)[nrun]
+		print ii[0],len(ii)
 	print 'checking overscans for ',len(ii),' images'
 	images = filePaths[ii]
 	biasrmp = quick_parallel(bias_checks,images,nproc,overscan=True)
@@ -477,6 +485,10 @@ if __name__=='__main__':
 	                    help="set number of processes to run [default 1]")
 	parser.add_argument("-R","--redo",action='store_true',
 	                    help="ignore existing data and redo")
+	parser.add_argument("--numsplit",type=int,default=0,
+	                    help="number of chunks to split data into [none]")
+	parser.add_argument("--splitnum",type=int,default=0,
+	                    help="which chunk number to run")
 	parser.add_argument("-u","--utdate",type=str,
 	                    help="restrict UT date")
 	args = parser.parse_args()
@@ -495,7 +507,8 @@ if __name__=='__main__':
 				logFits.write(None)
 				run_qa(log,logFits,args.datadir,nproc=args.nproc,
 				       dogainrn=(not args.nogainrn),
-				       dobitcheck=(not args.nobitcheck))
+				       dobitcheck=(not args.nobitcheck),
+				       nsplit=args.numsplit,nrun=args.splitnum)
 				logFits.close()
 				# if this isn't here multiprocess gets stuck in an infinite
 				# loop... why?
