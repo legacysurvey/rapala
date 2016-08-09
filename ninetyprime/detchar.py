@@ -224,12 +224,14 @@ def bias_checks(bias,overscan=False):
 			if hdr['OVRSCAN2'] == 20:
 				cslice = sigma_clip(data[-22:-2:,2:-22],
 				                    iters=1,sigma=3.0,axis=0)
-				centerbias = np.median(data[5:-5,-22:-2])
 			else:
 				cslice = None # No row overscan to check
+			bottomslice = data[5:10,-16:-2].mean(axis=0)
+			middleslice = data[100:110,-16:-2].mean(axis=0)
 		else:
 			cslice = sigma_clip(data[1032:1048,2:-22],iters=1,sigma=3.0,axis=0)
-			centerbias = np.median(data[500:-500,500:-500])
+			bottomslice = data[5:10,1000:1014].mean(axis=0)
+			middleslice = data[100:110,1000:1014].mean(axis=0)
 		if cslice is not None:
 			x0edgeslice = cslice[5:10]
 			cslice = cslice.mean(axis=0)
@@ -237,9 +239,9 @@ def bias_checks(bias,overscan=False):
 			rv['sliceMeanAdu'][i,j] = cslice.mean()
 			rv['sliceRmsAdu'][i,j] = cslice.std()
 			rv['sliceRangeAdu'][i,j] = cslice.max() - cslice.min()
-			if np.median(x0edgeslice-centerbias) < -15:
-				print 'found drop in ',bias,j
-				rv['dropFlag'][i,j] = 1
+		if np.median(middleslice-bottomslice) > 15:
+			print 'found drop in ',bias,j
+			rv['dropFlag'][i,j] = 1
 		bias_residual = overscan_subtract(data,hdr)
 		s = stats_region('amp_central_quadrant')
 		mn,sd = array_stats(bias_residual[s],method='mean',rms=True,
