@@ -216,26 +216,31 @@ def bias_checks(bias,overscan=False):
 		imNum = 'IM%d' % ampOrder[j]
 		try:
 			data = hdu.read().astype(np.float32)
+			hdr = hdu.read_header()
 		except:
 			print 'ERROR: failed to read %s[%d]'%(fn,j+1)
 			continue
 		if overscan:
-			cslice = sigma_clip(data[-22:-2:,2:-22],iters=1,sigma=3.0,axis=0)
-			centerbias = np.median(data[5:-5,-22:-2])
-			bottomslice = data[5:20,-18:-2]
+			if hdu['OVRSCAN2'] == 20:
+				cslice = sigma_clip(data[-22:-2:,2:-22],
+				                    iters=1,sigma=3.0,axis=0)
+				centerbias = np.median(data[5:-5,-22:-2])
+			else:
+				cslice = None # No row overscan to check
 		else:
 			cslice = sigma_clip(data[1032:1048,2:-22],iters=1,sigma=3.0,axis=0)
 			centerbias = np.median(data[500:-500,500:-500])
-			bottomslice = data[5:20,5:-5]
-		cslice = cslice.mean(axis=0)
-		cslice = gaussian_filter(cslice,17)
-		rv['sliceMeanAdu'][i,j] = cslice.mean()
-		rv['sliceRmsAdu'][i,j] = cslice.std()
-		rv['sliceRangeAdu'][i,j] = cslice.max() - cslice.min()
-		if np.median(bottomslice-centerbias) < -15:
-			print 'found drop in ',bias,j
-			rv['dropFlag'][i,j] = 1
-		bias_residual = overscan_subtract(data,hdu.read_header())
+		if cslice is not None:
+			x0edgeslice = cslice[5:10]
+			cslice = cslice.mean(axis=0)
+			cslice = gaussian_filter(cslice,17)
+			rv['sliceMeanAdu'][i,j] = cslice.mean()
+			rv['sliceRmsAdu'][i,j] = cslice.std()
+			rv['sliceRangeAdu'][i,j] = cslice.max() - cslice.min()
+			if np.median(x0edgeslice-centerbias) < -15:
+				print 'found drop in ',bias,j
+				rv['dropFlag'][i,j] = 1
+		bias_residual = overscan_subtract(data,hdr)
 		s = stats_region('amp_central_quadrant')
 		mn,sd = array_stats(bias_residual[s],method='mean',rms=True,
 		                    clip_sig=5.0,clip_iters=2)
@@ -299,8 +304,13 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True):
 	# bias ramps
 	#
 	biases = filePaths[np.concatenate(calseqs['zero'])]
-	biasrmp = quick_parallel(bias_checks,biases,nproc)#,overscan=False)
+	biasrmp = quick_parallel(bias_checks,biases,nproc,overscan=False)
 	logFits.write(biasrmp,extname='BIASCHK')
+	ii = np.where((imType=='zero')|(imType=='object'))[0]
+	images = filePaths[ii]
+	biasrmp = quick_parallel(bias_checks,images,nproc,overscan=True)
+	biasrmp['imType'] = imType[ii]
+	logFits.write(biasrmp,extname='BIASCHK2')
 
 def run_nightly_checks(utdir,logdir,datadir,redo=False):
 	from bokpipe.bokobsdb import generate_log
