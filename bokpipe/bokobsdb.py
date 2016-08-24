@@ -30,7 +30,8 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 	# create the storage table
 	t = Table(names=('frameIndex','utDir','fileName','utDate','date_obs',
 	                 'imType','filter','objName','expTime',
-	                 'ccdbin1','ccdbin2','focusA','focusB','focusC',
+	                 'ccdbin1','ccdbin2','oscan1','oscan2',
+	                 'focusA','focusB','focusC',
 	                 'hdrAirmass','airmass',
 	                 'alt','az','ha','lst',
 	                 'targetRa','targetDec','targetCoord',
@@ -43,7 +44,8 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 	                 +extraFields,
 	          dtype=('i4','S15','S35','S8','S10',
 	                 'S8','S8','S35','f4',
-	                 'i4','i4','f4','f4','f4',
+	                 'i4','i4','i4','i4',
+	                 'f4','f4','f4',
 	                 'f4','f4',
 	                 'f4','f4','S10','S10',
 	                 'f8','f4','S15',
@@ -68,6 +70,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 				continue
 		try:
 			h = fitsio.read_header(f,0)
+			h1 = fitsio.read_header(f,1)
 		except:
 			print 'ERROR: failed to open file: ',f
 			continue
@@ -190,7 +193,9 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 			indx = len(inTable) + i
 		row.extend([indx,utDir,fn,utDate,h.get('DATE-OBS','null')])
 		row.extend([imageType,filt,objName,h.get('EXPTIME',-1)])
-		row.extend([h.get('CCDBIN1',-1),h.get('CCDBIN2',-1),focA,focB,focC])
+		row.extend([h.get('CCDBIN1',-1),h.get('CCDBIN2',-1),
+		            h1.get('OVRSCAN1',-1),h1.get('OVRSCAN2',-1)])
+		row.extend([focA,focB,focC])
 		row.extend([hdrAirmass,airmass])
 		row.extend([alt,az,ha,lst])
 		row.extend([ra,dec,coord])
