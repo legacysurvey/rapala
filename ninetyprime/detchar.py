@@ -306,7 +306,7 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True,
 	#
 	# bias ramps
 	#
-	if False:
+	if True:
 		# this checks for bias features using the image region of biases,
 		# used to check that the overscan feature search works correctly
 		biases = filePaths[np.concatenate(calseqs['zero'])]
@@ -314,7 +314,7 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True,
 		logFits.write(biasrmp,extname='BIASCHK')
 	ii = np.where((imType=='zero')|(imType=='object'))[0]
 	if nsplit > 0:
-		print ii[0],len(ii),
+		print 'splits: ',ii[0],len(ii),
 		ii = np.array_split(ii,nsplit)[nrun]
 		print ii[0],len(ii)
 	print 'checking overscans for ',len(ii),' images'
@@ -322,7 +322,7 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True,
 	biasrmp = quick_parallel(bias_checks,images,nproc,overscan=True)
 	biasrmp = np.lib.recfunctions.append_fields(biasrmp,'imType',imType[ii],
 	                                            dtypes=imType.dtype)
-	logFits.write(biasrmp,extname='BIASCHK2')
+	logFits.write(biasrmp,extname='OSCANCHK')
 
 def run_nightly_checks(utdir,logdir,datadir,redo=False):
 	from bokpipe.bokobsdb import generate_log
