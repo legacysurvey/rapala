@@ -5,6 +5,7 @@ import re
 from collections import OrderedDict
 import numpy as np
 from scipy.ndimage.filters import median_filter
+from scipy.interpolate import LSQUnivariateSpline
 import fitsio
 
 from .bokutil import BokProcess,array_clip
@@ -46,7 +47,8 @@ def fit_overscan(overscan,**kwargs):
 	windowSize = kwargs.get('filter_window',31)
 	maskAlong = kwargs.get('mask_along',[0,1,2,-1])
 	along = kwargs.get('along','columns')
-	spline_interval = kwargs.get('spline_interval',20)
+	spline_nknots = kwargs.get('spline_nknots',7)
+	spline_niter = kwargs.get('spline_niter',2)
 	if along == 'rows':
 		# make it look like a column overscan for simplicity
 		overscan = overscan.transpose()
@@ -54,6 +56,10 @@ def fit_overscan(overscan,**kwargs):
 	#
 	overscan = np.ma.masked_array(overscan)
 	overscan[:,maskAlong] = np.ma.masked
+	if along == 'rows':
+		# really the columns that need to be masked, but doesn't hurt to
+		# mask the edge rows above as well
+		overscan[maskAlong,:] = np.ma.masked
 	# reject outlier values perpendicular to overscan axis
 	if reject == 'sigma_clip':
 		overscan = array_clip(overscan,axis=1,**kwargs)
@@ -74,14 +80,21 @@ def fit_overscan(overscan,**kwargs):
 	elif method == 'median_value':
 		oscan_fit = np.repeat(np.ma.median(overscan),npix)
 	elif method == 'cubic_spline':
-		knots = np.concatenate([np.arange(1,npix,spline_interval),[npix,]])
-		mean_fit = overscan.mean(axis=1)
+		# LSQUnivariateSpline only wants the interior knots
+		knots = np.linspace(0,npix,spline_nknots)[1:-1]
+		oscanvec = overscan.mean(axis=1)
 		x = np.arange(npix)
-		spl_fit = LSQUnivariateSpline(x,mean_fit,t=knots)
-		oscan_fit = spl_fit(x)
+		for iternum in range(spline_niter):
+			g = ~oscanvec.mask
+			spl_fit = LSQUnivariateSpline(x[g],oscanvec.data[g],t=knots)
+			oscan_fit = spl_fit(x)
+			res = array_clip(oscanvec-oscan_fit)
+			if np.all(res.mask==oscanvec.mask):
+				break
+			oscanvec.mask |= res.mask
 	else:
 		raise ValueError
-	if 'value' not in method:
+	if 'value' not in method and 'spline' not in method:
 		# another round of rejection, this time along the vector
 		oscan_fit = array_clip(oscan_fit,axis=0,
 		                       clip_iters=None,clip_sig=3.0,
@@ -176,7 +189,7 @@ class BokOverscanSubtract(BokProcess):
 		self.fit_kwargs = { k:v for k,v in kwargs.items()
 		                     if k in ['reject','method','apply_filter',
 		                              'mask_along','clip_iters','clip_sig',
-		                              'spline_interval'] }
+		                              'spline_nknots','spline_niter'] }
 		self.writeOscanImg = kwargs.get('write_overscan_image',False)
 		self.oscanColsImgFile = kwargs.get('oscan_cols_file')
 		self.oscanRowsImgFile = kwargs.get('oscan_rows_file')
