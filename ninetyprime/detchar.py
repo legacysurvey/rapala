@@ -10,7 +10,7 @@ from scipy.ndimage.filters import gaussian_filter
 from astropy.stats import sigma_clip
 from astropy.table import Table,vstack
 
-from bokpipe.bokoscan import overscan_subtract
+from bokpipe.bokoscan import extract_overscan,fit_overscan,overscan_subtract
 from bokpipe.bokproc import ampOrder
 from bokpipe.bokutil import stats_region,array_clip,array_stats
 
@@ -221,7 +221,11 @@ def bias_checks(bias,overscan=False):
 			print 'ERROR: failed to read %s[%d]'%(fn,j+1)
 			continue
 		if overscan:
-			if hdr['OVRSCAN2'] == 20:
+			_data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
+			#colbias = fit_overscan(oscan_cols,**kwargs)
+			if oscan_rows is not None:
+				rowbias = fit_overscan(oscan_rows,along='rows',
+				                       method='cubic_spline')
 				cslice = sigma_clip(data[-22:-2:,2:-22],
 				                    iters=1,sigma=3.0,axis=0)
 			else:
@@ -233,7 +237,6 @@ def bias_checks(bias,overscan=False):
 			bottomslice = data[5:10,1000:1014].mean(axis=0)
 			middleslice = data[100:110,1000:1014].mean(axis=0)
 		if cslice is not None:
-			x0edgeslice = cslice[5:10]
 			cslice = cslice.mean(axis=0)
 			cslice = gaussian_filter(cslice,17)
 			rv['sliceMeanAdu'][i,j] = cslice.mean()
