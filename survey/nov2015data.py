@@ -505,13 +505,16 @@ def stripe82_seeing():
 			fwhm = np.ma.median(sigma_clip(cat['FWHM_IMAGE'][ii]))[0]
 			print '%s %.2f %.2f' % (field,fwhm,fwhm*0.455)
 
-def stripe82_aperphot_all(which='s82cal',**kwargs):
-	idmredux = kwargs.pop('idmredux',False)
-	if idmredux:
-		bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',
-		                      'bokpipe_v0.2','nov15data')
+def stripe82_aperphot_all(which='s82cal',redux='naoc',**kwargs):
+	rdxdir = os.path.join(os.environ['BASSRDXDIR'],'reduced')
+	if redux=='naoc':
+		bokdir = os.path.join(rdxdir,'nov15data')
+	elif redux=='idm':
+		bokdir = os.path.join(rdxdir,'bokpipe_v0.2','nov15data')
+	elif redux=='noao':
+		bokdir = os.path.join(rdxdir,'noaocp','nov15data')
 	else:
-		bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced','nov15data')
+		raise ValueError
 	aperRad = kwargs.pop('aperRad',7.0) / 0.455 # asec -> pix
 	if which=='s82cal':
 		s82cat = Table(load_stripe82_truth(ra_range=(332,336)),masked=True)
@@ -549,9 +552,11 @@ def stripe82_aperphot_all(which='s82cal',**kwargs):
 		s82cat[k].mask |= missing
 	s82cat['ampIndex'] = get_amp_index(s82cat['x'],s82cat['y'])
 	s82cat['ampNum'] = 4*(s82cat['ccdNum']-1) + s82cat['ampIndex'] + 1
-	if idmredux:
+	if redux=='idm':
+		# units of image are electrons
 		s82cat['cps'] = s82cat['counts'] / exptime[np.newaxis,:,np.newaxis]
 	else:
+		# units of image are electrons/s
 		s82cat['cps'] = s82cat['counts'].copy()
 		s82cat['counts'] = s82cat['cps'] * exptime[np.newaxis,:,np.newaxis]
 		s82cat['countsErr'] *= exptime[np.newaxis,:,np.newaxis]
@@ -561,6 +566,8 @@ def stripe82_aperphot_all(which='s82cal',**kwargs):
 	                       np.ma.divide(s82cat['cps'],
 	                              s82cat['meanCps'][:,np.newaxis,:])),axis=1)
 	s82cat['nobs'] = (~s82cat['counts'].mask).sum(axis=1)
+	s82cat['dmag'] = -2.5*np.ma.log10(s82cat['cps'] 
+	                                   / s82cat['meanCps'][:,np.newaxis,:])
 	return s82cat
 
 def stripe82_linearity_plot(s82tab,filt='g',peak=False):
@@ -617,11 +624,18 @@ def stripe82_linearity_plot(s82tab,filt='g',peak=False):
 	plt.figtext(0.01,0.5,r'$flux / <flux>$',size=14,va='center',
 	            rotation='vertical')
 
-def rename_proc_files():
-	bokdir = os.path.join(os.environ['BASSRDXDIR'],'reduced','20151111')
-	outdir = os.path.join(os.environ['BASSRDXDIR'],'reduced','nov15data')
+def rename_proc_files(which='naoc'):
+	rdxdir = os.environ['BASSRDXDIR']
+	if which=='naoc':
+		bokdir = os.path.join(rdxdir,'reduced','20151111')
+		outdir = os.path.join(rdxdir,'reduced','nov15data')
+	elif which=='noao':
+		bokdir = os.path.join(rdxdir,'BOK_CP','CP20151111V0')
+		outdir = os.path.join(rdxdir,'reduced','noaocp','nov15data')
+	else:
+		raise ValueError
 	if not os.path.exists(outdir):
-		os.mkdir(outdir)
+		os.makedirs(outdir)
 	log = Table.read('bass_Nov2015toFeb2016.fits')
 	ii = np.where(log['utDate']=='20151112')[0]
 	for i in ii:
@@ -632,8 +646,15 @@ def rename_proc_files():
 				continue
 			outfn = os.path.join(outdir,field.replace('bokr','r')+sfx+'.fits')
 			if os.path.exists(outfn): continue
-			d = log['DTACQNAM'][i].split('.')
 			filt = log['filter'][i]
+			if which=='noao':
+				nsfx = 'oow' if sfx=='.wht' else 'ooi'
+				_fn = log['fileName'][i].replace('ori',nsfx)+'_%s_v0' % filt
+				infn = os.path.join(bokdir,_fn)+'.fits.fz'
+				os.system('funpack -O %s %s' % (outfn,infn))
+				continue
+			# for NAOC images combine 4 CCDs into single MEF file
+			d = log['DTACQNAM'][i].split('.')
 			hdus = [fits.PrimaryHDU()]
 			try:
 				for ccd in range(1,5):
@@ -793,4 +814,23 @@ def etc_check():
 			print '%s  %4.2f %6.2f %6.2f %5.2f %7.1f %10.2f' % \
 			        (field,airmass,skyextinction,skymag,fwhm,t/3,dfac)
 		print
+
+def compare_scatter(phot1,phot2,names,minnobs=4):
+	m1,m2 = srcor(phot1['ra'],phot1['dec'],phot2['ra'],phot2['dec'],1.0)
+	plt.figure(figsize=(10,5))
+	plt.subplots_adjust(0.08,0.12,0.95,0.92,0.25)
+	for j,b in enumerate('gr'):
+		ii = np.where((phot1['nobs'][m1,j]>=minnobs) &
+		              (phot2['nobs'][m2,j]>=minnobs))[0]
+		plt.subplot(1,2,j+1)
+		for p,c,l in zip([phot1[m1[ii]],phot2[m2[ii]]],'bg',names):
+			ii = np.where(p['cpsSig'][:,j] > 0)[0]
+			plt.scatter(p['psfmag_'+b][ii],p['cpsSig'][ii,j],s=7,c=c,
+			            edgecolor='none',alpha=0.7,label=l)
+		plt.title('%s band' % b)
+		plt.legend(loc='upper left')
+		plt.xlim(15.7,{'g':22.5,'r':22.1}[b])
+		plt.ylim(-0.005,0.35)
+		plt.xlabel('SDSS %s mag' % b)
+		plt.ylabel(r'$\sigma(%s)$' % b)
 
