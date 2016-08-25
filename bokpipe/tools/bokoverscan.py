@@ -23,9 +23,9 @@ parser.add_argument("--spline_niter",type=int,
                     help="number of iterations of spline fitting")
 parser.add_argument("--write_overscan_image",action="store_true",
                     help="make overscan image")
-parser.add_argument("--oscan_cols_file",type=str,default="oscan_cols.fits",
+parser.add_argument("--oscan_cols_file",type=str,default="oscan_cols",
                     help="")
-parser.add_argument("--oscan_rows_file",type=str,default="oscan_rows.fits",
+parser.add_argument("--oscan_rows_file",type=str,default="oscan_rows",
                     help="")
 parser.add_argument("--row_apply_filter",
                     help="([median]|none")
