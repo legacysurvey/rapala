@@ -244,7 +244,7 @@ class BokDataManager(object):
 		# list of objects to exclude
 		if exclude_objs is not None:
 			for objnm in exclude_objs:
-				file_sel ^= self.obsDb['objName'] == objnm
+				file_sel &= ~(self.obsDb['objName'] == objnm)
 		# finally check input frame list
 		if self.frameList is not None:
 			isFrame = np.zeros(len(self.obsDb),dtype=bool)
@@ -305,7 +305,7 @@ def get_bias_map(dataMap):
 
 def get_flat_map(dataMap):
 	flatMap = {}
-	flatPattern = os.path.join(dataMap.getCalDir(),'flat_????????_*.fits')
+	flatPattern = os.path.join(dataMap.getCalDir(),'flat_????????_*_?.fits')
 	flatFiles = sorted(glob.glob(flatPattern))
 	flat2utdfilt = ".*flat_(\d+)_(\w+)_.*"
 	utdfilt = [ re.match(flat2utdfilt,fn).groups() for fn in flatFiles]
@@ -313,7 +313,10 @@ def get_flat_map(dataMap):
 	flatFilt = np.array([filt for utd,filt in utdfilt])
 	for filt in dataMap.iterFilters():
 		for utd in dataMap.iterUtDates():
-			files = dataMap.getFiles()
+			# will crash here if it finds bias images with a filter that
+			# has no flat images, thinking it needs to make a flat.
+			# should be no harm in restricting to object frames...
+			files = dataMap.getFiles(imType='object')
 			if files is None:
 				continue
 			jj = np.where(flatFilt==filt)[0]
