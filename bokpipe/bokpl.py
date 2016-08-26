@@ -5,6 +5,7 @@ import re
 import glob
 import shutil
 from copy import copy
+from functools import partial
 import multiprocessing
 import numpy as np
 from numpy.core.defchararray import add as char_add
@@ -205,7 +206,10 @@ class BokDataManager(object):
 		file_sel = good_ims.copy()
 		# select on UT date(s)
 		if utd is not None:
-			utds = [utd] if type(utd) is str else utd
+			if isinstance(utd,basestring):
+				utds = [utd]
+			else:
+				utds = utd
 		elif self._curUtDate is not None:
 			utds = [self._curUtDate]
 		else:
@@ -345,30 +349,69 @@ def overscan_subtract(dataMap,fixsaturation=False,**kwargs):
 	                                        **kwargs)
 	oscanSubtract.process_files(dataMap.getFiles())
 
+def _bias_worker(dataMap,biasStack,nSkip,writeccdim,biasIn,**kwargs):
+	utd,biasNum,biasFiles = biasIn
+	biasFile = os.path.join(dataMap.getCalDir(),
+	                        'bias_%s_%d.fits' % (utd,biasNum))
+	biasStack.stack(biasFiles[nSkip:],biasFile)
+	if kwargs.get('verbose',0) >= 1:
+		print '2DBIAS: ',biasFile
+		print '\n'.join(biasFiles[nSkip:])
+	if writeccdim:
+		makeccd4image(dataMap,biasFile,**kwargs)
+
 def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
                    writeccdim=False,**kwargs):
+	# need to make sure num processes is reset to 1 before calling these
+	# routines since they will execute from within a subprocess
+	nProc = kwargs.pop('processes',1)
 	biasStack = bokproc.BokBiasStack(input_map=dataMap('oscan'),
 	                                 reject=reject,
                                      **kwargs)
+	# build the list of bias sequences for each night
+	biasList = []
 	for utd in dataMap.iterUtDates():
 		bias_seqs = dataMap.getFiles(imType='zero',as_sequences=True)
 		if bias_seqs is None:
 			continue
 		for biasNum,biasFiles in enumerate(bias_seqs,start=1):
-			if len(biasFiles) < 5: # XXX hardcoded
-				continue
-			biasFile = os.path.join(dataMap.getCalDir(),
-			                        'bias_%s_%d.fits' % (utd,biasNum))
-			biasStack.stack(biasFiles[nSkip:],biasFile)
-			if kwargs.get('verbose',0) >= 1:
-				print '2DBIAS: ',biasFile
-				print '\n'.join(biasFiles[nSkip:])
-			if writeccdim:
-				makeccd4image(dataMap,biasFile,**kwargs)
+			if len(biasFiles) >= 5: # XXX hardcoded
+				biasList.append((utd,biasNum,biasFiles))
+	# distribute the list of sequences to subprocesses if requested
+	if nProc > 1:
+		p_bias_worker = partial(_bias_worker,dataMap,biasStack,
+		                        nSkip,writeccdim,**kwargs)
+		pool = multiprocessing.Pool(nProc)
+		pool.map(p_bias_worker,biasList)
+		pool.close()
+	else:
+		for bias in biasList:
+			_bias_worker(dataMap,biasStack,nSkip,writeccdim,bias,**kwargs)
+
+def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
+                 debug,flatIn,**kwargs):
+	utd,filt,flatNum,flatFiles = flatIn
+	flatFile = os.path.join(dataMap.getCalDir(),
+                            'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
+	bias2Dsub.process_files(flatFiles)
+	flatStack.stack(flatFiles[nSkip:],flatFile)
+	if normFlat:
+		if debug:
+			shutil.copy(flatFile,
+			            flatFile.replace('.fits','_raw.fits'))
+		normFlat.process_files([flatFile])
+	if kwargs.get('verbose',0) >= 1:
+		print 'DOMEFLAT: ',flatFile
+		print '\n'.join(flatFiles[nSkip:])
+	if writeccdim:
+		makeccd4image(dataMap,flatFile,**kwargs)
 
 def make_dome_flats(dataMap,bias_map,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
 	                usepixflat=True,debug=False,**kwargs):
+	# need to make sure num processes is reset to 1 before calling these
+	# routines since they will execute from within a subprocess
+	nProc = kwargs.pop('processes',1)
 	bias2Dsub = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
 	                                  output_map=dataMap('bias'),
 	                                  bias=bias_map,
@@ -385,28 +428,29 @@ def make_dome_flats(dataMap,bias_map,
 			ffmap,bfmap = None,None
 		normFlat = bokproc.NormalizeFlat(_normed_flat_fit_map=ffmap,
 		                                 _binned_flat_map=bfmap,**kwargs)
+	else:
+		normFlat = None
+	# build the list of dome flat sequences for each night/filter
+	flatList = []
 	for utd in dataMap.iterUtDates():
 		for filt in dataMap.iterFilters():
 			flat_seqs = dataMap.getFiles(imType='flat',as_sequences=True)
 			if flat_seqs is None:
 				continue
 			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
-				if len(flatFiles) < 5: # XXX hardcoded
-					continue
-				flatFile = os.path.join(dataMap.getCalDir(),
-			                        'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
-				bias2Dsub.process_files(flatFiles)
-				flatStack.stack(flatFiles[nSkip:],flatFile)
-				if usepixflat:
-					if debug:
-						shutil.copy(flatFile,
-						            flatFile.replace('.fits','_raw.fits'))
-					normFlat.process_files([flatFile])
-				if kwargs.get('verbose',0) >= 1:
-					print 'DOMEFLAT: ',flatFile
-					print '\n'.join(flatFiles[nSkip:])
-				if writeccdim:
-					makeccd4image(dataMap,flatFile,**kwargs)
+				if len(flatFiles) >= 5: # XXX hardcoded
+					flatList.append((utd,filt,flatNum,flatFiles))
+	# distribute the list of sequences to subprocesses if requested
+	if nProc > 1:
+		p_flat_worker = partial(_flat_worker,dataMap,bias2Dsub,flatStack,
+		                        normFlat,nSkip,writeccdim,debug,**kwargs)
+		pool = multiprocessing.Pool(nProc)
+		pool.map(p_flat_worker,flatList)
+		pool.close()
+	else:
+		for flat in flatList:
+			_flat_worker(flat,dataMap,bias2Dsub,flatStack,normFlat,
+			             nSkip,writeccdim,debug,flat,**kwargs)
 
 def make_bad_pixel_masks(dataMap,**kwargs):
 	for utd in dataMap.iterUtDates():
