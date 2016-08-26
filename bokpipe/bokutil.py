@@ -433,6 +433,7 @@ class BokProcess(object):
 			fits.update(data,hdr,noconvert=self.noConvert)
 		self._postprocess(fits,f)
 		fits.close()
+		self._finish()
 	def process_files(self,fileList):
 		if self.nProc > 1:
 			pool = multiprocessing.Pool(self.nProc)
@@ -441,7 +442,6 @@ class BokProcess(object):
 		else:
 			for f in fileList:
 				self.process_file(f)
-		self._finish()
 
 class BokMefImageCube(object):
 	def __init__(self,**kwargs):
