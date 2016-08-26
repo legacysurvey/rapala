@@ -86,7 +86,8 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 	ii = np.where((ra>raMin)&(ra<raMax)&(dec>decMin)&(dec<decMax))[0]
 	x,y = w.wcs_world2pix(ra[ii],dec[ii],0)
 	ii2 = np.where((x>edge_buf) & (y>edge_buf) & 
-	               (x<4096-edge_buf) & (y<4032-edge_buf))[0]
+	               (x<image.shape[1]-edge_buf) & 
+	               (y<image.shape[0]-edge_buf))[0]
 	x = x[ii2]
 	y = y[ii2]
 	ii = ii[ii2]
@@ -108,13 +109,14 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 	if dopeak:
 		# a pretty hacky way to do this
 		pkvals = np.array([ image[_y-5:_y+5,_x-5:_x+5].max() 
-		                       for _x,_y in zip(x,y) ])
+		                     for _x,_y in zip(x.astype(int),y.astype(int)) ])
 		rv += (pkvals,)
 	return rv
 
 def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 	                aHeadFile=None,**kwargs):
 	from astropy.io.fits import getheader
+	maskIsWhtMap = kwargs.get('mask_is_weight_map',True)
 	phot_cols = ('x','y','objId','counts','countsErr','flags')
 	phot_dtype = ('f4','f4','i4','f4','f4','i4')
 	if kwargs.get('calc_peak',False):
@@ -138,11 +140,8 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 			mask = None
 		else:
 			mask = badPixMask[extn].read()
-			# XXX HACK to transform weight map to bad pix mask
-			if True:
-				_hdr = badPixMask[0].read_header()
-				if 'WHTMAP' in _hdr:
-					mask = (mask==0)
+			if maskIsWhtMap:
+				mask = (mask==0)
 			else:
 				mask = mask.astype(np.bool)
 		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,**kwargs)
