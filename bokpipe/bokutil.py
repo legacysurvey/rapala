@@ -408,7 +408,6 @@ class BokProcess(object):
 	def _finish(self):
 		pass
 	def process_file(self,f):
-		print multiprocessing.current_process(),f
 		try:
 			fits = BokMefImage(self.inputNameMap(f),
 			                   output_file=self.outputNameMap(f),
