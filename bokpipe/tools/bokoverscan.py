@@ -39,6 +39,8 @@ parser.add_argument("--row_spline_nknots",type=int,
                     help="number of knots in spline fitting")
 parser.add_argument("--row_spline_niter",type=int,
                     help="number of iterations of spline fitting")
+parser.add_argument('-p','--processes',type=int,default=1,
+                    help='number of processes to use [default=single]')
 args = parser.parse_args()
 
 opts = vars(args)

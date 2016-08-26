@@ -4,6 +4,7 @@ import os
 from time import time
 from datetime import datetime
 from collections import OrderedDict
+import multiprocessing
 import fitsio
 import numpy as np
 from scipy.ndimage.morphology import binary_closing
@@ -344,6 +345,32 @@ class BokMefImage(object):
 		for fits in self.closeFiles:
 			fits.close()
 
+# make the instance methods pickleable using code from 
+# https://gist.github.com/bnyeggen/1086393
+
+def _pickle_method(method):
+	func_name = method.im_func.__name__
+	obj = method.im_self
+	cls = method.im_class
+	if func_name.startswith('__') and not func_name.endswith('__'): #deal with mangled names
+		cls_name = cls.__name__.lstrip('_')
+		func_name = '_' + cls_name + func_name
+	return _unpickle_method, (func_name, obj, cls)
+
+def _unpickle_method(func_name, obj, cls):
+	for cls in cls.__mro__:
+		try:
+			func = cls.__dict__[func_name]
+		except KeyError:
+			pass
+		else:
+			break
+	return func.__get__(obj, cls)
+
+import copy_reg
+import types
+copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
+
 class BokProcess(object):
 	def __init__(self,**kwargs):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
@@ -363,6 +390,7 @@ class BokProcess(object):
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.extensions = kwargs.get('extensions')
 		self.verbose = kwargs.get('verbose',0)
+		self.nProc = kwargs.get('processes',1)
 		self.noConvert = False
 	def add_mask(self,maskFits):
 		if type(maskFits) is str:
@@ -379,33 +407,41 @@ class BokProcess(object):
 		pass
 	def _finish(self):
 		pass
+	def process_file(self,f):
+		print multiprocessing.current_process(),f
+		try:
+			fits = BokMefImage(self.inputNameMap(f),
+			                   output_file=self.outputNameMap(f),
+			                   mask_file=self.maskNameMap(f),
+			                   keep_headers=self.keepHeaders,
+			                   clobber=self.clobber,
+			                   header_key=self.headerKey,
+			                   read_only=self.readOnly,
+			                   extensions=self.extensions)
+		except OutputExistsError,msg:
+			if self.ignoreExisting:
+				if self.verbose > 0:
+					_f = self.outputNameMap(f)
+					print '%s already processed by %s'%(_f,self.headerKey)
+				return
+			else:
+				raise OutputExistsError(msg)
+		for maskIm in self.masks:
+			fits.add_mask(maskIm)
+		self._preprocess(fits,f)
+		for extName,data,hdr in fits:
+			data,hdr = self.process_hdu(extName,data,hdr)
+			fits.update(data,hdr,noconvert=self.noConvert)
+		self._postprocess(fits,f)
+		fits.close()
 	def process_files(self,fileList):
-		for f in fileList:
-			try:
-				fits = BokMefImage(self.inputNameMap(f),
-				                   output_file=self.outputNameMap(f),
-				                   mask_file=self.maskNameMap(f),
-				                   keep_headers=self.keepHeaders,
-				                   clobber=self.clobber,
-				                   header_key=self.headerKey,
-				                   read_only=self.readOnly,
-				                   extensions=self.extensions)
-			except OutputExistsError,msg:
-				if self.ignoreExisting:
-					if self.verbose > 0:
-						_f = self.outputNameMap(f)
-						print '%s already processed by %s'%(_f,self.headerKey)
-					continue
-				else:
-					raise OutputExistsError(msg)
-			for maskIm in self.masks:
-				fits.add_mask(maskIm)
-			self._preprocess(fits,f)
-			for extName,data,hdr in fits:
-				data,hdr = self.process_hdu(extName,data,hdr)
-				fits.update(data,hdr,noconvert=self.noConvert)
-			self._postprocess(fits,f)
-			fits.close()
+		if self.nProc > 1:
+			pool = multiprocessing.Pool(self.nProc)
+			pool.map(self.process_file,fileList)
+			pool.close()
+		else:
+			for f in fileList:
+				self.process_file(f)
 		self._finish()
 
 class BokMefImageCube(object):

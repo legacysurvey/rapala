@@ -628,12 +628,13 @@ def make_catalogs(dataMap,inputType='sky',**kwargs):
 		catFile = dataMap('cat')(imFile)
 		bokphot.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
 
-def rmpipe(dataMap,**kwargs):
+def bokpipe(dataMap,**kwargs):
 	redo = kwargs.get('redo',False)
 	steps = kwargs.get('steps')
 	debug = kwargs.get('debug',False)
 	verbose = kwargs.get('verbose',0)
-	pipekwargs = {'clobber':redo,'verbose':verbose}
+	processes = kwargs.get('processes',1)
+	pipekwargs = {'clobber':redo,'verbose':verbose,'processes':processes}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
 	fixpix = False #True
 	writeccdims = kwargs.get('calccdims',False)
@@ -695,22 +696,6 @@ def rmpipe(dataMap,**kwargs):
 		make_catalogs(dataMap,**pipekwargs)
 		timerLog('catalog')
 	timerLog.dump()
-
-def rmpipe_poormp(dataMap,**kwargs):
-	nProc = kwargs.get('processes',1)
-	def chunks(l, n):
-		nstep = int(round(len(l)/float(n)))
-		for i in xrange(0, len(l), nstep):
-			yield l[i:i+nstep]
-	utdSets = chunks(dataMap.getUtDates(),nProc)
-	jobs = []
-	for i,utds in enumerate(utdSets):
-		fmap = copy(dataMap)
-		fmap.setUtDates(utds)
-		p = multiprocessing.Process(target=rmpipe,
-		                            args=(fmap,),kwargs=kwargs)
-		jobs.append(p)
-		p.start()
 
 def make_images(dataMap,imtype='comb',msktype=None):
 	import matplotlib.pyplot as plt
@@ -912,8 +897,6 @@ def run_pipe(dataMap,args):
 	elif args.wcscheck:
 		files = [dataMap('sky')(f) for f in dataMap.getFiles('object')]
 		bokgnostic.run_scamp_diag(files)
-	elif args.processes > 1:
-		rmpipe_poormp(dataMap,**kwargs)
 	else:
-		rmpipe(dataMap,**kwargs)
+		bokpipe(dataMap,**kwargs)
 
