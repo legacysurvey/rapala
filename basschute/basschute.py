@@ -51,6 +51,8 @@ if __name__=='__main__':
 	args = parser.parse_args()
 	args = set_bass_defaults(args)
 	dataMap = bokpl.init_data_map(args)
+	if args.band is None:
+		dataMap.setFilters(['g','bokr'])
 	dataMap = bokpl.set_master_cals(dataMap)
 	if args.finish:
 		finish_up(args,dataMap)
