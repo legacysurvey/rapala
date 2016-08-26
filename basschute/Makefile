@@ -15,7 +15,7 @@ else
 	NOV15RAW := $(BASSDATA)/BOK_Raw
 endif
 
-NPROC := -p 4
+NPROC := -p 6
 
 nov15all: nov15initproc nov15badpix nov15flats nov15finalproc
 
