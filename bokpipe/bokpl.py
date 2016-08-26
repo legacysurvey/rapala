@@ -380,6 +380,8 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 		for biasNum,biasFiles in enumerate(bias_seqs,start=1):
 			if len(biasFiles) >= 5: # XXX hardcoded
 				biasList.append((utd,biasNum,biasFiles))
+	# don't create unneeded subprocesses
+	nProc = min(nProc,len(biasList))
 	# distribute the list of sequences to subprocesses if requested
 	if nProc > 1:
 		p_bias_worker = partial(_bias_worker,dataMap,biasStack,
@@ -443,6 +445,8 @@ def make_dome_flats(dataMap,bias_map,
 			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
 				if len(flatFiles) >= 5: # XXX hardcoded
 					flatList.append((utd,filt,flatNum,flatFiles))
+	# don't create unneeded subprocesses
+	nProc = min(nProc,len(flatList))
 	# distribute the list of sequences to subprocesses if requested
 	if nProc > 1:
 		p_flat_worker = partial(_flat_worker,dataMap,bias2Dsub,flatStack,
