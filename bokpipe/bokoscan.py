@@ -228,7 +228,7 @@ class BokOverscanSubtract(BokProcess):
 				self.rowImg[extn].close()
 	def _preprocess(self,fits,f):
 		self.curFileName = fits.fileName
-		print 'overscan subtracting ',self.curFileName
+		self._proclog('overscan subtracting %s' % self.curFileName)
 	def process_hdu(self,extName,data,hdr):
 		data,oscan_cols,oscan_rows,colbias,rowbias = \
 		         overscan_subtract(data,hdr,returnFull=True,

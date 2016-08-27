@@ -358,7 +358,8 @@ def _bias_worker(dataMap,biasStack,nSkip,writeccdim,biasIn,**kwargs):
 	                        'bias_%s_%d.fits' % (utd,biasNum))
 	biasStack.stack(biasFiles[nSkip:],biasFile)
 	if kwargs.get('verbose',0) >= 1:
-		print '2DBIAS: ',biasFile
+		pid = multiprocessing.current_process().name.split('-')[1]
+		print '[%2s] 2DBIAS: %s' % (pid,biasFile)
 		print '\n'.join(biasFiles[nSkip:])
 	if writeccdim:
 		makeccd4image(dataMap,biasFile,**kwargs)
@@ -406,7 +407,8 @@ def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
 			            flatFile.replace('.fits','_raw.fits'))
 		normFlat.process_files([flatFile])
 	if kwargs.get('verbose',0) >= 1:
-		print 'DOMEFLAT: ',flatFile
+		pid = multiprocessing.current_process().name.split('-')[1]
+		print '[%2s] DOMEFLAT: %s' % (pid,flatFile)
 		print '\n'.join(flatFiles[nSkip:])
 	if writeccdim:
 		makeccd4image(dataMap,flatFile,**kwargs)

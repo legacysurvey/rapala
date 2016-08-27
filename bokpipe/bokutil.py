@@ -399,6 +399,11 @@ class BokProcess(object):
 		elif type(maskFits) is not fitsio.fitslib.FITS:
 			return ValueError
 		self.masks.append(maskFits)
+	def _proclog(self,s):
+		if self.nProc > 1:
+			pid = multiprocessing.current_process().name.split('-')[1]
+			print '[%2s] '%pid,
+		print s
 	def _preprocess(self,fits,f):
 		pass
 	def process_hdu(self,extName,data,hdr):

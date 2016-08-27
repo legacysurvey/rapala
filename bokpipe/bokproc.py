@@ -278,7 +278,7 @@ class BokCCDProcess(bokutil.BokProcess):
 				self.procIms[imType]['map'] = fitsIn
 				self.procIms[imType]['master'] = False
 	def _preprocess(self,fits,f):
-		print 'ccdproc ',fits.fileName,fits.outFileName
+		self._proclog('ccdproc %s -> %s' % (fits.fileName,fits.outFileName))
 		for imType in self.imTypes:
 			calFn = None
 			if not self.procIms[imType]['master']:
@@ -373,7 +373,7 @@ class BokWeightMap(bokutil.BokProcess):
 			self.flat['map'] = flatIn
 			self.flatIsMaster = False
 	def _preprocess(self,fits,f):
-		print 'weight map ',fits.outFileName
+		self._proclog('weight map %s' % fits.outFileName)
 		try:
 			maskFile = self._mask_map(f)
 		except:
@@ -446,7 +446,8 @@ class BokSkySubtract(bokutil.BokProcess):
 		# the gradient
 		self.sky0 = self.skyFit(0,0)
 	def _preprocess(self,fits,f):
-		print 'sky subtracting ',fits.fileName,fits.outFileName
+		self._proclog('sky subtracting %s -> %s' % 
+		                       (fits.fileName,fits.outFileName))
 		self._fit_sky_model(fits)
 		if self.skyFitMap is not None:
 			self.skyFits = fitsio.FITS(self.skyFitMap(f),'rw')
@@ -499,7 +500,8 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		if self.saveArrays:
 			self.arrays = []
 	def _preprocess(self,fits,f):
-		print 'calculating gain balance factors for ',self.inputNameMap(f)
+		self._proclog('calculating gain balance factors for %s' % 
+		                  self.inputNameMap(f))
 		self.files.append(f)
 		self.skyVals = []
 	def _postprocess(self,fits,f):
@@ -774,7 +776,7 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		self.growKern = None #np.ones((self.binGrowSize,self.binGrowSize),dtype=bool)
 		self.noConvert = True
 	def _preprocess(self,fits,f):
-		print 'generating sky mask for ',f
+		self._proclog('generating sky mask for %s' % f)
 	def process_hdu(self,extName,data,hdr):
 		if (data>hdr['SATUR']).sum() > 50000:
 			# if too many pixels are saturated mask the whole damn thing
