@@ -268,13 +268,13 @@ class BokCCDProcess(bokutil.BokProcess):
 			fitsIn = kwargs.get(imType)
 			self.procIms[imType] = {'file':None,'fits':None}
 			self.procIms[imType]['master'] = True
-			if type(fitsIn) is fitsio.fitslib.FITS:
+			if isinstance(fitsIn,fitsio.FITS):
 				self.procIms[imType]['file'] = fitsIn._filename
-				self.procIms[imType]['fits'] = fitsIn
-			elif type(fitsIn) is str:
+				self.procIms[imType]['fits'] = bokutil.FakeFITS(fitsIn)
+			elif isinstance(fitsIn,basestring):
 				self.procIms[imType]['file'] = fitsIn
-				self.procIms[imType]['fits'] = fitsio.FITS(fitsIn)
-			elif type(fitsIn) is dict:
+				self.procIms[imType]['fits'] = bokutil.FakeFITS(fitsIn)
+			elif isinstance(fitsIn,dict):
 				self.procIms[imType]['map'] = fitsIn
 				self.procIms[imType]['master'] = False
 	def _preprocess(self,fits,f):
@@ -283,7 +283,7 @@ class BokCCDProcess(bokutil.BokProcess):
 			calFn = None
 			if not self.procIms[imType]['master']:
 				inFile = self.procIms[imType]['map'][f]
-				if type(inFile) is fitsio.fitslib.FITS:
+				if isinstance(inFile,fitsio.FITS):
 					self.procIms[imType]['fits'] = inFile
 					calFn = inFile._filename
 				elif self.procIms[imType]['file'] != inFile:
@@ -363,13 +363,13 @@ class BokWeightMap(bokutil.BokProcess):
 		flatIn = kwargs.get('flat')
 		self.flat = {'file':None,'fits':None}
 		self.flatIsMaster = True
-		if type(flatIn) is fitsio.fitslib.FITS:
+		if isinstance(flatIn,fitsio.FITS):
 			self.flat['file'] = flatIn._filename
-			self.flat['fits'] = flatIn
-		elif type(flatIn) is str:
+			self.flat['fits'] = bokutil.FakeFITS(flatIn)
+		elif isinstance(flatIn,basestring):
 			self.flat['file'] = flatIn
-			self.flat['fits'] = fitsio.FITS(flatIn)
-		elif type(flatIn) is dict:
+			self.flat['fits'] = bokutil.FakeFITS(flatIn)
+		elif isinstance(flatIn,dict):
 			self.flat['map'] = flatIn
 			self.flatIsMaster = False
 	def _preprocess(self,fits,f):
@@ -379,7 +379,7 @@ class BokWeightMap(bokutil.BokProcess):
 		except:
 			maskFile = self._mask_map
 		if maskFile != self.maskFile:
-			if type(maskFile) is str:
+			if isinstance(maskFile,basestring):
 				self.maskFile = self._mask_map(f)
 				self.maskFits = fitsio.FITS(self.maskFile)
 			else:
@@ -388,7 +388,7 @@ class BokWeightMap(bokutil.BokProcess):
 		calFn = None
 		if not self.flatIsMaster:
 			inFile = self.flat['map'][f]
-			if type(inFile) is fitsio.fitslib.FITS:
+			if isinstance(inFile,fitsio.FITS):
 				self.flat['fits'] = inFile
 				calFn = inFile._filename
 			elif self.flat['file'] != inFile:

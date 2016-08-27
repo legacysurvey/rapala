@@ -256,10 +256,10 @@ class BokMefImage(object):
 				raise OutputExistsError('key %s already exists' % 
 				                        self.headerKey)
 	def add_mask(self,maskFits):
-		if type(maskFits) is str:
+		if isinstance(maskFits,basestring):
 			maskFits = fitsio.FITS(maskFits)
 			self.closeFiles.append(maskFits)
-		elif type(maskFits) is not fitsio.fitslib.FITS:
+		elif isinstance(maskFits,fitsio.FITS):
 			return ValueError
 		self.masks.append(maskFits)
 	def update(self,data,header=None,noconvert=False):
@@ -371,6 +371,22 @@ import copy_reg
 import types
 copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
 
+class FakeFITS(object):
+	'''Make a fake fitsio.FITS class that stores the image data from a FITS
+	   object in a dictionary. This object is pickle-able and so can be used
+	   with the multiprocessing feature in BokProcess, unlike fitsio.FITS.'''
+	def __init__(self,fits):
+		if isinstance(fits,basestring):
+			fits = fitsio.FITS(fits)
+		self.data = {}
+		for hdu in fits[1:]:
+			self.data[hdu.get_extname().upper()] = hdu.read()
+	def __getitem__(self,extn):
+		return self.data[extn.upper()]
+	def close(self):
+		'''need to provide hook for this because fits.close() is used often'''
+		pass
+
 class BokProcess(object):
 	def __init__(self,**kwargs):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
@@ -379,7 +395,7 @@ class BokProcess(object):
 		self.maskNameMap = kwargs.get('mask_map')
 		if self.maskNameMap is None:
 			self.maskNameMap = NullNameMap
-		elif type(self.maskNameMap) is fitsio.fitslib.FITS:
+		elif isinstance(self.maskNameMap,fitsio.FITS):
 			# a master mask instead of a map
 			self.add_mask(self.maskNameMap)
 			self.maskNameMap = NullNameMap
@@ -393,11 +409,8 @@ class BokProcess(object):
 		self.nProc = kwargs.get('processes',1)
 		self.noConvert = False
 	def add_mask(self,maskFits):
-		if type(maskFits) is str:
-			maskFits = fitsio.FITS(maskFits)
-			#self.closeFiles.append(maskFits)
-		elif type(maskFits) is not fitsio.fitslib.FITS:
-			return ValueError
+		if not isinstance(maskFits,FakeFITS):
+			maskFits = FakeFITS(maskFits)
 		self.masks.append(maskFits)
 	def _proclog(self,s):
 		if self.nProc > 1:
