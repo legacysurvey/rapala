@@ -356,6 +356,8 @@ class BokWeightMap(bokutil.BokProcess):
 		kwargs.setdefault('header_key','WHTMAP')
 		super(BokWeightMap,self).__init__(**kwargs)
 		self._mask_map = kwargs.get('_mask_map')
+		if isinstance(self._mask_map,fitsio.FITS):
+			self._mask_map = bokutil.FakeFITS(self._mask_map)
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
 		self.maskFile = None
@@ -402,7 +404,7 @@ class BokWeightMap(bokutil.BokProcess):
 	def process_hdu(self,extName,data,hdr):
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
 		data,mask = bokutil.mask_saturation(extName,data)
-		mask |= ( (self.maskFits[extName].read() > 0) |
+		mask |= ( (self.maskFits[extName][:,:] > 0) |
 		          (data==0) )
 		data -= np.median(oscan_cols)
 #		if oscan_rows is not None:
@@ -492,6 +494,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.clipArgs.setdefault('clip_sig',2.5)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.median)
 		self.saveArrays = kwargs.get('save_arrays',False)
+		self.nProc = 1 # XXX for now shut off mp
 		self.reset()
 	def reset(self):
 		self.files = []
