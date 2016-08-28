@@ -277,13 +277,19 @@ class BokCCDProcess(bokutil.BokProcess):
 			elif isinstance(fitsIn,dict):
 				self.procIms[imType]['map'] = fitsIn
 				self.procIms[imType]['master'] = False
+			elif fitsIn is None:
+				pass # skip this type
+			else:
+				print fitsIn
+				raise ValueError
 	def _preprocess(self,fits,f):
 		self._proclog('ccdproc %s -> %s' % (fits.fileName,fits.outFileName))
 		for imType in self.imTypes:
 			calFn = None
 			if not self.procIms[imType]['master']:
 				inFile = self.procIms[imType]['map'][f]
-				if isinstance(inFile,fitsio.FITS):
+				if ( isinstance(inFile,fitsio.FITS) or 
+				      isinstance(inFile,bokutil.FakeFITS) ):
 					self.procIms[imType]['fits'] = inFile
 					calFn = inFile._filename
 				elif self.procIms[imType]['file'] != inFile:
@@ -374,6 +380,10 @@ class BokWeightMap(bokutil.BokProcess):
 		elif isinstance(flatIn,dict):
 			self.flat['map'] = flatIn
 			self.flatIsMaster = False
+		elif flatIn is None:
+			pass # allow no flat?
+		else:
+			raise ValueError
 	def _preprocess(self,fits,f):
 		self._proclog('weight map %s' % fits.outFileName)
 		try:
@@ -390,7 +400,8 @@ class BokWeightMap(bokutil.BokProcess):
 		calFn = None
 		if not self.flatIsMaster:
 			inFile = self.flat['map'][f]
-			if isinstance(inFile,fitsio.FITS):
+			if ( isinstance(inFile,fitsio.FITS) or
+			      isinstance(inFile,bokutil.FakeFITS) ):
 				self.flat['fits'] = inFile
 				calFn = inFile._filename
 			elif self.flat['file'] != inFile:

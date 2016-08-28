@@ -378,11 +378,18 @@ class FakeFITS(object):
 	def __init__(self,fits):
 		if isinstance(fits,basestring):
 			fits = fitsio.FITS(fits)
-		self.data = {}
-		for hdu in fits[1:]:
-			self.data[hdu.get_extname().upper()] = hdu.read()
+		# this gets accessed for FITS objects, so need to replicate it
+		self._filename = fits._filename
+		self.data = [None] # empty first extension, like FITS MEF
+		self.extMap = {}
+		for extNum,hdu in enumerate(fits[1:],start=1):
+			self.data.append(hdu.read())
+			self.extMap[hdu.get_extname().upper()] = extNum
 	def __getitem__(self,extn):
-		return self.data[extn.upper()]
+		'''index either by extension number or name'''
+		if isinstance(extn,basestring):
+			extn = self.extMap[extn.upper()]
+		return self.data[extn]
 	def close(self):
 		'''need to provide hook for this because fits.close() is used often'''
 		pass

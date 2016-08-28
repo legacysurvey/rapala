@@ -601,20 +601,26 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	files,ii = dataMap.getFiles(imType='object',with_frames=True)
 	if files is None:
 		return
+	# XXX so gross...
 	if noillumcorr:
 		illum_map = None
 	else:
 		illum_map = {}
+		tmpillum = {}
+		for filt in np.unique(dataMap.obsDb['filter'][ii]):
+			tmpillum[filt] = bokutil.FakeFITS(dataMap.getMaster('Illumination',
+			                                                    filt))
 		for i,f in zip(ii,files):
-			illum_map[f] = dataMap.getMaster('Illumination',
-			                                 dataMap.obsDb['filter'][i])
+			illum_map[f] = tmpillum[dataMap.obsDb['filter'][i]]
 	if nodarkskycorr:
 		darksky_map = None
 	else:
 		darksky_map = {}
+		tmpsky = {}
+		for filt in np.unique(dataMap.obsDb['filter'][ii]):
+			tmpsky[filt] = bokutil.FakeFITS(dataMap.getMaster('SkyFlat',filt))
 		for i,f in zip(ii,files):
-			darksky_map[f] = dataMap.getMaster('SkyFlat',
-			                                   dataMap.obsDb['filter'][i])
+			darksky_map[f] = tmpsky[dataMap.obsDb['filter'][i]]
 	#
 	proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
 	                             output_map=dataMap('proc2'),

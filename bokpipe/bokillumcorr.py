@@ -7,6 +7,9 @@ from astropy.modeling import models,fitting
 
 from . import bokutil
 
+class NoDataException(Exception):
+	pass
+
 def make_skyflat(dataMap,skyFlatFile):
 	'''Make a dark sky flat template for the illumination correction'''
 	stackPars = {}
@@ -21,6 +24,8 @@ def make_skyflat(dataMap,skyFlatFile):
 	# XXX remove this hack for RM data
 	files = dataMap.getFiles(imType='object',
 	                         exclude_objs=['rm10','rm11','rm12','rm13'])
+	if files is None or len(files)<5:
+		raise NoDataException
 	# limit it to ~50 images
 	if len(files) > 100:
 		files = files[::len(files)//50]
@@ -78,7 +83,10 @@ def make_illumcorr_image(dataMap,**kwargs):
 	# XXX also have iterUtds option
 	for filt in dataMap.iterFilters():
 		inputFile = os.path.join(dataMap._tmpDir,'tmpillum_%s.fits'%filt)
-		make_skyflat(dataMap,inputFile)
+		try:
+			make_skyflat(dataMap,inputFile)
+		except NoDataException:
+			continue
 		illum = fit_illumination(inputFile,dataMap,**kwargs)
 		outFn = dataMap.getMaster('Illumination',filt=filt,name=True)
 		outFn = os.path.join(dataMap.getCalDir(),outFn)
