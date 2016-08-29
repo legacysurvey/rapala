@@ -505,15 +505,17 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.clipArgs.setdefault('clip_sig',2.5)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.median)
 		self.saveArrays = kwargs.get('save_arrays',False)
-		self.nProc = 1 # XXX for now shut off mp
 		self.reset()
 	def reset(self):
 		self.files = []
 		self.gainCors = []
 		self.allSkyVals = []
-		if self.saveArrays:
-			self.arrays = []
+		self.arrays = []
 	def _preprocess(self,fits,f):
+		if self.nProc > 1:
+			# this prevents the return values from _finish from piling up
+			# with duplicates when a subprocess is reused
+			self.reset()
 		self._proclog('calculating gain balance factors for %s' % 
 		                  self.inputNameMap(f))
 		self.files.append(f)
@@ -544,9 +546,19 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 			skyVal = stats
 		self.skyVals.append(skyVal)
 		return data,hdr
+	def _finish(self):
+		return (self.files,self.gainCors,self.allSkyVals,self.arrays)
+	def _ingestOutput(self,procOut):
+		self.files,self.gainCors,self.allSkyVals,self.arrays = zip(*procOut)
+		# squeeze out the extra axis that occurs since output elements
+		# are in lists of unit length when multiprocessing
+		self.files = np.array(self.files).squeeze()
+		self.gainCors = np.array(self.gainCors).squeeze()
+		self.allSkyVals = np.array(self.allSkyVals).squeeze()
+		self.arrays = np.array(self.arrays).squeeze()
 	def calc_mean_corrections(self):
 		gc = np.array(self.gainCors)
-		return sigma_clip(gc,iters=2,sig=2.0,axis=0).mean(axis=0).filled()
+		return sigma_clip(gc,iters=2,sigma=2.0,axis=0).mean(axis=0).filled()
 	def get_values(self):
 		return np.array(self.gainCors),np.array(self.allSkyVals)
 

@@ -431,6 +431,10 @@ class BokProcess(object):
 	def _postprocess(self,fits,f):
 		pass
 	def _finish(self):
+		return None
+	def _ingestOutput(self,procOutput):
+		'''parallel routines may need to collect output from processing
+	       of individual files before finishing.'''
 		pass
 	def process_file(self,f):
 		try:
@@ -458,15 +462,15 @@ class BokProcess(object):
 			fits.update(data,hdr,noconvert=self.noConvert)
 		self._postprocess(fits,f)
 		fits.close()
-		self._finish()
+		return self._finish()
 	def process_files(self,fileList):
 		if self.nProc > 1:
 			pool = multiprocessing.Pool(self.nProc)
-			pool.map(self.process_file,fileList)
+			procOut = pool.map(self.process_file,fileList)
 			pool.close()
+			self._ingestOutput(procOut)
 		else:
-			for f in fileList:
-				self.process_file(f)
+			procOut = [self.process_file(f) for f in fileList]
 
 class BokMefImageCube(object):
 	def __init__(self,**kwargs):
