@@ -16,6 +16,8 @@ ifndef UTDATE
 $(error UTDATE must be set!)
 endif
 
+all: initproc badpix flats finalproc
+
 initproc:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s oscan,bias2d,flat2d --nousepixflat \
@@ -44,11 +46,8 @@ flats:
 
 finalproc:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
-	                    -s proc1 --norampcorr --nobiascorr $(XARGS)
-	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
-	                    -s proc2  $(XARGS)
-	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
-	                    -s wcs,cat -vv $(XARGS)
+	                    -s proc1,proc2,wcs,cat \
+	                    --norampcorr --nobiascorr -vvv $(XARGS)
 
 proc:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \

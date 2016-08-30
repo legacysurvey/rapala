@@ -58,10 +58,10 @@ NOV14FRAMES := "33-69,98-110"
 nov15finalproc:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
-	                    -s proc1 --norampcorr --nobiascorr
+	                    -s proc1 --norampcorr --nobiascorr $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
-	                    -s proc2 
+	                    -s proc2 $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
 	                    -s wcs,cat -vv
@@ -73,16 +73,9 @@ nov15finish:
 nov15proc:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14FRAMES) \
-	                    -s oscan -vvv $(XARGS)
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --frames $(NOV14FRAMES) \
-	                    -s proc1 --norampcorr --nobiascorr -vvv $(XARGS)
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --frames $(NOV14FRAMES) \
-	                    -s proc2  -vvv $(XARGS)
-	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
-	                    --frames $(NOV14FRAMES) \
-	                    -s wcs,cat -vv $(XARGS)
+	                    -s oscan,proc1,proc2,wcs,cat \
+	                    --norampcorr --nobiascorr \
+	                    -vvv $(NPROC) $(XARGS)
 
 nov15redo:
 	make XARGS=-R nov15proc 
