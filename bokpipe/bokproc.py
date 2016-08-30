@@ -4,7 +4,8 @@ import os
 import re
 import shutil
 import tempfile
-import subprocess
+import multiprocessing
+from functools import partial
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
 from scipy.signal import spline_filter
@@ -635,7 +636,10 @@ def _orient_mosaic(hdr,ims,ccdNum,origin):
 			hdr['CRPIX2'] = crpix1
 	return outIm,hdr
 
-def combine_ccds(fileList,**kwargs):
+# XXX should fit this into a BokProcess even if it requires some mungeing
+#     of the way extensions are combined into ccds
+
+def _combine_ccds(f,**kwargs):
 	inputFileMap = kwargs.get('input_map',IdentityNameMap)
 	outputFileMap = kwargs.get('output_map',IdentityNameMap)
 	gainMap = kwargs.get('gain_map')
@@ -654,15 +658,18 @@ def combine_ccds(fileList,**kwargs):
 	tmpFile.close()
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
-	for f in fileList:
+	if True: #for f in fileList:
 		inputFile = inputFileMap(f)
 		outputFile = outputFileMap(f)
+		if kwargs.get('processes',1) > 1:
+			pid = multiprocessing.current_process().name.split('-')[1]
+			print '[%2s] '%pid,
 		print 'combine: ',inputFile,outputFile
 		inFits = fitsio.FITS(inputFile)
 		if 'CCDJOIN' in inFits[0].read_header():
 			print '%s already combined, skipping' % inputFile
 			inFits.close()
-			continue
+			return
 		if outputFile != inputFile:
 			if os.path.exists(outputFile):
 				if clobber:
@@ -670,7 +677,7 @@ def combine_ccds(fileList,**kwargs):
 				# XXX should be checking header key here?
 				elif ignoreExisting:
 					print '%s already exists, skipping' % outputFile
-					continue
+					return
 				else:
 					raise bokutil.OutputExistsError(
 					                    '%s already exists'%outputFile)
@@ -732,6 +739,18 @@ def combine_ccds(fileList,**kwargs):
 		outFits.close()
 		if outputFile == inputFile:
 			shutil.move(tmpFileName,inputFile)
+
+def combine_ccds(fileList,**kwargs):
+	nProc = kwargs.get('processes',1)
+	if nProc > 1:
+		combfunc = partial(_combine_ccds,**kwargs)
+		pool = multiprocessing.Pool(nProc)
+		pool.map(combfunc,fileList)
+		pool.close()
+	else:
+		# here there is extra overhead at top of function.....
+		for f in fileList:
+			_combine_ccds(f,**kwargs)
 
 
 
