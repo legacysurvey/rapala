@@ -659,7 +659,8 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	skySub = bokproc.BokSkySubtract(input_map=dataMap('proc2'),
 	                                output_map=dataMap('sky'),
 	                                mask_map=dataMap('skymask'),
-	                                skyfit_map=skyfitmap,**skyArgs)
+	                                skyfit_map=skyfitmap,
+	                                **dict(skyArgs.items()+kwargs.items()))
 	skySub.add_mask(dataMap('MasterBadPixMask4'))
 	skySub.process_files(files)
 
