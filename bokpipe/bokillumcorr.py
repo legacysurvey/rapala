@@ -15,7 +15,7 @@ def make_skyflat(dataMap,skyFlatFile):
 	stackPars = {}
 	stackPars['scale'] = 'normalize_median'
 	stackPars['reject'] = 'sigma_clip'
-	stackPars['nsplit'] = 5
+	stackPars['maxmem'] = 5 # XXX hardcoded!!!
 	# note that by leaving stats_region undefined and with nsplit>1, the
 	# normalization occurs in the first ~4096/5 rows, which is near the
 	# center so is reasonable

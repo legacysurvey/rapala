@@ -488,7 +488,9 @@ class BokMefImageCube(object):
 		                 'sig':kwargs.get('clip_sig',2.5),
 		                 'cenfunc':np.ma.mean}
 		self.fillValue = kwargs.get('fill_value',np.nan)
-		self.nSplit = kwargs.get('nsplit',1)
+		self.maxMemBytes = self.maxMemGB = kwargs.get('maxmem')
+		if self.maxMemBytes:
+			self.maxMemBytes *= 1024**3
 		self.clobber = kwargs.get('clobber',False)
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.verbose = kwargs.get('verbose',0)
@@ -587,15 +589,19 @@ class BokMefImageCube(object):
 		if extensions is None:
 			_fits = fitsio.FITS(inputFiles[0])
 			extensions = [ h.get_extname() for h in _fits[1:] ]
-		if self.nSplit == 1:
+		if self.maxMemBytes is None:
+			nsplits = 1
+		else:
+			numRows,numCols = 4032,4096
+			nbytes = np.dtype(np.float32).itemsize
+			stacksize = nbytes * numRows * numCols * len(inputFiles)
+			nsplits = stacksize // int(self.maxMemBytes) + 1
+		if nsplits == 1:
 			rowChunks = [None,]
 		else:
-			# hacky way to divide the array, hardcoded number of rows
-			shape = (4032,4096)
-			rowSplit = np.arange(0,shape[0],shape[0]//self.nSplit)
-			rowSplit[-1] = -1 # grow last split to end of array
+			rowsplits = np.linspace(0,numRows,nsplits+1,dtype=np.int32)
 			rowChunks = [ (row1,row2) 
-			         for row1,row2 in zip(rowSplit[:-1],rowSplit[1:]) ]
+			         for row1,row2 in zip(rowsplits[:-1],rowsplits[1:]) ]
 		self._preprocess(fileList,outFits)
 		if self.maskNameMap == NullNameMap:
 			# argh, this is a hacky way to check for masks

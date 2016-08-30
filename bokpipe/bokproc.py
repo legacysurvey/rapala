@@ -866,7 +866,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','ccd_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
-		kwargs.setdefault('nsplit',10)
+		kwargs.setdefault('maxmem',5)
 		kwargs.setdefault('fill_value',1.0)
 		super(BokNightSkyFlatStack,self).__init__(**kwargs)
 		self.clipArgs = { k:v for k,v in kwargs.items() 
@@ -910,19 +910,22 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.scales = _scales.squeeze()
 		return imCube * _scales
 	def _postprocess(self,extName,stack,hdr):
-		# XXX hardcoded params
-		stack = interpolate_masked_pixels(stack,along='rows',method='linear')
-		# ignore the input mask and adopt the interpolation mask;
-		#   nan values mean no interpolation was possible
-		interpMask = np.isnan(stack.data)
-		cleanStack = np.ma.masked_array(stack.data,mask=interpMask)
-		cleanStack = cleanStack.filled(1.0)
+		###import pdb; pdb.set_trace()
+		#### XXX hardcoded params
+		###stack = interpolate_masked_pixels(stack,along='rows',method='linear')
+		#### ignore the input mask and adopt the interpolation mask;
+		####   nan values mean no interpolation was possible
+		###interpMask = np.isnan(stack.data)
+		###cleanStack = np.ma.masked_array(stack.data,mask=interpMask)
+		###cleanStack = cleanStack.filled(1.0)
+		cleanStack = stack.filled(1.0)
+		interpMask = False
 		if self.rawStackFile is not None:
 			self.rawStackFits.write(cleanStack,extname=extName,header=hdr)
 		cleanStack = spline_filter(cleanStack,self.smoothingLength)
 		# renormalize to unity, using the combined interp and input mask
 		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
-		normpix = sigma_clip(_stack[self.statsPix],iters=2,sig=2.5,
+		normpix = sigma_clip(_stack[self.statsPix],iters=2,sigma=2.5,
 		                     cenfunc=np.ma.mean)
 		_stack /= normpix.mean()
 		return _stack,hdr
