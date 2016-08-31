@@ -368,7 +368,7 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
                    writeccdim=False,**kwargs):
 	# need to make sure num processes is reset to 1 before calling these
 	# routines since they will execute from within a subprocess
-	nProc = kwargs.pop('processes',1)
+	procmap = kwargs.pop('procmap')
 	biasStack = bokproc.BokBiasStack(input_map=dataMap('oscan'),
 	                                 reject=reject,
                                      **kwargs)
@@ -381,18 +381,9 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 		for biasNum,biasFiles in enumerate(bias_seqs,start=1):
 			if len(biasFiles) >= 5: # XXX hardcoded
 				biasList.append((utd,biasNum,biasFiles))
-	# don't create unneeded subprocesses
-	nProc = min(nProc,len(biasList))
-	# distribute the list of sequences to subprocesses if requested
-	if nProc > 1:
-		p_bias_worker = partial(_bias_worker,dataMap,biasStack,
-		                        nSkip,writeccdim,**kwargs)
-		pool = multiprocessing.Pool(nProc)
-		pool.map(p_bias_worker,biasList)
-		pool.close()
-	else:
-		for bias in biasList:
-			_bias_worker(dataMap,biasStack,nSkip,writeccdim,bias,**kwargs)
+	p_bias_worker = partial(_bias_worker,dataMap,biasStack,
+	                        nSkip,writeccdim,**kwargs)
+	procmap(p_bias_worker,biasList)
 
 def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
                  debug,flatIn,**kwargs):
@@ -418,7 +409,7 @@ def make_dome_flats(dataMap,bias_map,
 	                usepixflat=True,debug=False,**kwargs):
 	# need to make sure num processes is reset to 1 before calling these
 	# routines since they will execute from within a subprocess
-	nProc = kwargs.pop('processes',1)
+	procmap = kwargs.pop('procmap')
 	bias2Dsub = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
 	                                  output_map=dataMap('bias'),
 	                                  bias=bias_map,
@@ -447,19 +438,9 @@ def make_dome_flats(dataMap,bias_map,
 			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
 				if len(flatFiles) >= 5: # XXX hardcoded
 					flatList.append((utd,filt,flatNum,flatFiles))
-	# don't create unneeded subprocesses
-	nProc = min(nProc,len(flatList))
-	# distribute the list of sequences to subprocesses if requested
-	if nProc > 1:
-		p_flat_worker = partial(_flat_worker,dataMap,bias2Dsub,flatStack,
-		                        normFlat,nSkip,writeccdim,debug,**kwargs)
-		pool = multiprocessing.Pool(nProc)
-		pool.map(p_flat_worker,flatList)
-		pool.close()
-	else:
-		for flat in flatList:
-			_flat_worker(flat,dataMap,bias2Dsub,flatStack,normFlat,
-			             nSkip,writeccdim,debug,flat,**kwargs)
+	p_flat_worker = partial(_flat_worker,dataMap,bias2Dsub,flatStack,
+	                        normFlat,nSkip,writeccdim,debug,**kwargs)
+	procmap(p_flat_worker,flatList)
 
 def make_bad_pixel_masks(dataMap,**kwargs):
 	for utd in dataMap.iterUtDates():
@@ -694,9 +675,15 @@ def bokpipe(dataMap,**kwargs):
 	debug = kwargs.get('debug',False)
 	verbose = kwargs.get('verbose',0)
 	processes = kwargs.get('processes',1)
+	procmap = kwargs.get('procmap')
 	maxmem = kwargs.get('maxmem',5)
+	if processes > 1:
+		pool = multiprocessing.Pool(processes)
+		procmap = pool.map
+	else:
+		procmap = map
 	pipekwargs = {'clobber':redo,'verbose':verbose,
-	              'processes':processes,'maxmem':maxmem}
+	              'processes':processes,'procmap':procmap,'maxmem':maxmem}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
 	fixpix = False #True
 	writeccdims = kwargs.get('calccdims',False)
@@ -758,6 +745,8 @@ def bokpipe(dataMap,**kwargs):
 		make_catalogs(dataMap,**pipekwargs)
 		timerLog('catalog')
 	timerLog.dump()
+	if processes > 1:
+		pool.close()
 
 def make_images(dataMap,imtype='comb',msktype=None):
 	import matplotlib.pyplot as plt

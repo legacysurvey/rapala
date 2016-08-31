@@ -414,6 +414,7 @@ class BokProcess(object):
 		self.extensions = kwargs.get('extensions')
 		self.verbose = kwargs.get('verbose',0)
 		self.nProc = kwargs.get('processes',1)
+		self.procMap = kwargs.get('procmap')
 		self.noConvert = False
 	def add_mask(self,maskFits):
 		if not isinstance(maskFits,FakeFITS):
@@ -464,13 +465,14 @@ class BokProcess(object):
 		fits.close()
 		return self._finish()
 	def process_files(self,fileList):
+		# pool objects can't be pickled so have to save it, remove it from
+		# object, then restore it
+		procMap = self.procMap
+		self.procMap = None
+		procOut = procMap(self.process_file,fileList)
 		if self.nProc > 1:
-			pool = multiprocessing.Pool(self.nProc)
-			procOut = pool.map(self.process_file,fileList)
-			pool.close()
 			self._ingestOutput(procOut)
-		else:
-			procOut = [self.process_file(f) for f in fileList]
+		self.procMap = procMap
 
 class BokMefImageCube(object):
 	def __init__(self,**kwargs):

@@ -741,17 +741,9 @@ def _combine_ccds(f,**kwargs):
 			shutil.move(tmpFileName,inputFile)
 
 def combine_ccds(fileList,**kwargs):
-	nProc = kwargs.get('processes',1)
-	if nProc > 1:
-		combfunc = partial(_combine_ccds,**kwargs)
-		pool = multiprocessing.Pool(nProc)
-		pool.map(combfunc,fileList)
-		pool.close()
-	else:
-		# here there is extra overhead at top of function.....
-		for f in fileList:
-			_combine_ccds(f,**kwargs)
-
+	procmap = kwargs.pop('procmap')
+	combfunc = partial(_combine_ccds,**kwargs)
+	procmap(combfunc,fileList)
 
 
 ###############################################################################
