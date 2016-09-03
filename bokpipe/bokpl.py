@@ -335,6 +335,10 @@ def get_flat_map(dataMap):
 	return flatMap
 
 def makeccd4image(dataMap,inputFile,outputFile=None,**kwargs):
+	try:
+		kwargs.pop('procmap') # only doing single image anyway
+	except:
+		pass
 	if outputFile is None:
 		ccd4map = bokio.FileNameMap(dataMap.getCalDir(),'_4ccd')
 	else:
@@ -358,7 +362,10 @@ def _bias_worker(dataMap,biasStack,nSkip,writeccdim,biasIn,**kwargs):
 	                        'bias_%s_%d.fits' % (utd,biasNum))
 	biasStack.stack(biasFiles[nSkip:],biasFile)
 	if kwargs.get('verbose',0) >= 1:
-		pid = multiprocessing.current_process().name.split('-')[1]
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
 		print '[%2s] 2DBIAS: %s' % (pid,biasFile)
 		print '\n'.join(biasFiles[nSkip:])
 	if writeccdim:
@@ -369,9 +376,12 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 	# need to make sure num processes is reset to 1 before calling these
 	# routines since they will execute from within a subprocess
 	procmap = kwargs.pop('procmap')
+	_kwargs = copy(kwargs)
+	_kwargs['processes'] = 1
+	_kwargs['procmap'] = map
 	biasStack = bokproc.BokBiasStack(input_map=dataMap('oscan'),
 	                                 reject=reject,
-                                     **kwargs)
+                                     **_kwargs)
 	# build the list of bias sequences for each night
 	biasList = []
 	for utd in dataMap.iterUtDates():
@@ -398,7 +408,10 @@ def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
 			            flatFile.replace('.fits','_raw.fits'))
 		normFlat.process_files([flatFile])
 	if kwargs.get('verbose',0) >= 1:
-		pid = multiprocessing.current_process().name.split('-')[1]
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
 		print '[%2s] DOMEFLAT: %s' % (pid,flatFile)
 		print '\n'.join(flatFiles[nSkip:])
 	if writeccdim:
@@ -410,14 +423,17 @@ def make_dome_flats(dataMap,bias_map,
 	# need to make sure num processes is reset to 1 before calling these
 	# routines since they will execute from within a subprocess
 	procmap = kwargs.pop('procmap')
+	_kwargs = copy(kwargs)
+	_kwargs['processes'] = 1
+	_kwargs['procmap'] = map
 	bias2Dsub = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
 	                                  output_map=dataMap('bias'),
 	                                  bias=bias_map,
 	                                  header_key='BIAS2D',
-	                                  **kwargs)
+	                                  **_kwargs)
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
 	                                     input_map=dataMap('bias'),
-	                                     **kwargs)
+	                                     **_kwargs)
 	if usepixflat:
 		if debug:
 			ffmap = SimpleFileNameMap(None,dataMap.procDir,'_fit')
@@ -504,7 +520,7 @@ def balance_gains(dataMap,**kwargs):
 	return gainMap
 
 def process_all(dataMap,bias_map,flat_map,
-                fixpix=False,norampcorr=False,
+                fixpix=False,norampcorr=False,noweightmap=False,
                 nocombine=False,prockey='CCDPROC',**kwargs):
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
@@ -530,21 +546,22 @@ def process_all(dataMap,bias_map,flat_map,
 	                     output_map=dataMap('comb'),
 	                     gain_map=gainMap,
 	                     **kwargs)
-	# 4. construct weight maps starting from raw images
-	whmap = bokproc.BokWeightMap(input_map=dataMap('raw'),
-	                             output_map=dataMap('weight'),
-	                             flat=flat_map,
-	                             _mask_map=dataMap('MasterBadPixMask'),
-	                             **kwargs)
-	whmap.process_files(files)
-	# rescale the gain corrections to inverse variance
-	for f in gainMap['corrections']:
-		gainMap['corrections'][f] = (gainMap['corrections'][f].copy())**-2
-	bokproc.combine_ccds(files,
-	                     input_map=dataMap('weight'), 
-	                     output_map=dataMap('weight'), 
-	                     gain_map=gainMap,
-	                     **kwargs)
+	if not noweightmap:
+		# 4. construct weight maps starting from raw images
+		whmap = bokproc.BokWeightMap(input_map=dataMap('raw'),
+		                             output_map=dataMap('weight'),
+		                             flat=flat_map,
+		                             _mask_map=dataMap('MasterBadPixMask'),
+		                             **kwargs)
+		whmap.process_files(files)
+		# rescale the gain corrections to inverse variance
+		for f in gainMap['corrections']:
+			gainMap['corrections'][f] = (gainMap['corrections'][f].copy())**-2
+		bokproc.combine_ccds(files,
+		                     input_map=dataMap('weight'), 
+		                     output_map=dataMap('weight'), 
+		                     gain_map=gainMap,
+		                     **kwargs)
 
 def make_supersky_flats(dataMap,**kwargs):
 	caldir = dataMap.getCalDir()
@@ -574,8 +591,8 @@ def make_supersky_flats(dataMap,**kwargs):
 				skyFlatStack.stack(files,outfn)
 
 def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
-                 noskysub=False,prockey='CCDPRO2',save_sky=False,
-                 **kwargs):
+                 noskysub=False,noweightmap=False,prockey='CCDPRO2',
+                 save_sky=False,**kwargs):
 	#
 	# Second round flat-field corrections
 	#
@@ -612,17 +629,18 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	                             illum=illum_map,darksky=darksky_map,
 	                             **kwargs)
 	proc.process_files(files)
-	# need to process the weight maps in the same fashion
-	wtproc = bokproc.BokCCDProcess(input_map=dataMap('weight'), 
-	                               output_map=dataMap('weight'), 
-	                               mask_map=dataMap('MasterBadPixMask4'),
-	                               header_key=prockey,
-	                               gain_multiply=False,bias=None,flat=None,
-	                               ramp=None,fixpix=False,
-	                               illum=illum_map,darksky=darksky_map,
-	                               asweight=True,
-	                               **kwargs)
-	wtproc.process_files(files)
+	if not noweightmap:
+		# need to process the weight maps in the same fashion
+		wtproc = bokproc.BokCCDProcess(input_map=dataMap('weight'), 
+		                               output_map=dataMap('weight'), 
+		                               mask_map=dataMap('MasterBadPixMask4'),
+		                               header_key=prockey,
+		                               gain_multiply=False,bias=None,flat=None,
+		                               ramp=None,fixpix=False,
+		                               illum=illum_map,darksky=darksky_map,
+		                               asweight=True,
+		                               **kwargs)
+		wtproc.process_files(files)
 	if noskysub:
 		return
 	#
@@ -705,7 +723,7 @@ def bokpipe(dataMap,**kwargs):
 		                debug=debug,**pipekwargs)
 		timerLog('dome flats')
 	if 'bpmask' in steps:
-		make_bad_pixel_masks(dataMap)
+		make_bad_pixel_masks(dataMap,**pipekwargs)
 		timerLog('bad pixel masks')
 	if 'proc1' in steps or 'comb' in steps:
 		if kwargs.get('nobiascorr',False):
@@ -722,6 +740,7 @@ def bokpipe(dataMap,**kwargs):
 		            nocombine=kwargs.get('nocombine'),
 		            gain_multiply=not kwargs.get('nogainmul',False),
 		            nosavegain=kwargs.get('nosavegain'),
+		            noweightmap=kwargs.get('noweightmap'),
 		            prockey=kwargs.get('prockey','CCDPROC'),
 		            **pipekwargs)
 		timerLog('ccdproc')
@@ -734,6 +753,8 @@ def bokpipe(dataMap,**kwargs):
 		process_all2(dataMap,skyArgs,
 		             noillumcorr=kwargs.get('noillumcorr'),
 		             nodarkskycorr=kwargs.get('nodarkskycorr'),
+		             noweightmap=kwargs.get('noweightmap'),
+		             noskysub=kwargs.get('noskysub'),
 		             prockey=kwargs.get('prockey','CCDPRO2'),
 		             save_sky=kwargs.get('savesky'),
 		             **pipekwargs)
@@ -899,6 +920,8 @@ def init_pipeline_args(parser):
 	                help='sky subtraction order [default: 1 (linear)]')
 	parser.add_argument('--savesky',action='store_true',
 	                help='save sky background fit')
+	parser.add_argument('--noweightmap',action='store_true',
+	                help='do not generate weight maps')
 	parser.add_argument('--prockey',type=str,default=None,
 	                help='set new header key for ccdproc')
 	parser.add_argument('--tmpdirin',action='store_true',

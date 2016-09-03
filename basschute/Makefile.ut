@@ -32,13 +32,14 @@ flats:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s proc1 --prockey TMPPROC \
 	                    --norampcorr --nobiascorr --nosavegain \
-	                    --tmpdirout $(XARGS)
+	                    --noweightmap --tmpdirout $(XARGS)
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    --makeillumcorr \
 	                    --tmpdirin -vvv $(XARGS)
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s proc2 \
-	                    --nodarkskycorr --skymethod polynomial --skyorder 1 \
+	                    --nodarkskycorr --noweightmap \
+	                    --skymethod polynomial --skyorder 1 \
 	                    --tmpdirin --tmpdirout -vvv $(XARGS)
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s skyflat \

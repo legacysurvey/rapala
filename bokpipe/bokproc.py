@@ -662,7 +662,10 @@ def _combine_ccds(f,**kwargs):
 		inputFile = inputFileMap(f)
 		outputFile = outputFileMap(f)
 		if kwargs.get('processes',1) > 1:
-			pid = multiprocessing.current_process().name.split('-')[1]
+			try:
+				pid = multiprocessing.current_process().name.split('-')[1]
+			except:
+				pid = '1'
 			print '[%2s] '%pid,
 		print 'combine: ',inputFile,outputFile
 		inFits = fitsio.FITS(inputFile)
@@ -741,7 +744,7 @@ def _combine_ccds(f,**kwargs):
 			shutil.move(tmpFileName,inputFile)
 
 def combine_ccds(fileList,**kwargs):
-	procmap = kwargs.pop('procmap')
+	procmap = kwargs.pop('procmap',map)
 	combfunc = partial(_combine_ccds,**kwargs)
 	procmap(combfunc,fileList)
 

@@ -39,13 +39,14 @@ nov15flats:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s proc1 --prockey TMPPROC \
 	                    --norampcorr --nobiascorr --nosavegain \
-	                    --tmpdirout $(NPROC)
+	                    --noweightmap --tmpdirout $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --makeillumcorr \
 	                    --tmpdirin -vvv
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s proc2 \
-	                    --nodarkskycorr --skymethod polynomial --skyorder 1 \
+	                    --nodarkskycorr --noweightmap \
+	                    --skymethod polynomial --skyorder 1 \
 	                    --tmpdirin --tmpdirout -vvv $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14SKYFLATS) \

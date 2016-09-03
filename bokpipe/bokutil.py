@@ -414,7 +414,7 @@ class BokProcess(object):
 		self.extensions = kwargs.get('extensions')
 		self.verbose = kwargs.get('verbose',0)
 		self.nProc = kwargs.get('processes',1)
-		self.procMap = kwargs.get('procmap')
+		self.procMap = kwargs.get('procmap',map)
 		self.noConvert = False
 	def add_mask(self,maskFits):
 		if not isinstance(maskFits,FakeFITS):
