@@ -502,7 +502,7 @@ class BokMefImageCube(object):
 		self.scaleKey = kwargs.get('scale_key','IMSCL')
 		self._scales = None
 	def set_badpixelmask(self,maskFits):
-		self.badPixelMask = maskFits
+		self.badPixelMask = FakeFITS(maskFits)
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
 			pass
