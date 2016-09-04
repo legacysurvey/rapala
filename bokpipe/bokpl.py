@@ -459,6 +459,8 @@ def make_dome_flats(dataMap,bias_map,
 	procmap(p_flat_worker,flatList)
 
 def make_bad_pixel_masks(dataMap,**kwargs):
+	kwargs['processes'] = 1
+	kwargs['procmap'] = map
 	for utd in dataMap.iterUtDates():
 		for filt in dataMap.iterFilters():
 			flatNum = 1
@@ -469,9 +471,9 @@ def make_bad_pixel_masks(dataMap,**kwargs):
 			hdr = fitsio.read_header(flatFile,0)
 			if 'NORMFLT' not in hdr:
 				# need to normalize the flat before making mask
-				_map = SimpleFileNameMap(None,dataMap.procDir,'_normed')
-				ffmap = SimpleFileNameMap(None,dataMap.procDir,'_fit')
-				bfmap = SimpleFileNameMap(None,dataMap.procDir,'_binned')
+				_map = SimpleFileNameMap(None,'','_normed')
+				ffmap = SimpleFileNameMap(None,'','_fit')
+				bfmap = SimpleFileNameMap(None,'','_binned')
 				normFlat = bokproc.NormalizeFlat(output_map=_map,
 				                            _normed_flat_fit_map=ffmap,
 				                            _binned_flat_map=bfmap,**kwargs)
