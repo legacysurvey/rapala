@@ -175,13 +175,16 @@ class TimerLog():
 		itimes = np.diff(self.times)
 		ftimes = itimes / times[-1]
 		tscale = 1.
+		tunit = 'sec'
 		if times[-1] > 5*3600:
 			tscale = 3600.  # -> hours
+			tunit = 'hrs'
 		elif times[-1] > 5*60:
 			tscale = 60.  # -> minutes
+			tunit = 'min'
 		itimes /= tscale
 		times /= tscale
-		print '%20s %8s %8s %8s' % ('stage','time','elapsed','frac')
+		print '%20s %8s %8s %8s [%s]' % ('stage','time','elapsed','frac',tunit)
 		for t in zip(stages,itimes,times,ftimes):
 			print '%20s %8.3f %8.3f %8.3f' % t
 		print
@@ -433,6 +436,8 @@ class BokProcess(object):
 		pass
 	def _finish(self):
 		return None
+	def _getOutput(self):
+		return None
 	def _ingestOutput(self,procOutput):
 		'''parallel routines may need to collect output from processing
 	       of individual files before finishing.'''
@@ -463,7 +468,7 @@ class BokProcess(object):
 			fits.update(data,hdr,noconvert=self.noConvert)
 		self._postprocess(fits,f)
 		fits.close()
-		return self._finish()
+		return self._getOutput()
 	def process_files(self,fileList):
 		# pool objects can't be pickled so have to save it, remove it from
 		# object, then restore it
@@ -473,6 +478,7 @@ class BokProcess(object):
 		if self.nProc > 1:
 			self._ingestOutput(procOut)
 		self.procMap = procMap
+		self._finish()
 
 class BokMefImageCube(object):
 	def __init__(self,**kwargs):

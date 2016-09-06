@@ -19,7 +19,7 @@ import fitsio
 
 from .bokio import *
 from . import bokutil
-from .bokoscan import extract_overscan
+from .bokoscan import extract_overscan,overscan_subtract
 
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
@@ -66,6 +66,34 @@ class BokImArith(bokutil.BokProcess):
 		self.operandFits = fitsio.FITS(self.operand)
 	def process_hdu(self,extName,data,hdr):
 		return self.op(data,self.operandFits[extName][:,:]),hdr
+
+class BokImStat(bokutil.BokProcess):
+	def __init__(self,**kwargs):
+		kwargs.setdefault('read_only',True)
+		super(BokImStat,self).__init__(**kwargs)
+		self.statSec = bokutil.stats_region(kwargs.get('stats_region'))
+		self.clipArgs = kwargs.get('clip_args',{})
+		self.quickprocess = kwargs.get('quickprocess',False)
+		self.meanVals = []
+	def _preprocess(self,fits,f):
+		self.imgMeans = []
+	def process_hdu(self,extName,data,hdr):
+		if self.quickprocess:
+			pix = overscan_subtract(data,hdr,method='mean_value',
+			                        reject='sigma_clip',clip_iters=1,
+			                        apply_filter=None)
+		else:
+			pix = data
+		v = bokutil.array_stats(pix[self.statSec],method='mean',
+		                        rms=False,clip=True,**self.clipArgs)
+		self.imgMeans.append(v)
+		return data,hdr
+	def _postprocess(self,fits,f):
+		self.meanVals.append(self.imgMeans)
+	def _finish(self):
+		self.meanVals = np.array(self.meanVals)
+	def reset(self):
+		self.meanVals = []
 
 def interpolate_masked_pixels(data,along='twod',method='linear'):
 	if along=='rows':
@@ -210,7 +238,7 @@ class NormalizeFlat(bokutil.BokProcess):
 		if self.binnedFlatMap is not None:
 			self.binnedFlat = fitsio.FITS(self.binnedFlatMap(f),'rw')
 			self.binnedFlat.write(None,header=fits.get_header(0))
-	def _finish(self):
+	def _postprocess(self,fits,f):
 		if self.normedFlatFit is not None:
 			self.normedFlatFit.close()
 			self.normedFlatFit = None
@@ -471,6 +499,10 @@ class BokSkySubtract(bokutil.BokProcess):
 		if self.method=='spline':
 			hdrCards['SKYNKNOT'] = self.nKnots
 		fits.outFits[0].write_keys(hdrCards)
+	def _postprocess(self,fits,f):
+		if self.skyFits is not None:
+			self.skyFits.close()
+			self.skyFits = None
 	def process_hdu(self,extName,data,hdr):
 		if type(data) is np.ma.core.MaskedArray:
 			data = data.data
@@ -481,10 +513,6 @@ class BokSkySubtract(bokutil.BokProcess):
 		if self.skyFits is not None:
 			self.skyFits.write(skyFit,extname=extName,header=hdr)
 		return data,hdr
-	def _finish(self):
-		if self.skyFits is not None:
-			self.skyFits.close()
-			self.skyFits = None
 
 ###############################################################################
 #                                                                             #
@@ -514,7 +542,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.arrays = []
 	def _preprocess(self,fits,f):
 		if self.nProc > 1:
-			# this prevents the return values from _finish from piling up
+			# this prevents the return values from _getOutput from piling up
 			# with duplicates when a subprocess is reused
 			self.reset()
 		self._proclog('calculating gain balance factors for %s' % 
@@ -547,7 +575,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 			skyVal = stats
 		self.skyVals.append(skyVal)
 		return data,hdr
-	def _finish(self):
+	def _getOutput(self):
 		return (self.files,self.gainCors,self.allSkyVals,self.arrays)
 	def _ingestOutput(self,procOut):
 		self.files,self.gainCors,self.allSkyVals,self.arrays = zip(*procOut)
