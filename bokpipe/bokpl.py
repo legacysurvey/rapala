@@ -498,27 +498,25 @@ def balance_gains(dataMap,**kwargs):
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
 	for utd in dataMap.iterUtDates():
-		for filt in dataMap.iterFilters():
-			files = dataMap.getFiles(imType='object')
-			if files is None:
-				continue
-			diagfile = os.path.join(dataMap.getDiagDir(),
-			                        'gainbal_%s_%s.npz'%(utd,filt))
-			if os.path.exists(diagfile):
-				gainDat = np.load(diagfile)
-				gainCor = gainDat['gainCor']
-				skyV = gainDat['skys']
-			else:
-				gainBalance.process_files(files)
-				gainCor = gainBalance.calc_mean_corrections()
-				gainCorV,skyV = gainBalance.get_values()
-			for f,skyv in zip(files,skyV):
-				gainMap['corrections'][f] = gainCor
-				gainMap['skyvals'][f] = skyv
-			gainBalance.reset()
-			if not os.path.exists(diagfile) and \
-			     not kwargs.get('nosavegain',False):
-				np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
+		files = dataMap.getFiles(imType='object')
+		if files is None:
+			continue
+		diagfile = os.path.join(dataMap.getDiagDir(), 'gainbal_%s.npz'%utd)
+		if os.path.exists(diagfile):
+			gainDat = np.load(diagfile)
+			gainCor = gainDat['gainCor']
+			skyV = gainDat['skys']
+		else:
+			gainBalance.process_files(files)
+			gainCor = gainBalance.calc_mean_corrections()
+			gainCorV,skyV = gainBalance.get_values()
+		for f,skyv in zip(files,skyV):
+			gainMap['corrections'][f] = gainCor
+			gainMap['skyvals'][f] = skyv
+		gainBalance.reset()
+		if not os.path.exists(diagfile) and \
+		     not kwargs.get('nosavegain',False):
+			np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
 	return gainMap
 
 def process_all(dataMap,bias_map,flat_map,
