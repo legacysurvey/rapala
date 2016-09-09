@@ -42,7 +42,7 @@ nov15flats:
 	                    --noweightmap --tmpdirout $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --makeillumcorr \
-	                    --tmpdirin -vvv
+	                    --tmpdirin -vvv $(NPROC)
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    -s proc2 \
 	                    --nodarkskycorr --noweightmap \
@@ -51,7 +51,7 @@ nov15flats:
 	python basschute.py --obsdb $(NOV15LOG) -r $(NOV15RAW) \
 	                    --frames $(NOV14SKYFLATS) \
 	                    -s skyflat \
-	                    --tmpdirin --tmpdirout -vvv 
+	                    --tmpdirin --tmpdirout -vvv  $(NPROC)
 
 # Just the science frames in validation fields
 NOV14FRAMES := "33-69,98-110"
