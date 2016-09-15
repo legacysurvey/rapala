@@ -121,11 +121,15 @@ def _write_stack_header_cards(fileList,cardPrefix):
 	hdr['NCOMBINE'] = len(fileList)
 	return hdr
 
-def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
+def rows2slice(rows):
 	if rows is None:
 		s = np.s_[:,:]
 	else:
 		s = np.s_[rows[0]:rows[1],:]
+	return s
+
+def build_cube(fileList,extn,masks=None,rows=None,badKey=None):
+	s = rows2slice(rows)
 	cube = np.dstack( [ fitsio.FITS(f)[extn][s] for f in fileList ] )
 	_masks = []
 	if masks is not None:
@@ -144,11 +148,6 @@ def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
 		mask = np.dstack(_masks).astype(np.bool)
 	else:
 		mask = None
-	if masterMask is not None:
-		if mask is None:
-			mask = masterMask[extn][s][:,:,np.newaxis].astype(np.bool)
-		else:
-			mask |= masterMask[extn][s][:,:,np.newaxis].astype(np.bool)
 	cube = np.ma.masked_array(cube,mask)
 	return cube
 
@@ -494,7 +493,7 @@ class BokMefImageCube(object):
 		self.statsPix = stats_region(self.statsRegion)
 		self.clipArgs = {'iters':kwargs.get('clip_iters',2),
 		                 'sig':kwargs.get('clip_sig',2.5),
-		                 'cenfunc':np.ma.mean}
+		                 'cenfunc':kwargs.get('clip_cenfunc',np.ma.mean)}
 		self.fillValue = kwargs.get('fill_value',np.nan)
 		self.maxMemBytes = self.maxMemGB = kwargs.get('maxmem')
 		if self.maxMemBytes:
@@ -625,12 +624,14 @@ class BokMefImageCube(object):
 			for rows in rowChunks:
 				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
 				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows,
-				                    masterMask=self.badPixelMask,
 				                    badKey=self.badKey)
 				imCube = self._rescale(imCube,scales=scales)
 				imCube = self._reject_pixels(imCube)
 				w = self._load_weights(weights,fileList,extn,rows)
 				_stack = self._stack_cube(imCube,w,**kwargs)
+				if self.badPixelMask is not None:
+					bpmsk = self.badPixelMask[extn][rows2slice(rows)]
+					_stack.mask |= bpmsk.astype(np.bool)
 				stack.append(_stack)
 				if self.withExpTimeMap:
 					expTime.append(np.sum(~imCube.mask*expTimes,axis=-1))

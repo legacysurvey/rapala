@@ -290,7 +290,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
 		# hacky way to say arithmetic is appropriate for inverse-var maps
 		self.asWeight = kwargs.get('asweight',False)
-		self.imTypes = ['bias','flat','ramp','illum','darksky']
+		self.imTypes = ['bias','flat','ramp','illum','fringe','darksky']
 		#
 		self.procIms = {}
 		for imType in self.imTypes:
@@ -363,6 +363,12 @@ class BokCCDProcess(bokutil.BokProcess):
 			except:
 				pass
 		for flatType in ['flat','illum','darksky']:
+			if flatType == 'darksky':
+				# ugly, but this is just where it goes
+				fringe = self.procIms['fringe']['fits']
+				if fringe is not None:
+					# XXX need scaling here
+					data -= fringe[extName][:,:]
 			flat = self.procIms[flatType]['fits']
 			if flat is not None:
 				if self.asWeight:
@@ -885,6 +891,86 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		maskIm = bokutil.magnify(mask,self.nBin) | bsmask
 		return maskIm.astype(np.uint8),hdr
 
+class BokFringePatternStack(bokutil.ClippedMeanStack):
+	def __init__(self,**kwargs):
+		kwargs.setdefault('stats_region','ccd_central_quadrant')
+		#kwargs.setdefault('scale','normalize_mode')
+		kwargs.setdefault('maxmem',5)
+		kwargs.setdefault('fill_value',1.0)
+		super(BokFringePatternStack,self).__init__(**kwargs)
+		self.clipArgs = { k:v for k,v in kwargs.items() 
+		                     if k.startswith('clip_') }
+		self.statsMethod = kwargs.get('stats_method','mode')
+		self.clipArgs.setdefault('clip_iters',3)
+		self.clipArgs.setdefault('clip_sig',2.2)
+		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
+		self.smoothingLength = kwargs.get('smoothing_length',0.05)
+		self.rawStackFile = kwargs.get('raw_stack_file')
+		self.rawStackFits = None
+		self.procmap = kwargs.get('procmap',map)
+		self.headerKey = 'FRG'
+	def _getnorm(self,f):
+		fits = bokutil.BokMefImage(self.inputNameMap(f),
+		                           mask_file=self.maskNameMap(f),
+		                           read_only=True)
+		meanVals = []
+		for extn,data,hdr in fits:
+			meanVal = bokutil.array_stats(data[self.statsPix],
+			                              method=self.statsMethod,
+			                              **self.clipArgs)
+			meanVals.append(meanVal)
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] '%pid,
+		print 'medians for image %s are %.1f %.1f %.1f %.1f' % \
+		           tuple((self.inputNameMap(f),)+tuple(meanVals))
+		return meanVals
+	def _preprocess(self,fileList,outFits):
+		# calculate the norms in subprocesses, need the workaround to
+		# avoid sending a Pool object
+		procmap = self.procmap
+		self.procmap = None
+		norms = procmap(self._getnorm,fileList)
+		self.norms = np.array(norms).astype(np.float32)
+		self.procmap = procmap
+		if self.rawStackFile is not None:
+			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
+			rawFn = self.rawStackFile(outFits._filename)
+			if os.path.exists(rawFn):
+				os.remove(rawFn)
+			self.rawStackFits = fitsio.FITS(rawFn,'rw')
+			# if we've gotten to here, we already know any existing file 
+			# needs to be clobbered (XXX but this didn't work??? added above)
+			self.rawStackFits.write(None,header=outFits[0].read_header(),
+			                        clobber=True)
+	def _rescale(self,imCube,scales=None):
+		if scales is not None:
+			_scales = scales[np.newaxis,:]
+		else:
+			_scales = self.norms[np.newaxis,:]
+		_scales = _scales.mean(axis=-1) # XXX averaging across CCDs
+		self.scales = _scales.squeeze()
+		return imCube - _scales
+	def _postprocess(self,extName,stack,hdr):
+		cleanStack = stack.filled(1.0)
+		interpMask = False
+		if self.rawStackFile is not None:
+			self.rawStackFits.write(cleanStack,extname=extName,header=hdr)
+		cleanStack = spline_filter(cleanStack,self.smoothingLength)
+		# renormalize to unity, using the combined interp and input mask
+		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
+		normpix = sigma_clip(_stack[self.statsPix],iters=2,sigma=2.5,
+		                     cenfunc=np.ma.mean)
+		_stack -= normpix.mean()
+		return _stack,hdr
+	def _cleanup(self):
+		super(BokFringePatternStack,self)._cleanup()
+		if self.rawStackFits is not None:
+			self.rawStackFits.close()
+			self.rawStackFits = None
+
 class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','ccd_central_quadrant')
@@ -894,10 +980,11 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		super(BokNightSkyFlatStack,self).__init__(**kwargs)
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
+		# override some defaults
 		self.statsMethod = kwargs.get('stats_method','mode')
-		self.clipArgs.setdefault('clip_iters',3)
-		self.clipArgs.setdefault('clip_sig',2.2)
-		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
+		self.clipArgs['clip_iters'] = 3
+		self.clipArgs['clip_sig'] = 2.2
+		self.clipArgs['clip_cenfunc'] = np.ma.mean
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.rawStackFile = kwargs.get('raw_stack_file')
 		self.rawStackFits = None

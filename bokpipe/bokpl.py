@@ -24,7 +24,8 @@ from . import bokphot
 from . import bokgnostic
 
 all_process_steps = ['oscan','bias2d','flat2d','bpmask',
-                     'proc1','comb','skyflat','proc2','sky','wcs','cat']
+                     'proc1','comb','fringe','skyflat',
+                     'proc2','sky','wcs','cat']
 
 default_filenames = {
   'oscan':'','bias':'_b','proc1':'_p','comb':'_c','weight':'.wht',
@@ -530,7 +531,8 @@ def process_all(dataMap,bias_map,flat_map,
 	                             mask_map=dataMap('MasterBadPixMask'),
 	                             header_key=prockey,
 	                             bias=bias_map,flat=flat_map,
-	                             ramp=ramp,illum=None,darksky=None,
+	                             ramp=ramp,fringe=None,
+	                             illum=None,darksky=None,
 	                             fixpix=fixpix,**kwargs)
 	files = dataMap.getFiles(imType='object')
 	if files is None:
@@ -563,6 +565,32 @@ def process_all(dataMap,bias_map,flat_map,
 		                     gain_map=gainMap,
 		                     **kwargs)
 
+def make_fringe_masters(dataMap,**kwargs):
+	caldir = dataMap.getCalDir()
+	stackin = dataMap('fringe') # XXX
+	fringeStack = bokproc.BokFringePatternStack(input_map=stackin,
+#	                                            mask_map=dataMap('skymask'),
+	                       raw_stack_file=bokio.FileNameMap(caldir,'_raw'),
+	                                        header_bad_key='BADSKY',
+	                                            **kwargs)
+	fringeStack.set_badpixelmask(dataMap('MasterBadPixMask4'))
+	for filt in dataMap.iterFilters():
+		if True:
+			files = dataMap.getFiles(imType='object')
+			if files is not None:
+				fn = dataMap.getMaster('Fringe',filt=filt,name=True)
+				outfn = os.path.join(dataMap.getCalDir(),fn)
+				fringeStack.stack(files,outfn)
+		if False:
+			# this does a sky flat each night
+			for utd in dataMap.iterUtDates():
+				files = dataMap.getFiles(imType='object')
+				if files is None:
+					continue
+				outfn = os.path.join(dataMap.getCalDir(),
+				                     'skyflat_%s_%s.fits' % (utd,filt))
+				skyFlatStack.stack(files,outfn)
+
 def make_supersky_flats(dataMap,**kwargs):
 	caldir = dataMap.getCalDir()
 	stackin = dataMap('sky') # XXX
@@ -591,8 +619,8 @@ def make_supersky_flats(dataMap,**kwargs):
 				skyFlatStack.stack(files,outfn)
 
 def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
-                 noskysub=False,noweightmap=False,prockey='CCDPRO2',
-                 save_sky=False,**kwargs):
+                 nofringecorr=False,noskysub=False,noweightmap=False,
+                 prockey='CCDPRO2',save_sky=False,**kwargs):
 	#
 	# Second round flat-field corrections
 	#
@@ -619,13 +647,22 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 			tmpsky[filt] = bokutil.FakeFITS(dataMap.getMaster('SkyFlat',filt))
 		for i,f in zip(ii,files):
 			darksky_map[f] = tmpsky[dataMap.obsDb['filter'][i]]
+	if nofringecorr:
+		fringe_map = None
+	else:
+		fringe_map = {}
+		tmpfrg = {}
+		for filt in np.unique(dataMap.obsDb['filter'][ii]):
+			tmpfrg[filt] = bokutil.FakeFITS(dataMap.getMaster('Fringe',filt))
+		for i,f in zip(ii,files):
+			fringe_map[f] = tmpfrg[dataMap.obsDb['filter'][i]]
 	#
 	proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
 	                             output_map=dataMap('proc2'),
 	                             mask_map=dataMap('MasterBadPixMask4'),
 	                             header_key=prockey,
 	                             gain_multiply=False,bias=None,flat=None,
-	                             ramp=None,fixpix=False,
+	                             ramp=None,fixpix=False,fringe=fringe_map,
 	                             illum=illum_map,darksky=darksky_map,
 	                             **kwargs)
 	proc.process_files(files)
@@ -636,7 +673,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 		                               mask_map=dataMap('MasterBadPixMask4'),
 		                               header_key=prockey,
 		                               gain_multiply=False,bias=None,flat=None,
-		                               ramp=None,fixpix=False,
+		                               ramp=None,fixpix=False,fringe=None,
 		                               illum=illum_map,darksky=darksky_map,
 		                               asweight=True,
 		                               **kwargs)
@@ -744,6 +781,9 @@ def bokpipe(dataMap,**kwargs):
 		            prockey=kwargs.get('prockey','CCDPROC'),
 		            **pipekwargs)
 		timerLog('ccdproc')
+	if 'fringe' in steps:
+		make_fringe_masters(dataMap,**pipekwargs)
+		timerLog('fringe masters')
 	if 'skyflat' in steps:
 		make_supersky_flats(dataMap,**pipekwargs)
 		timerLog('supersky flats')
@@ -872,6 +912,7 @@ def set_master_cals(dataMap):
 	dataMap.setMaster('BadPixMask4')
 	dataMap.setMaster('BiasRamp')
 	dataMap.setMaster('Illumination',byFilter=True)
+	dataMap.setMaster('Fringe',byFilter=True)
 	dataMap.setMaster('SkyFlat',byFilter=True)
 	return dataMap
 
