@@ -509,6 +509,8 @@ def stripe82_aperphot_all(which='s82cal',redux='naoc',**kwargs):
 	rdxdir = os.path.join(os.environ['BASSRDXDIR'],'reduced')
 	if redux=='naoc':
 		bokdir = os.path.join(rdxdir,'nov15data')
+	elif redux=='naocv1':
+		bokdir = os.path.join(rdxdir,'nov15data_OLD')
 	elif redux=='idm':
 		bokdir = os.path.join(rdxdir,'bokpipe_v0.2','nov15data')
 	elif redux=='noao':
@@ -535,7 +537,7 @@ def stripe82_aperphot_all(which='s82cal',redux='naoc',**kwargs):
 			try:
 				print 'calculating aperture phot for ',field,
 				imf = os.path.join(bokdir,field+'.fits')
-				bpmask = fitsio.FITS(imf.replace('.fits','.wht.fits'))
+				bpmask = None #fitsio.FITS(imf.replace('.fits','.wht.fits'))
 				ph = aper_phot_image(imf,s82cat['ra'],s82cat['dec'],[aperRad],
 				                     badPixMask=bpmask,calc_peak=True)
 				print
@@ -562,13 +564,83 @@ def stripe82_aperphot_all(which='s82cal',redux='naoc',**kwargs):
 		s82cat['countsErr'] *= exptime[np.newaxis,:,np.newaxis]
 	s82cat['meanCps'] = np.average(s82cat['cps'],weights=exptime,axis=1)
 	s82cat['snr'] = s82cat['counts']/s82cat['countsErr']
-	s82cat['cpsSig'] = np.ma.std(-2.5*np.ma.log10(
-	                       np.ma.divide(s82cat['cps'],
-	                              s82cat['meanCps'][:,np.newaxis,:])),axis=1)
 	s82cat['nobs'] = (~s82cat['counts'].mask).sum(axis=1)
-	s82cat['dmag'] = -2.5*np.ma.log10(s82cat['cps'] 
-	                                   / s82cat['meanCps'][:,np.newaxis,:])
+	ctsratio = np.ma.divide(s82cat['cps'],s82cat['meanCps'][:,np.newaxis,:])
+	s82cat['dmag'] = -2.5*np.ma.log10(ctsratio)
+	s82cat['sigMag'] = np.ma.std(s82cat['dmag'],axis=1)
 	return s82cat
+
+def selfcal(s82cat):
+	exptime = np.array([100.]*6 + [25.,50.,100.,200.,400.])
+	ii = np.where(np.any(s82cat['nobs']>6,axis=1))[0]
+	imgcal = sigma_clip(s82cat['dmag'][ii],
+	                    sigma=2.0,iters=3,axis=0).mean(axis=0)
+	print imgcal
+	cscl = 10**(-0.4*imgcal)
+	s82cat['cpsCal'] = s82cat['cps']*cscl
+	s82cat['meanCpsCal'] = np.average(s82cat['cpsCal'],
+	                                  weights=exptime,axis=1)
+	ctsratio = np.ma.divide(s82cat['cpsCal'],
+	                        s82cat['meanCpsCal'][:,np.newaxis,:])
+	s82cat['dmagCal'] = -2.5*np.ma.log10(ctsratio)
+	s82cat['dmagCal'] -= sigma_clip(s82cat['dmagCal'][ii],
+	             sigma=2.0,iters=3,axis=0).mean(axis=0).mean(axis=0)
+	s82cat['sigMagCal'] = np.ma.std(s82cat['dmagCal'],axis=1)
+	return s82cat
+
+def focalplanevar2(s82cat,band,nbin=4,frameno=None,cal=False,
+                   doplot=False,vr=0.015,shownum=False):
+	dmk = 'dmag' if not cal else 'dmagCal'
+	tab = s82cat
+	bk = 'gr'.find(band)
+	nx = 4096 // nbin
+	ny = 4032 // nbin
+	if frameno is None:
+		s = np.s_[:,:,bk]
+	else:
+		s = np.s_[:,frameno,bk]
+	xi = (tab['x'][s]/nx).astype(np.int32)
+	yi = (tab['y'][s]/ny).astype(np.int32)
+	fpIm = np.zeros((4,nbin,nbin))
+	for ccdi in range(4):
+		for i in range(nbin):
+			for j in range(nbin):
+				ii = np.where((tab['ccdNum'][s]==ccdi+1)&(yi==i)&(xi==j))
+				dm = sigma_clip(s82cat[dmk][s][ii])
+				if shownum:
+					fpIm[ccdi,i,j] = (~dm.mask).sum()
+				else:
+					fpIm[ccdi,i,j] = np.ma.mean(dm)
+	if doplot:
+		if vr is None:
+			vmin,vmax = None,None
+		else:
+			vmin,vmax = -vr,vr
+		fig = plt.figure(figsize=(6,6.15))
+		plt.subplots_adjust(0.04,0.035,0.96,0.88,0.25,0.12)
+		for pnum,ccdi in enumerate([0,2,1,3],start=1):
+			ax = plt.subplot(2,2,pnum)
+			im = fpIm[ccdi]
+			if ccdi <= 1:
+				im = im[:,::-1]
+			if ccdi % 2 == 1:
+				im = im[::-1,:]
+			if shownum:
+				_im = ax.imshow(im,origin='lower',interpolation='nearest',
+				                cmap=plt.cm.hot_r)
+			else:
+				_im = ax.imshow(im,origin='lower',interpolation='nearest',
+				                vmin=vmin,vmax=vmax,cmap=plt.cm.RdBu)
+			plt.title('CCD%d'%(ccdi+1))
+			if pnum==1:
+				cbax = fig.add_axes([0.1,0.98,0.8,0.015])
+				cb = fig.colorbar(_im,cax=cbax,orientation='horizontal')
+				#if not shownum:
+				#	cb.locator = ticker.MultipleLocator(0.005)
+				#cb.update_ticks()
+			ax.xaxis.set_ticks([])
+			ax.yaxis.set_ticks([])
+	return fpIm
 
 def stripe82_linearity_plot(s82tab,filt='g',peak=False):
 	from scipy.stats import scoreatpercentile
@@ -647,6 +719,8 @@ def rename_proc_files(which='naoc'):
 			outfn = os.path.join(outdir,field.replace('bokr','r')+sfx+'.fits')
 			if os.path.exists(outfn): continue
 			filt = log['filter'][i]
+			if which=='naoc' and True:
+				filt = filt.replace('bokr','r')
 			if which=='noao':
 				nsfx = 'oow' if sfx=='.wht' else 'ooi'
 				_fn = log['fileName'][i].replace('ori',nsfx)+'_%s_v0' % filt
@@ -815,7 +889,8 @@ def etc_check():
 			        (field,airmass,skyextinction,skymag,fwhm,t/3,dfac)
 		print
 
-def compare_scatter(phot1,phot2,names,minnobs=4):
+def compare_scatter(phot1,phot2,names,minnobs=4,cal=False):
+	sigk = 'sigMag' if not cal else 'sigMagCal'
 	m1,m2 = srcor(phot1['ra'],phot1['dec'],phot2['ra'],phot2['dec'],1.0)
 	plt.figure(figsize=(10,5))
 	plt.subplots_adjust(0.08,0.12,0.95,0.92,0.25)
@@ -824,8 +899,8 @@ def compare_scatter(phot1,phot2,names,minnobs=4):
 		              (phot2['nobs'][m2,j]>=minnobs))[0]
 		plt.subplot(1,2,j+1)
 		for p,c,l in zip([phot1[m1[ii]],phot2[m2[ii]]],'bg',names):
-			ii = np.where(p['cpsSig'][:,j] > 0)[0]
-			plt.scatter(p['psfmag_'+b][ii],p['cpsSig'][ii,j],s=7,c=c,
+			ii = np.where(p[sigk][:,j] > 0)[0]
+			plt.scatter(p['psfmag_'+b][ii],p[sigk][ii,j],s=7,c=c,
 			            edgecolor='none',alpha=0.7,label=l)
 		plt.title('%s band' % b)
 		plt.legend(loc='upper left')
