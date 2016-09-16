@@ -186,7 +186,8 @@ def get_coverage(obsdb,tiledb):
 def obs_summary(which='good',newest=True,tiles=None,
                 mjdstart=None,mjdend=None,
                 doplot=False,smallplot=False,saveplot=None,
-                decalsstyle=False,byfilter=False,verbose=0):
+                decalsstyle=False,byfilter=False,brightcolors=False,
+                verbose=0):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb(get_obsdb_filename(which,newest))
@@ -316,6 +317,10 @@ def obs_summary(which='good',newest=True,tiles=None,
 			else:
 				plt.show()
 		elif byfilter:
+			if brightcolors:
+				passcolors = ['0.5','DarkCyan','blue','red']
+			else:
+				passcolors = ['0.5','#5f7ae3','#3d58c1','#031e84']
 			fig = plt.figure(figsize=(12,6))
 			plt.subplots_adjust(0.06,0.08,0.98,0.95,0.0,0.0)
 			sz1,sz2 = 15,25
@@ -328,8 +333,7 @@ def obs_summary(which='good',newest=True,tiles=None,
 				ii = np.where(npass>0)[0]
 				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
 				       marker='s',
-				       c=np.choose(npass[ii],
-				            ['0.5','#5f7ae3','#3d58c1','#031e84']),
+				       c=np.choose(npass[ii],passcolors),
 				       edgecolor='none',s=sz2)
 				plt.xlim(85,305)
 				plt.ylim(29,75)
@@ -507,6 +511,8 @@ if __name__=='__main__':
 	                    help="select tiles within legacy field")
 	parser.add_argument("--byfilter",action="store_true",
 	                    help="plot coverage by filter instead of by pass")
+	parser.add_argument("--bright",action="store_true",
+	                    help="plot using higher contrast colors")
 	parser.add_argument("-v","--verbose",action="store_true",
 	                    help="increase verbosity")
 	args = parser.parse_args()
@@ -548,7 +554,8 @@ if __name__=='__main__':
 		            mjdstart=mjds[0],mjdend=mjds[1],
 		            doplot=args.plot,smallplot=args.smallplot,
 		            saveplot=args.plotfile,decalsstyle=not args.byfilter,
-		            byfilter=args.byfilter,verbose=args.verbose)
+		            byfilter=args.byfilter,brightcolors=args.bright,
+		            verbose=args.verbose)
 	#kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
 	#print kwargs
 	#nersc_archive_list(**kwargs)
