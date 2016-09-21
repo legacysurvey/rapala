@@ -8,332 +8,23 @@ from copy import copy
 from functools import partial
 import multiprocessing
 import numpy as np
-from numpy.core.defchararray import add as char_add
 import fitsio
 from astropy.table import Table
 
 from .bokoscan import BokOverscanSubtract,BokOverscanSubtractWithSatFix
-from .badpixels import build_mask_from_flat
 from . import bokio
 from . import bokutil
 from . import bokproc
 from . import bokrampcorr
 from . import bokillumcorr
+from .bokdm import SimpleFileNameMap,BokDataManager
 from . import bokastrom
 from . import bokphot
 from . import bokgnostic
 
-all_process_steps = ['oscan','bias2d','flat2d','bpmask',
+all_process_steps = ['oscan','bias2d','flat2d',
                      'proc1','comb','fringe','skyflat',
                      'proc2','sky','wcs','cat']
-
-default_filenames = {
-  'oscan':'','bias':'_b','proc1':'_p','comb':'_c','weight':'.wht',
-  'pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
-  'sky':'_s','proc2':'_q','wcscat':'.wcscat',
-  'cat':'.cat','psf':'.psf'
-}
-
-class SimpleFileNameMap(bokio.FileNameMap):
-	def __init__(self,rawDir,procDir,newSuffix=None,fromRaw=False):
-		self.newSuffix = '' if newSuffix is None else newSuffix
-		self.fromRaw = fromRaw
-		self.rawDir = rawDir
-		self.procDir = procDir
-	def __call__(self,fileName):
-		fn = fileName+self.newSuffix+'.fits'
-		if self.fromRaw:
-			fpath = os.path.join(self.rawDir,fn)
-			if not os.path.exists(fpath):
-				# maybe it is gzipped
-				fpath = os.path.join(self.rawDir,fn+'.gz')
-				if not os.path.exists(fpath):
-					# or fpacked
-					fpath = os.path.join(self.rawDir,fn+'.fz')
-			return fpath
-		else:
-			return os.path.join(self.procDir,fn)
-
-class BokDataManager(object):
-	def __init__(self,obsDb,rawDir,procDir):
-		self.rawDir = rawDir
-		self.procDir = procDir
-		self.calDir = os.path.join(self.procDir,'cals')
-		self.diagDir = os.path.join(self.procDir,'diagnostics')
-		self.master = {}
-		self.obsDb = obsDb
-		self.allUtDates = np.unique(self.obsDb['utDate'])
-		self.utDates = self.allUtDates
-		self.allFilt = np.unique(obsDb['filter'][obsDb['imType']=='object'])
-		self.filt = self.allFilt
-		self.frames = None
-		self.frameList = None
-		self.imType = None
-		self._curUtDate = None
-		self._curFilt = None
-		self._tmpInput = False
-		self._tmpOutput = False
-		self._tmpDir = os.path.join(self.procDir,'tmp')
-		self.refCatDir = None
-		self.fileSuffixes = default_filenames
-		self.setInPlace(True)
-		self.firstStep = None
-	def getRawDir(self):
-		return self.rawDir
-	def getProcDir(self):
-		return self.procDir
-	def setTmpInput(self):
-		self._tmpInput = True
-	def setTmpOutput(self):
-		self._tmpOutput = True
-		if not os.path.exists(self._tmpDir):
-			os.mkdir(self._tmpDir)
-		for utdir in self.getUtDirs():
-			utdir = os.path.join(self._tmpDir,utdir)
-			if not os.path.exists(utdir): os.mkdir(utdir)
-	def getCalDir(self):
-		return self.calDir
-	def setCalDir(self,calDir):
-		self.calDir = calDir
-	def getDiagDir(self):
-		return self.diagDir
-	def setDiagDir(self,diagDir):
-		self.diagDir = diagDir
-	def setUtDates(self,utDates):
-		self.utDates = utDates
-	def getUtDates(self):
-		return self.utDates
-	def iterUtDates(self):
-		for u in self.utDates:
-			self._curUtDate = u
-			yield u
-		self._curUtDate = None
-	def getUtDirs(self):
-		return sorted(np.unique(self.obsDb['utDir']))
-	def setFilters(self,filt):
-		self.filt = filt
-	def getFilters(self):
-		return self.filt
-	def iterFilters(self):
-		for f in self.filt:
-			self._curFilt = f
-			yield f
-		self._curFilt = None
-	def setFrames(self,frames):
-		self.frames = frames
-	def setFile(self,fileName,utDate=None):
-		isUtd = True if utDate is None else self.obsDb['utDate']==utDate
-		self.frameList = np.where( isUtd & 
-		                           (self.obsDb['fileName']==fileName) )[0]
-	def setFileList(self,utDates,fileNames):
-		frames = [ np.where( (self.obsDb['utDate']==utd) &
-		                     (self.obsDb['fileName']==f) )[0][0]
-		             for utd,f in zip(utDates,fileNames) ]
-		self.setFrameList(frames)
-	def setFrameList(self,frames):
-		self.frameList = np.array(frames)
-	def setImageType(self,imType):
-		self.imType = imType
-	def setScampRefCatDir(self,refCatDir):
-		self.refCatDir = refCatDir
-		if not os.path.exists(self.refCatDir):
-			os.mkdir(self.refCatDir)
-	def getScampRefCat(self,fieldName):
-		if self.refCatDir is None:
-			return None
-		refCatFn = 'scampref_%s.cat' % fieldName
-		return os.path.join(self.refCatDir,refCatFn)
-	def setMaster(self,calType,fits=None,byFilter=False):
-		if byFilter:
-			self.master[calType] = {}
-			for filt in self.filt:
-				self.master[calType][filt] = {'fits':None,
-				                     'fileName':'%s_%s.fits'%(calType,filt)}
-		else:
-			self.master[calType] = {'fits':fits,'fileName':calType+'.fits'}
-	def getMaster(self,calType,filt=None,name=False,load=True):
-		master = self.master[calType]
-		if filt is not None:
-			master = master[filt]
-		if name:
-			return master['fileName']
-		else:
-			if load and master['fits'] is None:
-				master['fits'] = fitsio.FITS(os.path.join(self.calDir,
-				                                      master['fileName']))
-			return master['fits']
-	def setInPlace(self,inPlace):
-		self.inPlace = inPlace
-		if self.inPlace:
-			self.filesToMap = ['oscan','pass1cat','weight','skymask','skyfit',
-			                   'wcscat','cat','psf']
-		else:
-			self.filesToMap = self.fileSuffixes.keys()
-	def __call__(self,t):
-		procDir = self.procDir
-		if t in all_process_steps:
-			if self.firstStep is None:
-				self.firstStep = t
-				if self._tmpInput:
-					procDir = self._tmpDir
-			elif t != self.firstStep:
-				if self._tmpOutput:
-					procDir = self._tmpDir
-			else:
-				if self._tmpInput:
-					procDir = self._tmpDir
-		if t.startswith('Master'):
-			_t = t.lstrip('Master')
-			if self.master[_t]['fits'] is None:
-				fn = os.path.join(self.calDir,self.master[_t]['fileName'])
-				self.master[_t]['fits'] = fitsio.FITS(fn)
-			return self.master[_t]['fits']
-		elif t == 'raw':
-			# special case to handle moving files from raw directory
-			return SimpleFileNameMap(self.rawDir,procDir,fromRaw=True)
-		elif t in self.filesToMap:
-			return SimpleFileNameMap(self.rawDir,procDir,
-			                         self.fileSuffixes[t])
-		else:
-			return SimpleFileNameMap(self.rawDir,procDir)
-	def getFiles(self,imType=None,utd=None,filt=None,
-	             im_range=None,exclude_objs=None,
-	             with_objnames=False,with_frames=False,as_sequences=False):
-		try:
-			# if the observations database has a good flag use it
-			good_ims = self.obsDb['good']
-		except:
-			good_ims = np.ones(len(self.obsDb),dtype=bool)
-		file_sel = good_ims.copy()
-		# select on UT date(s)
-		if utd is not None:
-			if isinstance(utd,basestring):
-				utds = [utd]
-			else:
-				utds = utd
-		elif self._curUtDate is not None:
-			utds = [self._curUtDate]
-		else:
-			utds = self.getUtDates() 
-		if not np.array_equal(utds,self.allUtDates):
-			isUtd = np.zeros_like(file_sel)
-			for utd in utds:
-				isUtd |= ( self.obsDb['utDate'] == utd )
-			file_sel &= isUtd
-		# restrict on image type
-		if imType is not None:
-			file_sel &= ( self.obsDb['imType'] == imType )
-		elif self.imType is not None:
-			file_sel &= ( self.obsDb['imType'] == self.imType )
-		# restrict on filter
-		if filt is not None:
-			f = filt
-		elif self._curFilt is not None:
-			f = self._curFilt
-		else:
-			f = self.filt
-		if not np.all(np.in1d(self.allFilt,f)):
-			isFilt = np.in1d(self.obsDb['filter'],f)
-			if imType is None:
-				# special case to include bias frames regardless of 
-				# what filter was in place when they were taken
-				isFilt |= self.obsDb['imType'] == 'zero'
-			file_sel &= isFilt
-		# restrict on specified range of frames
-		if im_range is not None:
-			file_sel &= ( (self.obsDb['frameIndex'] >= im_range[0]) & 
-			              (self.obsDb['frameIndex'] <= im_range[1]) )
-		elif self.frames is not None:
-			file_sel &= ( (self.obsDb['frameIndex'] >= self.frames[0]) & 
-			              (self.obsDb['frameIndex'] <= self.frames[1]) )
-		# list of objects to exclude
-		if exclude_objs is not None:
-			for objnm in exclude_objs:
-				file_sel &= ~(self.obsDb['objName'] == objnm)
-		# finally check input frame list
-		if self.frameList is not None:
-			isFrame = np.zeros(len(self.obsDb),dtype=bool)
-			isFrame[self.frameList] = True
-			file_sel &= isFrame
-		# construct the output file list
-		ii = np.where(file_sel)[0]
-		if len(ii) > 0:
-			# XXX os.path.join for arrays?
-			files = char_add(char_add(self.obsDb['utDir'][ii],'/'),
-			                 self.obsDb['fileName'][ii])
-			if as_sequences:
-				splits = np.where(np.diff(ii)>1)[0]
-				if len(splits)==0:
-					return [ files ]
-				else:
-					# look for instances where the sequence is broken simply
-					# because of a few bad images
-					_splits = []
-					for s in splits:
-						if not np.all(~good_ims[ii[s]+1:ii[s+1]]):
-							_splits.append(s)
-					if len(_splits)==0:
-						return [ files ]
-					else:
-						return np.split(files,np.array(_splits)+1)
-			rv = [files]
-			if with_objnames:
-				rv.append(self.obsDb['objName'][ii])
-			if with_frames:
-				rv.append(ii)
-			if len(rv)>1:
-				return tuple(rv)
-			else:
-				return rv[0]
-		else:
-			if with_frames:
-				return None,None
-			else:
-				return None
-
-def get_bias_map(dataMap):
-	biasMap = {}
-	biasPattern = os.path.join(dataMap.getCalDir(),'bias_*.fits')
-	biasFiles = sorted(glob.glob(biasPattern))
-	bias2utd = ".*bias_(\d+).*"
-	biasUtds = np.array([int(re.match(bias2utd,fn).groups()[0])
-	                       for fn in biasFiles])
-	for utd in dataMap.iterUtDates():
-		j = np.argmin(np.abs(int(utd)-biasUtds))
-		biasFile = biasFiles[j]
-		files = dataMap.getFiles()
-		if files is None:
-			continue
-		for f in files:
-			biasMap[f] = biasFile
-	return biasMap
-
-def get_flat_map(dataMap):
-	flatMap = {}
-	flatPattern = os.path.join(dataMap.getCalDir(),'flat_????????_*_?.fits')
-	flatFiles = sorted(glob.glob(flatPattern))
-	flat2utdfilt = ".*flat_(\d+)_(\w+)_.*"
-	utdfilt = [ re.match(flat2utdfilt,fn).groups() for fn in flatFiles]
-	flatUtds = np.array([int(utd) for utd,filt in utdfilt])
-	flatFilt = np.array([filt for utd,filt in utdfilt])
-	for filt in dataMap.iterFilters():
-		for utd in dataMap.iterUtDates():
-			# will crash here if it finds bias images with a filter that
-			# has no flat images, thinking it needs to make a flat.
-			# should be no harm in restricting to object frames...
-			files = dataMap.getFiles(imType='object')
-			if files is None:
-				continue
-			jj = np.where(flatFilt==filt)[0]
-			try:
-				j = np.argmin(np.abs(int(utd)-flatUtds[jj]))
-			except ValueError:
-				raise ValueError('no match for %s:%s in %s:%s' % 
-				                 (utd,filt,flatUtds,flatFilt))
-			flatFile = flatFiles[jj[j]]
-			for f in files:
-				flatMap[f] = flatFile
-	return flatMap
 
 def makeccd4image(dataMap,inputFile,outputFile=None,**kwargs):
 	try:
@@ -358,17 +49,15 @@ def overscan_subtract(dataMap,fixsaturation=False,**kwargs):
 	oscanSubtract.process_files(dataMap.getFiles())
 
 def _bias_worker(dataMap,biasStack,nSkip,writeccdim,biasIn,**kwargs):
-	utd,biasNum,biasFiles = biasIn
-	biasFile = os.path.join(dataMap.getCalDir(),
-	                        'bias_%s_%d.fits' % (utd,biasNum))
-	biasStack.stack(biasFiles[nSkip:],biasFile)
+	biasFile,biasList = biasIn
+	biasStack.stack(biasList[nSkip:],biasFile)
 	if kwargs.get('verbose',0) >= 1:
 		try:
 			pid = multiprocessing.current_process().name.split('-')[1]
 		except:
 			pid = '1'
 		print '[%2s] 2DBIAS: %s' % (pid,biasFile)
-		print '\n'.join(biasFiles[nSkip:])
+		print '\n'.join(biasList[nSkip:])
 	if writeccdim:
 		makeccd4image(dataMap,biasFile,**kwargs)
 
@@ -381,28 +70,20 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 	_kwargs['processes'] = 1
 	_kwargs['procmap'] = map
 	biasStack = bokproc.BokBiasStack(input_map=dataMap('oscan'),
+	                                 output_map=dataMap('cal'),
 	                                 reject=reject,
                                      **_kwargs)
-	# build the list of bias sequences for each night
-	biasList = []
-	for utd in dataMap.iterUtDates():
-		bias_seqs = dataMap.getFiles(imType='zero',as_sequences=True)
-		if bias_seqs is None:
-			continue
-		for biasNum,biasFiles in enumerate(bias_seqs,start=1):
-			if len(biasFiles) >= 5: # XXX hardcoded
-				biasList.append((utd,biasNum,biasFiles))
 	p_bias_worker = partial(_bias_worker,dataMap,biasStack,
 	                        nSkip,writeccdim,**kwargs)
-	procmap(p_bias_worker,biasList)
+	# returns [(biasFile,biasFiles)...]
+	procmap(p_bias_worker,dataMap.getCalSequences('zero'))
 
 def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
                  debug,flatIn,**kwargs):
-	utd,filt,flatNum,flatFiles = flatIn
-	flatFile = os.path.join(dataMap.getCalDir(),
-                            'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
-	bias2Dsub.process_files(flatFiles)
-	flatStack.stack(flatFiles[nSkip:],flatFile)
+	flatFile,flatList = flatIn
+	if bias2Dsub:
+		bias2Dsub.process_files(flatList)
+	flatStack.stack(flatList[nSkip:],flatFile)
 	if normFlat:
 		if debug:
 			shutil.copy(flatFile,
@@ -414,11 +95,11 @@ def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
 		except:
 			pid = '1'
 		print '[%2s] DOMEFLAT: %s' % (pid,flatFile)
-		print '\n'.join(flatFiles[nSkip:])
+		print '\n'.join(flatList[nSkip:])
 	if writeccdim:
 		makeccd4image(dataMap,flatFile,**kwargs)
 
-def make_dome_flats(dataMap,bias_map,
+def make_dome_flats(dataMap,nobiascorr=False,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
 	                usepixflat=True,debug=False,**kwargs):
 	# need to make sure num processes is reset to 1 before calling these
@@ -427,13 +108,17 @@ def make_dome_flats(dataMap,bias_map,
 	_kwargs = copy(kwargs)
 	_kwargs['processes'] = 1
 	_kwargs['procmap'] = map
-	bias2Dsub = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
-	                                  output_map=dataMap('bias'),
-	                                  bias=bias_map,
-	                                  header_key='BIAS2D',
-	                                  **_kwargs)
+	if nobiascorr:
+		bias2Dsub = None
+	else:
+		bias2Dsub = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
+		                                  output_map=dataMap('bias'),
+		                                  bias=dataMap.getCalMap('bias'),
+		                                  header_key='BIAS2D',
+		                                  **_kwargs)
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
 	                                     input_map=dataMap('bias'),
+	                                     output_map=dataMap('cal'),
 	                                     **_kwargs)
 	if usepixflat:
 		if debug:
@@ -445,57 +130,15 @@ def make_dome_flats(dataMap,bias_map,
 		                                 _binned_flat_map=bfmap,**kwargs)
 	else:
 		normFlat = None
-	# build the list of dome flat sequences for each night/filter
-	flatList = []
-	for utd in dataMap.iterUtDates():
-		for filt in dataMap.iterFilters():
-			flat_seqs = dataMap.getFiles(imType='flat',as_sequences=True)
-			if flat_seqs is None:
-				continue
-			for flatNum,flatFiles in enumerate(flat_seqs,start=1):
-				if len(flatFiles) >= 5: # XXX hardcoded
-					flatList.append((utd,filt,flatNum,flatFiles))
 	p_flat_worker = partial(_flat_worker,dataMap,bias2Dsub,flatStack,
 	                        normFlat,nSkip,writeccdim,debug,**kwargs)
-	procmap(p_flat_worker,flatList)
-
-def make_bad_pixel_masks(dataMap,**kwargs):
-	kwargs['processes'] = 1
-	kwargs['procmap'] = map
-	for utd in dataMap.iterUtDates():
-		for filt in dataMap.iterFilters():
-			flatNum = 1
-			flatFile = os.path.join(dataMap.getCalDir(),
-			                      'flat_%s_%s_%d.fits' % (utd,filt,flatNum))
-			if not os.path.exists(flatFile):
-				continue
-			hdr = fitsio.read_header(flatFile,0)
-			if 'NORMFLT' not in hdr:
-				# need to normalize the flat before making mask
-				_map = SimpleFileNameMap(None,'','_normed')
-				ffmap = SimpleFileNameMap(None,'','_fit')
-				bfmap = SimpleFileNameMap(None,'','_binned')
-				normFlat = bokproc.NormalizeFlat(output_map=_map,
-				                            _normed_flat_fit_map=ffmap,
-				                            _binned_flat_map=bfmap,**kwargs)
-				normFlat.process_files([flatFile])
-				flatFile = _map(flatFile)
-			bpMaskFile = os.path.join(dataMap.getCalDir(),
-			                       dataMap.getMaster('BadPixMask',name=True))
-			bpMask4File = os.path.join(dataMap.getCalDir(),
-			                       dataMap.getMaster('BadPixMask4',name=True))
-			if kwargs.get('verbose',0) >= 1:
-				print 'generating bad pixel mask ',bpMaskFile,
-				print ' from ',flatFile
-			build_mask_from_flat(flatFile,bpMaskFile)#,**kwargs)
-			makeccd4image(dataMap,bpMaskFile,outputFile=bpMask4File,**kwargs)
-			break
+	procmap(p_flat_worker,dataMap.getCalSequences('flat'))
 
 def balance_gains(dataMap,**kwargs):
 	# need bright star mask here?
 	gainBalance = bokproc.BokCalcGainBalanceFactors(
 	                                     input_map=dataMap('proc1'),
-	                                     mask_map=dataMap('MasterBadPixMask'),
+	                                     mask_map=dataMap.getCalMap('badpix'),
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
 	for utd in dataMap.iterUtDates():
@@ -520,19 +163,20 @@ def balance_gains(dataMap,**kwargs):
 			np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
 	return gainMap
 
-def process_all(dataMap,bias_map,flat_map,
-                fixpix=False,norampcorr=False,noweightmap=False,
+def process_all(dataMap,nobiascorr=False,noflatcorr=False,
+                fixpix=False,rampcorr=False,noweightmap=False,
                 nocombine=False,prockey='CCDPROC',**kwargs):
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
-	ramp = None if norampcorr else dataMap('MasterBiasRamp')
+	bias = None if nobiascorr else dataMap.getCalMap('bias')
+	flat = None if noflatcorr else dataMap.getCalMap('flat')
+	ramp = None if not rampcorr else dataMap.getCalMap('ramp')
 	proc = bokproc.BokCCDProcess(input_map=dataMap('oscan'),
 	                             output_map=dataMap('proc1'),
-	                             mask_map=dataMap('MasterBadPixMask'),
+	                             mask_map=dataMap.getCalMap('badpix'),
 	                             header_key=prockey,
-	                             bias=bias_map,flat=flat_map,
-	                             ramp=ramp,fringe=None,
-	                             illum=None,darksky=None,
+	                             bias=bias,flat=flat,ramp=ramp,
+	                             fringe=None,illum=None,skyflat=None,
 	                             fixpix=fixpix,**kwargs)
 	files = dataMap.getFiles(imType='object')
 	if files is None:
@@ -552,8 +196,8 @@ def process_all(dataMap,bias_map,flat_map,
 		# 4. construct weight maps starting from raw images
 		whmap = bokproc.BokWeightMap(input_map=dataMap('raw'),
 		                             output_map=dataMap('weight'),
-		                             flat=flat_map,
-		                             _mask_map=dataMap('MasterBadPixMask'),
+		                             flat=flat,
+		                             _mask_map=dataMap.getCalMap('badpix'),
 		                             **kwargs)
 		whmap.process_files(files)
 		# rescale the gain corrections to inverse variance
@@ -565,7 +209,7 @@ def process_all(dataMap,bias_map,flat_map,
 		                     gain_map=gainMap,
 		                     **kwargs)
 
-def make_fringe_masters(dataMap,**kwargs):
+def make_fringe_masters(dataMap,byUtd=False,**kwargs):
 	caldir = dataMap.getCalDir()
 	stackin = dataMap('fringe') # XXX
 	fringeStack = bokproc.BokFringePatternStack(input_map=stackin,
@@ -573,25 +217,19 @@ def make_fringe_masters(dataMap,**kwargs):
 	                       raw_stack_file=bokio.FileNameMap(caldir,'_raw'),
 	                                        header_bad_key='BADSKY',
 	                                            **kwargs)
-	fringeStack.set_badpixelmask(dataMap('MasterBadPixMask4'))
-	for filt in dataMap.iterFilters():
-		if True:
-			files = dataMap.getFiles(imType='object')
-			if files is not None:
-				fn = dataMap.getMaster('Fringe',filt=filt,name=True)
-				outfn = os.path.join(dataMap.getCalDir(),fn)
-				fringeStack.stack(files,outfn)
-		if False:
-			# this does a sky flat each night
-			for utd in dataMap.iterUtDates():
-				files = dataMap.getFiles(imType='object')
-				if files is None:
-					continue
-				outfn = os.path.join(dataMap.getCalDir(),
-				                     'skyflat_%s_%s.fits' % (utd,filt))
-				skyFlatStack.stack(files,outfn)
+	fringeStack.set_badpixelmask(dataMap.getCalMap('badpix4'))
+	if byUtd:
+		filtAndUtd = [ fu for fu in zip(dataMap.getFringeFilters(),
+		                                dataMap.getUtDates()) ]
+	else:
+		filtAndUtd = [ (f,None) for f in dataMap.getFringeFilters()]
+	for filt,utd in filtAndUtd:
+		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
+		                                with_frames=True)
+		outfn = dataMap.storeCalibrator('fringe',frames)
+		fringeStack.stack(files,outfn)
 
-def make_supersky_flats(dataMap,**kwargs):
+def make_supersky_flats(dataMap,byUtd=False,**kwargs):
 	caldir = dataMap.getCalDir()
 	stackin = dataMap('sky') # XXX
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
@@ -600,81 +238,57 @@ def make_supersky_flats(dataMap,**kwargs):
 	                       raw_stack_file=bokio.FileNameMap(caldir,'_raw'),
 	                                        header_bad_key='BADSKY',
 	                                            **kwargs)
-	skyFlatStack.set_badpixelmask(dataMap('MasterBadPixMask4'))
-	for filt in dataMap.iterFilters():
-		if True:
-			files = dataMap.getFiles(imType='object')
-			if files is not None:
-				fn = dataMap.getMaster('SkyFlat',filt=filt,name=True)
-				outfn = os.path.join(dataMap.getCalDir(),fn)
-				skyFlatStack.stack(files,outfn)
-		if False:
-			# this does a sky flat each night
-			for utd in dataMap.iterUtDates():
-				files = dataMap.getFiles(imType='object')
-				if files is None:
-					continue
-				outfn = os.path.join(dataMap.getCalDir(),
-				                     'skyflat_%s_%s.fits' % (utd,filt))
-				skyFlatStack.stack(files,outfn)
+	skyFlatStack.set_badpixelmask(dataMap.getCalMap('badpix4'))
+	if byUtd:
+		filtAndUtd = [ fu for fu in zip(dataMap.getFilters(),
+		                                dataMap.getUtDates()) ]
+	else:
+		filtAndUtd = [ (f,None) for f in dataMap.getFilters()]
+	for filt,utd in filtAndUtd:
+		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
+		                                with_frames=True)
+		outfn = dataMap.storeCalibrator('skyflat',frames)
+		skyFlatStack.stack(files,outfn)
 
-def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
+def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
                  nofringecorr=False,noskysub=False,noweightmap=False,
                  prockey='CCDPRO2',save_sky=False,**kwargs):
 	#
-	# Second round flat-field corrections
+	# Second round: illumination, fringe, and skyflat corrections
 	#
-	files,ii = dataMap.getFiles(imType='object',with_frames=True)
+	fringe = None if nofringecorr else dataMap.getCalMap('fringe')
+	illum = None if noillumcorr else dataMap.getCalMap('illum')
+	skyflat = None if noskyflatcorr else dataMap.getCalMap('skyflat')
+	# the full list of files to process
+	files = dataMap.getFiles(imType='object')
 	if files is None:
 		return
-	# XXX so gross...
-	if noillumcorr:
-		illum_map = None
+	# if only applying a fringe correction, only CCDProcess the images 
+	# that need it
+	if noillumcorr and noskyflatcorr and not nofringecorr:
+		_files = dataMap.getFiles(imType='object',
+		                          filt=dataMap.getFringeFilters())
 	else:
-		illum_map = {}
-		tmpillum = {}
-		for filt in np.unique(dataMap.obsDb['filter'][ii]):
-			tmpillum[filt] = bokutil.FakeFITS(dataMap.getMaster('Illumination',
-			                                                    filt))
-		for i,f in zip(ii,files):
-			illum_map[f] = tmpillum[dataMap.obsDb['filter'][i]]
-	if nodarkskycorr:
-		darksky_map = None
-	else:
-		darksky_map = {}
-		tmpsky = {}
-		for filt in np.unique(dataMap.obsDb['filter'][ii]):
-			tmpsky[filt] = bokutil.FakeFITS(dataMap.getMaster('SkyFlat',filt))
-		for i,f in zip(ii,files):
-			darksky_map[f] = tmpsky[dataMap.obsDb['filter'][i]]
-	if nofringecorr:
-		fringe_map = None
-	else:
-		fringe_map = {}
-		tmpfrg = {}
-		for filt in np.unique(dataMap.obsDb['filter'][ii]):
-			tmpfrg[filt] = bokutil.FakeFITS(dataMap.getMaster('Fringe',filt))
-		for i,f in zip(ii,files):
-			fringe_map[f] = tmpfrg[dataMap.obsDb['filter'][i]]
-	#
-	proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
-	                             output_map=dataMap('proc2'),
-	                             mask_map=dataMap('MasterBadPixMask4'),
-	                             header_key=prockey,
-	                             gain_multiply=False,bias=None,flat=None,
-	                             ramp=None,fixpix=False,fringe=fringe_map,
-	                             illum=illum_map,darksky=darksky_map,
-	                             **kwargs)
-	proc.process_files(files)
-	if not noweightmap:
+		_files = files
+	if len(_files) > 0:
+		proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
+		                             output_map=dataMap('proc2'),
+		                             mask_map=dataMap.getCalMap('badpix4'),
+		                             header_key=prockey,
+		                             gain_multiply=False,bias=None,flat=None,
+		                             ramp=None,fixpix=False,fringe=fringe,
+		                             illum=illum,skyflat=skyflat,
+		                             **kwargs)
+		proc.process_files(_files)
+	if not noweightmap and not (noillumcorr and noskyflatcorr):
 		# need to process the weight maps in the same fashion
 		wtproc = bokproc.BokCCDProcess(input_map=dataMap('weight'), 
 		                               output_map=dataMap('weight'), 
-		                               mask_map=dataMap('MasterBadPixMask4'),
+		                               mask_map=dataMap.getCalMap('badpix4'),
 		                               header_key=prockey,
 		                               gain_multiply=False,bias=None,flat=None,
 		                               ramp=None,fixpix=False,fringe=None,
-		                               illum=illum_map,darksky=darksky_map,
+		                               illum=illum,skyflat=skyflat,
 		                               asweight=True,
 		                               **kwargs)
 		wtproc.process_files(files)
@@ -687,9 +301,8 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
 	                                    input_map=dataMap('proc2'),
 	                                    output_map=dataMap('skymask'),
-	                                    mask_map=dataMap('MasterBadPixMask4'),
+	                                    mask_map=dataMap.getCalMap('badpix4'),
 	                                              **kwargs)
-	files = dataMap.getFiles(imType='object')
 	skyFlatMask.process_files(files)
 	skyfitmap = dataMap('skyfit') if save_sky else None
 	skySub = bokproc.BokSkySubtract(input_map=dataMap('proc2'),
@@ -697,7 +310,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,nodarkskycorr=False,
 	                                mask_map=dataMap('skymask'),
 	                                skyfit_map=skyfitmap,
 	                                **dict(skyArgs.items()+kwargs.items()))
-	skySub.add_mask(dataMap('MasterBadPixMask4'))
+	skySub.add_mask(dataMap.getCalMap('badpix4'))
 	skySub.process_files(files)
 
 def set_wcs(dataMap,inputType='sky',keepwcscat=True,**kwargs):
@@ -752,32 +365,21 @@ def bokpipe(dataMap,**kwargs):
 		make_2d_biases(dataMap,writeccdim=writeccdims,**pipekwargs)
 		timerLog('2d biases')
 	if 'flat2d' in steps:
-		biasMap = get_bias_map(dataMap)
-		if debug:
-			pass
-		make_dome_flats(dataMap,biasMap,writeccdim=writeccdims,
+		make_dome_flats(dataMap,writeccdim=writeccdims,
+		                nobiascorr=kwargs.get('nobiascorr',False),
 		                usepixflat=not kwargs.get('nousepixflat',False),
 		                debug=debug,**pipekwargs)
 		timerLog('dome flats')
-	if 'bpmask' in steps:
-		make_bad_pixel_masks(dataMap,**pipekwargs)
-		timerLog('bad pixel masks')
 	if 'proc1' in steps or 'comb' in steps:
-		if kwargs.get('nobiascorr',False):
-			biasMap = None
-		elif biasMap is None:
-			biasMap = get_bias_map(dataMap)
-		if kwargs.get('noflatcorr',False):
-			flatMap = None
-		else:
-			flatMap = get_flat_map(dataMap)
-		process_all(dataMap,biasMap,flatMap,
+		process_all(dataMap,
+		            nobiascorr=kwargs.get('nobiascorr',False),
+		            noflatcorr=kwargs.get('noflatcorr',False),
 		            fixpix=fixpix,
-		            norampcorr=kwargs.get('norampcorr'),
-		            nocombine=kwargs.get('nocombine'),
+		            rampcorr=kwargs.get('rampcorr',False),
+		            nocombine=kwargs.get('nocombine',False),
 		            gain_multiply=not kwargs.get('nogainmul',False),
-		            nosavegain=kwargs.get('nosavegain'),
-		            noweightmap=kwargs.get('noweightmap'),
+		            nosavegain=kwargs.get('nosavegain',False),
+		            noweightmap=kwargs.get('noweightmap',False),
 		            prockey=kwargs.get('prockey','CCDPROC'),
 		            **pipekwargs)
 		timerLog('ccdproc')
@@ -792,7 +394,8 @@ def bokpipe(dataMap,**kwargs):
 		                 for k in ['skymethod','skyorder']}
 		process_all2(dataMap,skyArgs,
 		             noillumcorr=kwargs.get('noillumcorr'),
-		             nodarkskycorr=kwargs.get('nodarkskycorr'),
+		             nofringecorr=kwargs.get('nofringecorr'),
+		             noskyflatcorr=kwargs.get('noskyflatcorr'),
 		             noweightmap=kwargs.get('noweightmap'),
 		             noskysub=kwargs.get('noskysub'),
 		             prockey=kwargs.get('prockey','CCDPRO2'),
@@ -815,11 +418,11 @@ def make_images(dataMap,imtype='comb',msktype=None):
 	files = dataMap.getFiles(imType='object')
 	_fmap = dataMap(imtype)
 	if msktype=='badpix':
-		msktype = 'MasterBadPixMask4'
+		msktype = 'badpix4' # XXX
 	if msktype==None:
 		maskmap = lambda f: None
 	else:
-		maskmap = dataMap(msktype)
+		maskmap = dataMap.getCalMap(msktype)
 	imdir = os.path.join(dataMap.getProcDir(),'images')
 	if not os.path.exists(imdir):
 		os.mkdir(imdir)
@@ -873,6 +476,7 @@ def init_data_map(args,create_dirs=True):
 	obsDb = _load_obsdb(args.obsdb)
 	# set up the data map
 	dataMap = BokDataManager(obsDb,args.rawdir,args.output)
+	dataMap.setProcessSteps(all_process_steps) # XXX argh
 	#
 	if args.utdate is not None:
 		dataMap.setUtDates(args.utdate.split(','))
@@ -905,15 +509,8 @@ def init_data_map(args,create_dirs=True):
 		for _utdir in dataMap.getUtDirs():
 			utdir = os.path.join(dataMap.procDir,_utdir)
 			if not os.path.exists(utdir): os.mkdir(utdir)
-	return dataMap
-
-def set_master_cals(dataMap):
-	dataMap.setMaster('BadPixMask')
-	dataMap.setMaster('BadPixMask4')
-	dataMap.setMaster('BiasRamp')
-	dataMap.setMaster('Illumination',byFilter=True)
-	dataMap.setMaster('Fringe',byFilter=True)
-	dataMap.setMaster('SkyFlat',byFilter=True)
+	#
+	dataMap.initCalDb()
 	return dataMap
 
 def init_pipeline_args(parser):
@@ -939,11 +536,13 @@ def init_pipeline_args(parser):
 	                help='do not apply bias correction')
 	parser.add_argument('--noflatcorr',action='store_true',
 	                help='do not apply flat correction')
-	parser.add_argument('--norampcorr',action='store_true',
-	                help='do not correct bias ramp')
+	parser.add_argument('--rampcorr',action='store_true',
+	                help='apply bias ramp correction')
 	parser.add_argument('--noillumcorr',action='store_true',
 	                help='do not apply illumination correction')
-	parser.add_argument('--nodarkskycorr',action='store_true',
+	parser.add_argument('--nofringecorr',action='store_true',
+	                help='do not apply fringe correction')
+	parser.add_argument('--noskyflatcorr',action='store_true',
 	                help='do not apply dark sky flat correction')
 	parser.add_argument('--nogainmul',action='store_true',
 	                help='do not multiply gain when processing')

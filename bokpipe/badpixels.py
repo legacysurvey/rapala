@@ -6,7 +6,10 @@ from scipy.ndimage.morphology import binary_dilation,binary_closing
 from astropy.stats import sigma_clip
 import fitsio
 
+from .bokio import FileNameMap
 from .bokutil import rebin,BokMefImage,BokProcess
+from .bokdm import SimpleFileNameMap
+from .bokproc import NormalizeFlat
 
 bok_badcols = {
   'IM11':range(987,994)+range(1837,1839),
@@ -46,10 +49,26 @@ class BadPixelMaskFromFlats(BokProcess):
 				pass
 		return badpix.astype(np.uint8),hdr
 
-def build_mask_from_flat(flatFn,outFn,**kwargs):
-	bpmGen = BadPixelMaskFromFlats(output_map=lambda f: outFn,
-	                               **kwargs)
-	bpmGen.process_files([flatFn,])
+def build_mask_from_flat(flatFile,bpMaskFile,outDir,**kwargs):
+	hdr = fitsio.read_header(flatFile,0)
+	if 'NORMFLT' not in hdr:
+		# need to normalize the flat before making mask
+		_map = SimpleFileNameMap(None,'','_normed')
+		ffmap = SimpleFileNameMap(None,'','_fit')
+		bfmap = SimpleFileNameMap(None,'','_binned')
+		normFlat = NormalizeFlat(output_map=_map,
+		                         _normed_flat_fit_map=ffmap,
+		                         _binned_flat_map=bfmap,**kwargs)
+		normFlat.process_files([flatFile])
+		flatFile = _map(flatFile)
+	if kwargs.get('verbose',0) >= 1:
+		print 'generating bad pixel mask ',bpMaskFile,
+		print ' from ',flatFile
+	bpmap = lambda f: os.path.join(outDir,bpMaskFile)
+	bpmGen = BadPixelMaskFromFlats(output_map=bpmap,**kwargs)
+	bpmGen.process_files([flatFile,])
+	ccd4map = FileNameMap(outDir,'4')
+	bokproc.combine_ccds([bpMaskFile],output_map=ccd4map,**kwargs)
 
 
 

@@ -49,7 +49,7 @@ def form_spline_im(ccdName,splinefun,xx,yy):
 
 def fit_illumination(inputFile,dataMap,nbin=16,asPoly=False,order=3,nKnots=3):
 	fits = bokutil.BokMefImage(inputFile,
-	                           mask_file=dataMap('MasterBadPixMask4'),
+	                           mask_file=dataMap.getCalMap('badpix4'),
 	                           read_only=True)
 	im = fits.make_fov_image(nbin,'sky',binfunc=np.ma.mean,
 	                         binclip=True,single=True)
@@ -79,17 +79,23 @@ def fit_illumination(inputFile,dataMap,nbin=16,asPoly=False,order=3,nKnots=3):
 			#                       for ccdNum in range(4) ])
 	return illum
 
-def make_illumcorr_image(dataMap,**kwargs):
-	# XXX also have iterUtds option
-	for filt in dataMap.iterFilters():
+def make_illumcorr_image(dataMap,byUtd=False,**kwargs):
+	if byUtd:
+		filtAndUtd = [ fu for fu in zip(dataMap.getFilters(),
+		                                dataMap.getUtDates()) ]
+	else:
+		filtAndUtd = [ (f,None) for f in dataMap.getFilters()]
+	for filt,utd in filtAndUtd:
+		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
+		                                with_frames=True)
+		outFn = dataMap.storeCalibrator('illum',frames)
+		#
 		inputFile = os.path.join(dataMap._tmpDir,'tmpillum_%s.fits'%filt)
 		try:
 			make_skyflat(dataMap,inputFile)
 		except NoDataException:
 			continue
 		illum = fit_illumination(inputFile,dataMap,**kwargs)
-		outFn = dataMap.getMaster('Illumination',filt=filt,name=True)
-		outFn = os.path.join(dataMap.getCalDir(),outFn)
 		fits = bokutil.BokMefImage(inputFile,output_file=outFn,clobber=True)
 		for extName,im,hdr in fits:
 			xx,yy = fits.get_xy(extName,'sky')

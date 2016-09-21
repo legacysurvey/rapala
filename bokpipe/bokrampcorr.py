@@ -50,8 +50,7 @@ def make_rampcorr_image(dataMap,**kwargs):
 		os.makedirs(tmpDir)
 	rampFiles = []
 	tmpRampFile = os.path.join(dataMap._tmpDir,'tmpbiasramp.fits')
-	rampFile = os.path.join(dataMap.calDir,
-	                        dataMap.getMaster('BiasRamp',name=True))
+	rampFile = dataMap.getCalMap('ramp').getFileName()
 	for utd in dataMap.iterUtDates():
 		files,frames = dataMap.getFiles(imType='zero',with_frames=True)
 		if files is None:

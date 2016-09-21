@@ -5,7 +5,7 @@ import os
 def IdentityNameMap(f):
 	return f
 
-def NullNameMap (f):
+def NullNameMap(f):
 	return None
 
 class FileNameMap(object):

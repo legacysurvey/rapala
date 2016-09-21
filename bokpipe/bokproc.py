@@ -18,6 +18,7 @@ from astropy.convolution.kernels import Gaussian2DKernel
 import fitsio
 
 from .bokio import *
+from . import bokdm
 from . import bokutil
 from .bokoscan import extract_overscan,overscan_subtract
 
@@ -290,45 +291,20 @@ class BokCCDProcess(bokutil.BokProcess):
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
 		# hacky way to say arithmetic is appropriate for inverse-var maps
 		self.asWeight = kwargs.get('asweight',False)
-		self.imTypes = ['bias','flat','ramp','illum','fringe','darksky']
-		#
-		self.procIms = {}
+		# store the maps to calibration images
+		self.imTypes = ['bias','flat','ramp','illum','fringe','skyflat']
+		self.calib = {}
 		for imType in self.imTypes:
-			fitsIn = kwargs.get(imType)
-			self.procIms[imType] = {'file':None,'fits':None}
-			self.procIms[imType]['master'] = True
-			if isinstance(fitsIn,fitsio.FITS):
-				self.procIms[imType]['file'] = fitsIn._filename
-				self.procIms[imType]['fits'] = bokutil.FakeFITS(fitsIn)
-			elif isinstance(fitsIn,basestring):
-				self.procIms[imType]['file'] = fitsIn
-				self.procIms[imType]['fits'] = bokutil.FakeFITS(fitsIn)
-			elif isinstance(fitsIn,dict):
-				self.procIms[imType]['map'] = fitsIn
-				self.procIms[imType]['master'] = False
-			elif fitsIn is None:
-				pass # skip this type
-			else:
-				print fitsIn
-				raise ValueError
+			cal = kwargs.get(imType)
+			if cal is None:
+				cal = bokdm.NullCalibrator()
+			self.calib[imType] = cal
 	def _preprocess(self,fits,f):
 		self._proclog('ccdproc %s -> %s' % (fits.fileName,fits.outFileName))
+		hdrCards = {}
 		for imType in self.imTypes:
-			calFn = None
-			if not self.procIms[imType]['master']:
-				inFile = self.procIms[imType]['map'][f]
-				if ( isinstance(inFile,fitsio.FITS) or 
-				      isinstance(inFile,bokutil.FakeFITS) ):
-					self.procIms[imType]['fits'] = inFile
-					calFn = inFile._filename
-				elif self.procIms[imType]['file'] != inFile:
-					if self.procIms[imType]['fits'] is not None:
-						self.procIms[imType]['fits'].close()
-					self.procIms[imType]['file'] = inFile
-					self.procIms[imType]['fits'] = fitsio.FITS(inFile)
-			if calFn is None:
-				calFn = self.procIms[imType]['file']
-			hdrCards = {}
+			self.calib[imType].setTarget(f)
+			calFn = self.calib[imType].getFileName()
 			if calFn is not None:
 				# e.g., hdr['BIASFILE'] = <filename>
 				hdrKey = str(imType.upper()+'FILE')[:8]
@@ -336,45 +312,45 @@ class BokCCDProcess(bokutil.BokProcess):
 				if len(curPath) > 65:
 					# trim the file path if it is long
 					fn = ''
-					while len(fn)<60:
+					while True:
 						curPath,curEl = os.path.split(curPath)
 						if len(fn) == 0:
 							fn = curEl
 						else:
-							fn = os.path.join(curEl,fn)
+							_fn = os.path.join(curEl,fn)
+							if len(_fn) < 65:
+								fn = _fn
+							else:
+								break
 					fn = os.path.join('...',fn)
 				else:
 					fn = curPath
 				hdrCards[hdrKey] = fn
-			fits.outFits[0].write_keys(hdrCards)
+		fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
 		# XXX hacky way to preserve arithmetic on masked pixels,
 		#     but need to keep mask for fixpix
 		if type(data) is np.ma.core.MaskedArray:
 			data = data.data
-		bias = self.procIms['bias']['fits'] 
+		bias = self.calib['bias'].getImage(extName)
 		if bias is not None:
-			data -= bias[extName][:,:]
-		ramp = self.procIms['ramp']['fits'] 
+			data -= bias
+		ramp = self.calib['ramp'].getImage(extName)
 		if ramp is not None:
-			# this correction may not exist on all extensions
-			try:
-				data -= ramp[extName][:,:]
-			except:
-				pass
-		for flatType in ['flat','illum','darksky']:
-			if flatType == 'darksky':
+			data -= ramp
+		for flatType in ['flat','illum','skyflat']:
+			if flatType == 'skyflat':
 				# ugly, but this is just where it goes
-				fringe = self.procIms['fringe']['fits']
+				fringe = self.calib['fringe'].getImage(extName)
 				if fringe is not None:
 					# XXX need scaling here
-					data -= fringe[extName][:,:]
-			flat = self.procIms[flatType]['fits']
+					data -= fringe
+			flat = self.calib[flatType].getImage(extName)
 			if flat is not None:
 				if self.asWeight:
-					data *= flat[extName][:,:]**2  # inverse variance
+					data *= flat**2  # inverse variance
 				else:
-					data /= flat[extName][:,:]     # image counts
+					data /= flat     # image counts
 		if self.fixPix:
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
@@ -402,23 +378,9 @@ class BokWeightMap(bokutil.BokProcess):
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
 		self.maskFile = None
-		# ... this is copied from CCDProcess... push up to BokProcess?
-		flatIn = kwargs.get('flat')
-		self.flat = {'file':None,'fits':None}
-		self.flatIsMaster = True
-		if isinstance(flatIn,fitsio.FITS):
-			self.flat['file'] = flatIn._filename
-			self.flat['fits'] = bokutil.FakeFITS(flatIn)
-		elif isinstance(flatIn,basestring):
-			self.flat['file'] = flatIn
-			self.flat['fits'] = bokutil.FakeFITS(flatIn)
-		elif isinstance(flatIn,dict):
-			self.flat['map'] = flatIn
-			self.flatIsMaster = False
-		elif flatIn is None:
-			pass # allow no flat?
-		else:
-			raise ValueError
+		self.flat = kwargs.get('flat')
+		if self.flat is None:
+			self.flat = bokdm.NullCalibrator()
 	def _preprocess(self,fits,f):
 		self._proclog('weight map %s' % fits.outFileName)
 		try:
@@ -431,21 +393,8 @@ class BokWeightMap(bokutil.BokProcess):
 				self.maskFits = fitsio.FITS(self.maskFile)
 			else:
 				self.maskFits = maskFile
-		# ... also copied from CCDProcess... 
-		calFn = None
-		if not self.flatIsMaster:
-			inFile = self.flat['map'][f]
-			if ( isinstance(inFile,fitsio.FITS) or
-			      isinstance(inFile,bokutil.FakeFITS) ):
-				self.flat['fits'] = inFile
-				calFn = inFile._filename
-			elif self.flat['file'] != inFile:
-				if self.flat['fits'] is not None:
-					self.flat['fits'].close()
-				self.flat['file'] = inFile
-				self.flat['fits'] = fitsio.FITS(inFile)
-		if calFn is None:
-			calFn = self.flat['file']
+		self.flat.setTarget(f)
+		calFn = self.flat.getFileName()
 		fits.outFits[0].write_keys({'FLATFILE':calFn})
 	def process_hdu(self,extName,data,hdr):
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
@@ -455,10 +404,9 @@ class BokWeightMap(bokutil.BokProcess):
 		data -= np.median(oscan_cols)
 #		if oscan_rows is not None:
 #			data -= np.median(oscan_rows)
-		if self.flat['fits'] is None:
+		flatField = self.flat.getImage(extName)
+		if flatField is None:
 			flatField = 1.0
-		else:
-			flatField = self.flat['fits'][extName][:,:]
 		gain = self.inputGain[extName]
 		ivar = np.clip(data,1e-10,65535)**-1
 		ivar *= (gain/flatField)**-2

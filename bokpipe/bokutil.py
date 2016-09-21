@@ -246,6 +246,11 @@ class BokMefImage(object):
 				self.outFits.write(None,header=hdr)
 		self.masks = []
 		if maskFits is not None:
+			if not isinstance(maskFits,FakeFITS):
+				try:
+					m = maskFits(fileName)
+				except:
+					m = FakeFITS(maskFits)
 			self.add_mask(maskFits)
 		if self.extensions is None:
 			self.extensions = [ h.get_extname().upper() 
@@ -420,7 +425,10 @@ class BokProcess(object):
 		self.noConvert = False
 	def add_mask(self,maskFits):
 		if not isinstance(maskFits,FakeFITS):
-			maskFits = FakeFITS(maskFits)
+			try:
+				maskFits = maskFits(None) # assume it is a map
+			except:
+				maskFits = FakeFITS(maskFits)
 		self.masks.append(maskFits)
 	def _proclog(self,s):
 		if self.nProc > 1:
@@ -485,6 +493,7 @@ class BokMefImageCube(object):
 		self.scale = kwargs.get('scale')
 		self.reject = kwargs.get('reject','sigma_clip')
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
+		self.outputNameMap = kwargs.get('output_map',IdentityNameMap)
 		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
 		self.badKey = kwargs.get('header_bad_key')
 		self.expTimeNameMap = kwargs.get('exposure_time_map',NullNameMap)
@@ -507,7 +516,14 @@ class BokMefImageCube(object):
 		self.scaleKey = kwargs.get('scale_key','IMSCL')
 		self._scales = None
 	def set_badpixelmask(self,maskFits):
-		self.badPixelMask = FakeFITS(maskFits)
+		if isinstance(maskFits,FakeFITS):
+			self.badPixelMask = maskFits
+		else:
+			# hope that either it is a map object or an already-loaded FITS...
+			try:
+				self.badPixelMask = maskFits(None)
+			except:
+				self.badPixelMask = FakeFITS(maskFits)
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
 			pass
@@ -556,6 +572,7 @@ class BokMefImageCube(object):
 				hdr[self.scaleKey+'%03d'%i] = float(s)
 		return stack,hdr
 	def stack(self,fileList,outputFile,weights=None,scales=None,**kwargs):
+		outputFile = self.outputNameMap(outputFile)
 		if os.path.exists(outputFile):
 			if self.clobber:
 				clobberHdus = True
