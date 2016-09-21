@@ -21,6 +21,7 @@ from .bokdm import SimpleFileNameMap,BokDataManager
 from . import bokastrom
 from . import bokphot
 from . import bokgnostic
+from . import bokmkimage
 
 all_process_steps = ['oscan','bias2d','flat2d',
                      'proc1','comb','fringe','skyflat',
@@ -412,32 +413,41 @@ def bokpipe(dataMap,**kwargs):
 	if processes > 1:
 		pool.close()
 
-def make_images(dataMap,imtype='comb',msktype=None):
+def _img_worker(imdir,_fmap,maskmap,fin):
+	f = _fmap(fin)
+	print f
+	if not os.path.exists(f):
+		return
+	d,fn = os.path.split(f)
+	d,utd = os.path.split(d)
+	imgd = os.path.join(imdir,utd)
+	imgfile = os.path.join(imgd,fn.replace('.fits','.png'))
+	if os.path.exists(imgfile):
+		return
+	if not os.path.exists(imgd):
+		os.mkdir(imgd)
+	bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(fin))
+
+def make_images(dataMap,imtype='sky',msktype=None,processes=1):
 	import matplotlib.pyplot as plt
-	from . import bokmkimage
-	files = dataMap.getFiles(imType='object')
+	if processes > 1:
+		pool = multiprocessing.Pool(processes)
+		procmap = pool.map
+	else:
+		procmap = map
 	_fmap = dataMap(imtype)
 	if msktype=='badpix':
 		msktype = 'badpix4' # XXX
 	if msktype==None:
-		maskmap = lambda f: None
+		maskmap = bokio.NullNameMap
 	else:
 		maskmap = dataMap.getCalMap(msktype)
 	imdir = os.path.join(dataMap.getProcDir(),'images')
 	if not os.path.exists(imdir):
 		os.mkdir(imdir)
 	plt.ioff()
-	for ff in files:
-		f = _fmap(ff)
-		print ff
-		print f
-		if not os.path.exists(f):
-			continue
-		imgfile = os.path.basename(f).replace('.fits','.png')
-		imgfile = os.path.join(imdir,imgfile)
-		if os.path.exists(imgfile):
-			continue
-		bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(ff))
+	p_img_worker = partial(_img_worker,imdir,_fmap,maskmap)
+	procmap(p_img_worker,dataMap.getFiles(imType='object'))
 	plt.ion()
 
 def init_file_args(parser):
@@ -566,11 +576,12 @@ def init_pipeline_args(parser):
 	                help='set new header key for ccdproc')
 	parser.add_argument('--tmpdirin',action='store_true',
 	                help='read files from temporary directory')
-	parser.add_argument('--tmpdirout',action='store_true',
+	parser.add_argument('--tmpdirout',
 	                help='write files to temporary directory')
-	parser.add_argument('--images',type=str,default=None,
-	                help='make png images (imtype,[msktype]) '
-	                     'instead of processing')
+	parser.add_argument('--images',action='store_true',
+	                help='make png images instead of processing ')
+	parser.add_argument('--imagetype',type=str,default='sky',
+	                help='make images from (imtype,[msktype]) [default: sky]')
 	parser.add_argument('--makerampcorr',action='store_true',
 	                help='make ramp correction image instead of processing')
 	parser.add_argument('--makeillumcorr',action='store_true',
@@ -605,7 +616,8 @@ def run_pipe(dataMap,args):
 	kwargs['steps'] = steps
 	# run pipeline processes
 	if args.images is not None:
-		make_images(dataMap,*args.images.split(','))
+		make_images(dataMap,*args.imagetype.split(','),
+		            processes=args.processes)
 	elif args.makerampcorr:
 		bokrampcorr.make_rampcorr_image(dataMap)#,**kwargs)
 	elif args.makeillumcorr:
