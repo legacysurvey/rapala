@@ -308,7 +308,7 @@ class BokCCDProcess(bokutil.BokProcess):
 			if calFn is not None:
 				# e.g., hdr['BIASFILE'] = <filename>
 				hdrKey = str(imType.upper()+'FILE')[:8]
-				curPath = calFn.rstrip('.fits')
+				curPath = calFn
 				if len(curPath) > 50:
 					# trim the file path if it is long
 					fn = ''

@@ -180,11 +180,12 @@ class CalibratorMap(BokCalibrator):
 		domap = np.in1d(obsDb['imType'],['flat','object'])
 		if 'filter' in calTab.colnames:
 			for filt in np.unique(calTab['filter']):
+				ii = np.where(calTab['filter'] == filt)[0]
 				jj = np.where((obsDb['filter'] == filt) & domap)[0]
 				for j in jj:
 					k = os.path.join(obsDb['utDir'][j],obsDb['fileName'][j])
-					i = np.argmin(np.abs(obsDb['mjd'][j]-calTab['mjd']))
-					self.calMap[k] = self.nameMap(calTab['fileName'][i])
+					i = np.argmin(np.abs(obsDb['mjd'][j]-calTab['mjd'][ii]))
+					self.calMap[k] = self.nameMap(calTab['fileName'][ii[i]])
 		else:
 			jj = np.where(domap)[0]
 			for j in jj:
