@@ -309,7 +309,7 @@ class BokCCDProcess(bokutil.BokProcess):
 				# e.g., hdr['BIASFILE'] = <filename>
 				hdrKey = str(imType.upper()+'FILE')[:8]
 				curPath = calFn.rstrip('.fits')
-				if len(curPath) > 65:
+				if len(curPath) > 50:
 					# trim the file path if it is long
 					fn = ''
 					while True:
@@ -318,7 +318,7 @@ class BokCCDProcess(bokutil.BokProcess):
 							fn = curEl
 						else:
 							_fn = os.path.join(curEl,fn)
-							if len(_fn) < 65:
+							if len(_fn) < 50:
 								fn = _fn
 							else:
 								break

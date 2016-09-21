@@ -260,7 +260,7 @@ class BokDataManager(object):
 		self.calTable['bias'] = Table(rows=[d[:3] for d in self.calDb['zero']],
 		                              names=('fileName','utDate','mjd'))
 		self.calMap = {}
-		cols = ('fileName','utDate','mjd','filt')
+		cols = ('fileName','utDate','mjd','filter')
 		for calType in ['bias','flat','illum','fringe','skyflat']:
 			n,k = (3,'zero') if calType == 'bias' else (4,calType)
 			try:
@@ -362,7 +362,8 @@ class BokDataManager(object):
 		# and add the mapping for this calib
 		self.calTable[calType] = Table(rows=[d[:4] 
 		                                       for d in self.calDb[calType]],
-		                             names=('fileName','utDate','mjd','filt'))
+		                               names=('fileName','utDate',
+		                                      'mjd','filter'))
 		self.setCalMap(calType,'mjd')
 		return self.calNameMap(calFn)
 	def setCalMap(self,calType,mapType,fileName=None):

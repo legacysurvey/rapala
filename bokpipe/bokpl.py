@@ -615,7 +615,7 @@ def run_pipe(dataMap,args):
 	kwargs = { k : opts[k] for k in opts if opts[k] != None }
 	kwargs['steps'] = steps
 	# run pipeline processes
-	if args.images is not None:
+	if args.images:
 		make_images(dataMap,*args.imagetype.split(','),
 		            processes=args.processes)
 	elif args.makerampcorr:
