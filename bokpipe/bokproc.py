@@ -197,8 +197,20 @@ class PolynomialBackgroundFit(BackgroundFit):
 class BokBiasStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','amp_central_quadrant')
+		# this helps to deal with the roll-offs frequently seen in <=2015
+		kwargs.setdefault('clip_sig',2.0)
+		kwargs.setdefault('clip_cenfunc',np.ma.median)
 		super(BokBiasStack,self).__init__(**kwargs)
 		self.headerKey = 'BIAS'
+		self.findRollOffs = kwargs.get('find_rolloffs',False)
+	def _reject_pixels(self,imCube):
+		imCube = super(BokBiasStack,self)._reject_pixels(imCube)
+		if self.findRollOffs:
+			bslice = imCube[5:10,500:1500].reshape(-1,imCube.shape[-1])
+			v = np.ma.median(bslice,axis=0).filled()
+			bad = np.where(v < -50)[0]
+			imCube[:100,:,bad] = np.ma.masked
+		return imCube
 
 class BokDomeFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):

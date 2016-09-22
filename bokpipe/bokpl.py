@@ -73,6 +73,7 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 	biasStack = bokproc.BokBiasStack(input_map=dataMap('oscan'),
 	                                 output_map=dataMap('cal'),
 	                                 reject=reject,
+	                                 find_rolloffs=True,
                                      **_kwargs)
 	p_bias_worker = partial(_bias_worker,dataMap,biasStack,
 	                        nSkip,writeccdim,**kwargs)
