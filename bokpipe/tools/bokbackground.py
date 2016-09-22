@@ -3,10 +3,22 @@
 import os,sys
 import numpy as np
 import fitsio
-from bokpipe.bokutil import BokMefImage
+from bokpipe.bokutil import BokMefImage,array_stats,stats_region
 from bokpipe import bokproc
 
 import argparse
+
+class CCDMedianBackgroundFit(bokproc.BackgroundFit):
+	def __init__(self,fits,**kwargs):
+		super(CCDMedianBackgroundFit,self).__init__(fits,**kwargs)
+		self.statsReg = stats_region('ccd_central_quadrant')
+		self.medBack = {}
+		for extn,data,hdr in fits:
+			self.medBack[extn] = array_stats(data[self.statsReg],
+			                                 method='median',clip=True)
+			self.imShape = data.shape
+	def get(self,extn):
+		return self.medBack[extn] + np.zeros(self.imShape,dtype=np.float32)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("input",type=str,
@@ -34,9 +46,20 @@ fits = BokMefImage(fileName,mask_file=args.mask,read_only=True)
 if args.fit == 'spline':
 	backfit = bokproc.SplineBackgroundFit(fits,nKnots=args.knots,
 	                                      order=args.order,nbin=args.nbin)
+elif args.fit == 'poly':
+	backfit = bokproc.PolynomialBackgroundFit(fits,
+	                                          order=args.order,nbin=args.nbin)
+elif args.fit == 'ccdmedian':
+	backfit = CCDMedianBackgroundFit(fits)
+else:
+	raise ValueError
 
-outFits = fitsio.FITS(fileName.replace('.fits','_back.fits'),'rw',
-                      clobber=True)
+if not args.output:
+	outfn = fileName.replace('.fits','_back.fits')
+else:
+	outfn = args.output
+
+outFits = fitsio.FITS(outfn,'rw',clobber=True)
 
 hdr = fits.get_header(0)
 outFits.write(None,header=hdr)
