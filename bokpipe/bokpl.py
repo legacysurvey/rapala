@@ -346,9 +346,10 @@ def bokpipe(dataMap,**kwargs):
 	processes = kwargs.get('processes',1)
 	procmap = kwargs.get('procmap')
 	maxmem = kwargs.get('maxmem',5)
+	chunkSize = 10
 	if processes > 1:
 		pool = multiprocessing.Pool(processes)
-		procmap = pool.map
+		procmap = partial(pool.map,chunksize=chunkSize)
 	else:
 		procmap = map
 	pipekwargs = {'clobber':redo,'verbose':verbose,
