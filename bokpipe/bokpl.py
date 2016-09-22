@@ -576,7 +576,7 @@ def init_pipeline_args(parser):
 	                help='set new header key for ccdproc')
 	parser.add_argument('--tmpdirin',action='store_true',
 	                help='read files from temporary directory')
-	parser.add_argument('--tmpdirout',
+	parser.add_argument('--tmpdirout',action='store_true',
 	                help='write files to temporary directory')
 	parser.add_argument('--images',action='store_true',
 	                help='make png images instead of processing ')

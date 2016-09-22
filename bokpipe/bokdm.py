@@ -7,7 +7,7 @@ from numpy.core.defchararray import add as char_add
 from astropy.table import Table
 
 from .bokio import FileNameMap,IdentityNameMap
-from .bokutil import FakeFITS
+from .bokutil import FakeFITS,array_stats,stats_region
 
 ##############################################################################
 #                                                                            #
@@ -205,6 +205,8 @@ class CalibratorMap(BokCalibrator):
 				self.currentFits.close()
 			self.currentFile = cal
 			self.currentFits = FakeFITS(self.currentFile)
+			return True
+		return False
 	def getImage(self,extn):
 		if self.currentFits is None:
 			if self.allowMissing:
@@ -214,6 +216,33 @@ class CalibratorMap(BokCalibrator):
 		return self.currentFits[extn]
 	def getFileName(self):
 		return self.currentFile
+
+class FringeMap(CalibratorMap):
+	'''Special case of CalibratorMap -- fringe images need be scaled to
+	   match input images, but useful to keep the scaling mask locally'''
+	def __init__(self,obsDb,calTab,nameMap=None,sigThresh=1.0):
+		super(FringeMap,self).__init__(obsDb,calTab,nameMap=nameMap,
+		                               allowMissing=True)
+		self.fringeMask = {}
+		self.statsReg = stats_region('ccd_central_quadrant')
+		self.sigThresh = sigThresh
+	def setTarget(self,f):
+		changed = super(FringeMap,self).setTarget(f)
+		if changed:
+			for extn in ['CCD%d' % i for i in range(1,5)]:
+				im = self.currentFits[extn]
+				mn,sig = array_stats(im[self.statsReg],method='median',
+				                     rms=True,clip=True,
+				                     clip_sig=5.0,clip_iters=1)
+				self.fringeMask[extn] = np.abs((im-mn)/sig) < self.sigThresh
+	def getFringeScale(self,extn,inputIm):
+		fringeIm = np.ma.array(self.currentFits[extn],
+		                       mask=self.fringeMask[extn])
+		# yet another sky calculation!
+		skyVal = array_stats(inputIm[self.statsReg],method='median',clip=True)
+		scaleIm = (inputIm-skyVal) / fringeIm
+		scaleVal = array_stats(scaleIm,method='median',clip=True)
+		return scaleVal
 
 ##############################################################################
 #                                                                            #
@@ -373,11 +402,14 @@ class BokDataManager(object):
 		elif mapType == 'master':
 			self.calMap[calType] = MasterCalibrator(self.calNameMap(fileName))
 		elif mapType == 'mjd':
-			missok = calType == 'fringe'
-			self.calMap[calType] = CalibratorMap(self.obsDb,
-			                                     self.calTable[calType],
-			                                     self.calNameMap,
-			                                     allowMissing=missok)
+			if calType == 'fringe':
+				self.calMap[calType] = FringeMap(self.obsDb,
+				                                 self.calTable[calType],
+				                                 self.calNameMap)
+			else:
+				self.calMap[calType] = CalibratorMap(self.obsDb,
+				                                     self.calTable[calType],
+				                                     self.calNameMap)
 		else:
 			raise ValueError
 	def getCalMap(self,calType):

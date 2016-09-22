@@ -332,6 +332,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		#     but need to keep mask for fixpix
 		if type(data) is np.ma.core.MaskedArray:
 			data = data.data
+		fscl = None
 		bias = self.calib['bias'].getImage(extName)
 		if bias is not None:
 			data -= bias
@@ -343,8 +344,8 @@ class BokCCDProcess(bokutil.BokProcess):
 				# ugly, but this is just where it goes
 				fringe = self.calib['fringe'].getImage(extName)
 				if fringe is not None:
-					# XXX need scaling here
-					data -= fringe
+					fscl = self.calib['fringe'].getFringeScale(extName,data)
+					data -= fringe * fscl
 			flat = self.calib[flatType].getImage(extName)
 			if flat is not None:
 				if self.asWeight:
@@ -366,6 +367,8 @@ class BokCCDProcess(bokutil.BokProcess):
 			hdr['GAIN%02dA'%chNum] = self.inputGain[extName]
 		elif 'SATUR' not in hdr:
 			hdr['SATUR'] = saturation_dn
+		if fscl is not None:
+			hdr['FRNGSCL'] = float(fscl)
 		return data,hdr
 
 class BokWeightMap(bokutil.BokProcess):
