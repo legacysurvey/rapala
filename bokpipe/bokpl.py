@@ -15,7 +15,6 @@ from .bokoscan import BokOverscanSubtract,BokOverscanSubtractWithSatFix
 from . import bokio
 from . import bokutil
 from . import bokproc
-from . import bokrampcorr
 from . import bokillumcorr
 from .bokdm import SimpleFileNameMap,BokDataManager
 from . import bokastrom
@@ -23,7 +22,7 @@ from . import bokphot
 from . import bokgnostic
 from . import bokmkimage
 
-all_process_steps = ['oscan','bias2d','flat2d',
+all_process_steps = ['oscan','bias2d','flat2d','ramp',
                      'proc1','comb','fringe','skyflat',
                      'proc2','sky','wcs','cat']
 
@@ -135,6 +134,37 @@ def make_dome_flats(dataMap,nobiascorr=False,
 	p_flat_worker = partial(_flat_worker,dataMap,bias2Dsub,flatStack,
 	                        normFlat,nSkip,writeccdim,debug,**kwargs)
 	procmap(p_flat_worker,dataMap.getCalSequences('flat'))
+
+def _ramp_worker(tmpDir,inputMap,calMap,verbose,biasIn):
+	biasFile,biasList = biasIn
+	if verbose >= 1:
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] RAMP: %s' % (pid,biasFile)
+	outFile = os.path.join(tmpDir,'ramp'+biasFile+'.fits')
+	if os.path.exists(outFile):
+		return outFile
+	imsub = BokImArith('-',calMap(biasFile),output_map=lambda f: outFile)
+	imsub.process_files([inputMap(biasList[0])])
+	return outFile
+
+# XXX removed smoothing of image b/c not being used, but could do with spline smoother?
+def make_rampcorr_image(dataMap,**kwargs):
+	processes = kwargs.get('processes',1)
+	procmap = kwargs.pop('procmap')
+	tmpDir = os.path.join(dataMap._tmpDir,'biasramps')
+	inputMap = dataMap('oscan')
+	calMap = dataMap('cal')
+	if not os.path.exists(tmpDir):
+		os.makedirs(tmpDir)
+	rampFile = dataMap.getCalMap('ramp').getFileName()
+	p_ramp_worker = partial(_ramp_worker,tmpDir,inputMap,calMap,
+	                        kwargs.get('verbose',0))
+	rampFiles = procmap(p_ramp_worker,dataMap.getCalSequences('zero'))
+	stackFun = bokutil.ClippedMeanStack()
+	stackFun.stack(rampFiles,rampFile)
 
 def balance_gains(dataMap,**kwargs):
 	# need bright star mask here?
@@ -373,6 +403,8 @@ def bokpipe(dataMap,**kwargs):
 		                usepixflat=not kwargs.get('nousepixflat',False),
 		                debug=debug,**pipekwargs)
 		timerLog('dome flats')
+	if 'ramp' in steps:
+		make_rampcorr_image(dataMap,**pipekwargs)
 	if 'proc1' in steps or 'comb' in steps:
 		process_all(dataMap,
 		            nobiascorr=kwargs.get('nobiascorr',False),
@@ -584,8 +616,6 @@ def init_pipeline_args(parser):
 	                help='make png images instead of processing ')
 	parser.add_argument('--imagetype',type=str,default='sky',
 	                help='make images from (imtype,[msktype]) [default: sky]')
-	parser.add_argument('--makerampcorr',action='store_true',
-	                help='make ramp correction image instead of processing')
 	parser.add_argument('--makeillumcorr',action='store_true',
 	                help='make illumination correction image '
 	                     'instead of processing')
@@ -620,8 +650,6 @@ def run_pipe(dataMap,args):
 	if args.images:
 		make_images(dataMap,*args.imagetype.split(','),
 		            processes=args.processes)
-	elif args.makerampcorr:
-		bokrampcorr.make_rampcorr_image(dataMap)#,**kwargs)
 	elif args.makeillumcorr:
 		bokillumcorr.make_illumcorr_image(dataMap)#,**kwargs)
 	elif args.wcscheck:
