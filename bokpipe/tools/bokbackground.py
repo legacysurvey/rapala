@@ -59,14 +59,5 @@ if not args.output:
 else:
 	outfn = args.output
 
-outFits = fitsio.FITS(outfn,'rw',clobber=True)
-
-hdr = fits.get_header(0)
-outFits.write(None,header=hdr)
-
-for extn,data,hdr in fits:
-	outFits.write(backfit.get(extn),extname=extn,header=hdr)
-
-outFits.close()
-
+backfit.write(outfn,clobber=True)
 
