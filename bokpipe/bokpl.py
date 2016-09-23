@@ -242,6 +242,7 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 		                     **kwargs)
 
 def make_illumcorr_image(dataMap,byUtd=False,max_images=None,**kwargs):
+	redo = kwargs.get('redo',False)
 	if byUtd:
 		filtAndUtd = [ fu for fu in zip(dataMap.getFilters(),
 		                                dataMap.getUtDates()) ]
@@ -251,7 +252,11 @@ def make_illumcorr_image(dataMap,byUtd=False,max_images=None,**kwargs):
 		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
 		         exclude_objs=['rm10','rm11','rm12','rm13'], # XXX
 		                                with_frames=True)
+		if files is None:
+			continue
 		outFn = dataMap.storeCalibrator('illum',frames)
+		if os.path.exists(outFn) and not redo:
+			continue
 		#
 		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,'tmpillum_%s.fits'%filt)
 		stackFun = bokutil.ClippedMeanStack(input_map=dataMap('comb'),
