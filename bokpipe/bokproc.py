@@ -138,9 +138,14 @@ class BackgroundFit(object):
 		                                    binclip=True,single=True,
 		                                    mingood=nbin**2//3)
 		self.coordSys = coordsys
-		extensions = ['CCD%d'%i for i in range(1,5)] # XXX 4-CCD only...
 	def __call__(self,extn):
 		raise NotImplementedError
+	def write(self,outFile,clobber=False):
+		outFits = fitsio.FITS(outFile,'rw',clobber=clobber)
+		outFits.write(None,header=self.fits.get_header(0))
+		for extn,data,hdr in self.fits:
+			outFits.write(self.get(extn),extname=extn,header=hdr)
+		outFits.close()
 
 class SplineBackgroundFit(BackgroundFit):
 	def __init__(self,fits,nKnots=2,order=1,**kwargs):

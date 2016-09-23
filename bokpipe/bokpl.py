@@ -15,7 +15,6 @@ from .bokoscan import BokOverscanSubtract,BokOverscanSubtractWithSatFix
 from . import bokio
 from . import bokutil
 from . import bokproc
-from . import bokillumcorr
 from .bokdm import SimpleFileNameMap,BokDataManager
 from . import bokastrom
 from . import bokphot
@@ -146,7 +145,8 @@ def _ramp_worker(tmpDir,inputMap,calMap,verbose,biasIn):
 	outFile = os.path.join(tmpDir,'ramp'+biasFile+'.fits')
 	if os.path.exists(outFile):
 		return outFile
-	imsub = BokImArith('-',calMap(biasFile),output_map=lambda f: outFile)
+	imsub = bokproc.BokImArith('-',calMap(biasFile),
+	                           output_map=lambda f: outFile)
 	imsub.process_files([inputMap(biasList[0])])
 	return outFile
 
@@ -240,6 +240,35 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 		                     output_map=dataMap('weight'), 
 		                     gain_map=gainMap,
 		                     **kwargs)
+
+def make_illumcorr_image(dataMap,byUtd=False,max_images=None,**kwargs):
+	if byUtd:
+		filtAndUtd = [ fu for fu in zip(dataMap.getFilters(),
+		                                dataMap.getUtDates()) ]
+	else:
+		filtAndUtd = [ (f,None) for f in dataMap.getFilters()]
+	for filt,utd in filtAndUtd:
+		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
+		         exclude_objs=['rm10','rm11','rm12','rm13'], # XXX
+		                                with_frames=True)
+		outFn = dataMap.storeCalibrator('illum',frames)
+		#
+		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,'tmpillum_%s.fits'%filt)
+		stackFun = bokutil.ClippedMeanStack(input_map=dataMap('comb'),
+		                                    scale='normalize_median',
+		                                    clip_iters=3,clip_sig=2.0,
+		                                    **kwargs)
+		if max_images is not None:
+			# keep the image list in the same order
+			ii = np.random.randint(0,max_images)
+			files = [files[i] for i in ii]
+		print 'stacking %d files for illumination' % (len(files))
+		stackFun.stack(files,tmpSkyFlatFile)
+		fits = bokutil.BokMefImage(tmpSkyFlatFile,
+		                           mask_file=dataMap.getCalMap('badpix4'),
+		                           read_only=True)
+		illum = bokproc.SplineBackgroundFit(fits,nKnots=7,order=3,nbin=8)
+		illum.write(outFn,clobber=True)
 
 def make_fringe_masters(dataMap,byUtd=False,**kwargs):
 	caldir = dataMap.getCalDir()
@@ -380,7 +409,10 @@ def bokpipe(dataMap,**kwargs):
 	chunkSize = 10
 	if processes > 1:
 		pool = multiprocessing.Pool(processes)
-		procmap = partial(pool.map,chunksize=chunkSize)
+		# need to test this more to see if it improves efficiency, but
+		# probably need to wrap it in an object
+		#procmap = partial(pool.map,chunksize=chunkSize)
+		procmap = pool.map
 	else:
 		procmap = map
 	pipekwargs = {'clobber':redo,'verbose':verbose,
@@ -405,6 +437,7 @@ def bokpipe(dataMap,**kwargs):
 		timerLog('dome flats')
 	if 'ramp' in steps:
 		make_rampcorr_image(dataMap,**pipekwargs)
+		timerLog('ramp correction')
 	if 'proc1' in steps or 'comb' in steps:
 		process_all(dataMap,
 		            nobiascorr=kwargs.get('nobiascorr',False),
@@ -418,6 +451,9 @@ def bokpipe(dataMap,**kwargs):
 		            prockey=kwargs.get('prockey','CCDPROC'),
 		            **pipekwargs)
 		timerLog('ccdproc')
+	if 'illum' in steps:
+		make_illumcorr_image(dataMap,**pipekwargs)
+		timerLog('illumination corr')
 	if 'fringe' in steps:
 		make_fringe_masters(dataMap,**pipekwargs)
 		timerLog('fringe masters')
@@ -616,9 +652,6 @@ def init_pipeline_args(parser):
 	                help='make png images instead of processing ')
 	parser.add_argument('--imagetype',type=str,default='sky',
 	                help='make images from (imtype,[msktype]) [default: sky]')
-	parser.add_argument('--makeillumcorr',action='store_true',
-	                help='make illumination correction image '
-	                     'instead of processing')
 	parser.add_argument('--wcscheck',action='store_true',
 	                help='make astrometry diagnostic files')
 	return parser
@@ -650,8 +683,6 @@ def run_pipe(dataMap,args):
 	if args.images:
 		make_images(dataMap,*args.imagetype.split(','),
 		            processes=args.processes)
-	elif args.makeillumcorr:
-		bokillumcorr.make_illumcorr_image(dataMap)#,**kwargs)
 	elif args.wcscheck:
 		files = [dataMap('sky')(f) for f in dataMap.getFiles('object')]
 		bokgnostic.run_scamp_diag(files)
