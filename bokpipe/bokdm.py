@@ -284,6 +284,8 @@ class BokDataManager(object):
 			self.calDb = None
 		# default filters for fringe corr
 		self.fringeFilt = ['r','bokr','i','z'] 
+		if 'good' not in self.obsDb.colnames:
+			self.obsDb['good'] = np.ones(len(self.obsDb),dtype=bool)
 	def _config_cals(self):
 		self.calNameMap = SimpleFileNameMap(None,self.calDir)
 		self.calTable = {}
@@ -382,7 +384,8 @@ class BokDataManager(object):
 	def getCalSequences(self,calType):
 		return [ (fn,
 		          [os.path.join(self.obsDb['utDir'][i],
-		                        self.obsDb['fileName'][i]) for i in seq])
+		                        self.obsDb['fileName'][i]) 
+		              for i in seq if self.obsDb['good'][i]])
 		            for fn,utd,mjd,filt,seq in self.calDb[calType] 
 		              if utd in self.utDates and 
 		                 ((calType=='zero') or (filt in self.filt)) ]
@@ -451,12 +454,7 @@ class BokDataManager(object):
 	def getFiles(self,imType=None,utd=None,filt=None,
 	             im_range=None,exclude_objs=None,
 	             with_objnames=False,with_frames=False,as_sequences=False):
-		try:
-			# if the observations database has a good flag use it
-			good_ims = self.obsDb['good']
-		except:
-			good_ims = np.ones(len(self.obsDb),dtype=bool)
-		file_sel = good_ims.copy()
+		file_sel = self.obsDb['good'].copy()
 		# select on UT date(s)
 		if utd is not None:
 			if isinstance(utd,basestring):
