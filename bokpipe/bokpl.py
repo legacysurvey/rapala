@@ -60,6 +60,16 @@ def _bias_worker(dataMap,biasStack,nSkip,writeccdim,biasIn,**kwargs):
 	if writeccdim:
 		makeccd4image(dataMap,biasFile,**kwargs)
 
+def _bias_worker_exc(*args,**kwargs):
+	try:
+		_bias_worker(*args,**kwargs)
+	except:
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] 2DBIAS: %s FAILED!!!' % (pid,args[-1][0])
+
 def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
                    writeccdim=False,**kwargs):
 	# need to make sure num processes is reset to 1 before calling these
@@ -73,7 +83,7 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 	                                 reject=reject,
 	                                 find_rolloffs=True,
                                      **_kwargs)
-	p_bias_worker = partial(_bias_worker,dataMap,biasStack,
+	p_bias_worker = partial(_bias_worker_exc,dataMap,biasStack,
 	                        nSkip,writeccdim,**kwargs)
 	# returns [(biasFile,biasFiles)...]
 	procmap(p_bias_worker,dataMap.getCalSequences('zero'))
@@ -99,6 +109,16 @@ def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
 		print '\n'.join(flatList[nSkip:])
 	if writeccdim:
 		makeccd4image(dataMap,flatFile,**kwargs)
+
+def _flat_worker_exc(*args,**kwargs):
+	try:
+		_flat_worker(*args,**kwargs)
+	except:
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] DOMEFLAT: %s FAILED!!!' % (pid,args[-1][0])
 
 def make_dome_flats(dataMap,nobiascorr=False,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
@@ -131,7 +151,7 @@ def make_dome_flats(dataMap,nobiascorr=False,
 		                                 _binned_flat_map=bfmap,**kwargs)
 	else:
 		normFlat = None
-	p_flat_worker = partial(_flat_worker,dataMap,bias2Dsub,flatStack,
+	p_flat_worker = partial(_flat_worker_exc,dataMap,bias2Dsub,flatStack,
 	                        normFlat,nSkip,writeccdim,debug,**kwargs)
 	procmap(p_flat_worker,dataMap.getCalSequences('flat'))
 
