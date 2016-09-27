@@ -328,6 +328,8 @@ class BokDataManager(object):
 		return self.diagDir
 	def setDiagDir(self,diagDir):
 		self.diagDir = diagDir
+	def getTmpDir(self):
+		return self._tmpDir
 	def setUtDates(self,utDates):
 		self.utDates = utDates
 	def getUtDates(self):

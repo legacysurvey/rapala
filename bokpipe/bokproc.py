@@ -76,8 +76,10 @@ class BokImStat(bokutil.BokProcess):
 		self.clipArgs = kwargs.get('clip_args',{})
 		self.quickprocess = kwargs.get('quickprocess',False)
 		self.meanVals = []
+		self.rmsVals = []
 	def _preprocess(self,fits,f):
 		self.imgMeans = []
+		self.imgStds = []
 	def process_hdu(self,extName,data,hdr):
 		if self.quickprocess:
 			pix = overscan_subtract(data,hdr,method='mean_value',
@@ -85,16 +87,20 @@ class BokImStat(bokutil.BokProcess):
 			                        apply_filter=None)
 		else:
 			pix = data
-		v = bokutil.array_stats(pix[self.statSec],method='mean',
-		                        rms=False,clip=True,**self.clipArgs)
+		v,s = bokutil.array_stats(pix[self.statSec],method='mean',
+		                          rms=True,clip=True,**self.clipArgs)
 		self.imgMeans.append(v)
+		self.imgStds.append(s)
 		return data,hdr
 	def _postprocess(self,fits,f):
 		self.meanVals.append(self.imgMeans)
+		self.rmsVals.append(self.imgStds)
 	def _finish(self):
 		self.meanVals = np.array(self.meanVals)
+		self.rmsVals = np.array(self.rmsVals)
 	def reset(self):
 		self.meanVals = []
+		self.rmsVals = []
 
 def interpolate_masked_pixels(data,along='twod',method='linear'):
 	if along=='rows':
@@ -140,11 +146,14 @@ class BackgroundFit(object):
 		self.coordSys = coordsys
 	def __call__(self,extn):
 		raise NotImplementedError
-	def write(self,outFile,clobber=False):
+	def write(self,outFile,opfun=None,clobber=False):
 		outFits = fitsio.FITS(outFile,'rw',clobber=clobber)
 		outFits.write(None,header=self.fits.get_header(0))
 		for extn,data,hdr in self.fits:
-			outFits.write(self.get(extn),extname=extn,header=hdr)
+			im = self.get(extn)
+			if opfun:
+				im = opfun(im)
+			outFits.write(im.astype(np.float32),extname=extn,header=hdr)
 		outFits.close()
 
 class SplineBackgroundFit(BackgroundFit):

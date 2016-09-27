@@ -13,6 +13,8 @@ parser.add_argument("inputFiles",type=str,nargs='+',
                     help="input FITS images")
 parser.add_argument("-e","--ext",type=str,default="all",
                     help="select FITS extension(s) [default=all]")
+parser.add_argument("-s","--statsreg",type=str,
+                    help="image region to calculate stats on")
 parser.add_argument("--oscan",action="store_true",
                     help="do a simple overscan subtraction")
 args = parser.parse_args()
@@ -22,12 +24,13 @@ if args.ext=='all':
 else:
 	extns = args.ext.split(',')
 
-imstat = BokImStat(extensions=extns,quickprocess=args.oscan)
+imstat = BokImStat(extensions=extns,quickprocess=args.oscan,
+                   stats_region=args.statsreg)
 imstat.process_files(args.inputFiles)
 
 np.set_printoptions(precision=2,suppress=True)
 
 for i,fn in enumerate(args.inputFiles):
-	print os.path.basename(fn),imstat.meanVals[i]
+	print os.path.basename(fn),imstat.meanVals[i],imstat.rmsVals[i]
 
 

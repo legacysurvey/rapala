@@ -85,6 +85,7 @@ def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
 		bias2Dsub.process_files(flatList)
 	flatStack.stack(flatList[nSkip:],flatFile)
 	if normFlat:
+		raise NotImplementedError # currently all name mappings are broken
 		if debug:
 			shutil.copy(flatFile,
 			            flatFile.replace('.fits','_raw.fits'))
@@ -273,7 +274,8 @@ def make_illumcorr_image(dataMap,byUtd=False,max_images=None,**kwargs):
 		                           mask_file=dataMap.getCalMap('badpix4'),
 		                           read_only=True)
 		illum = bokproc.SplineBackgroundFit(fits,nKnots=7,order=3,nbin=8)
-		illum.write(outFn,clobber=True)
+		normFun = lambda arr: arr / np.float32(illum(0,0))
+		illum.write(outFn,opfun=normFun,clobber=True)
 
 def make_fringe_masters(dataMap,byUtd=False,**kwargs):
 	caldir = dataMap.getCalDir()
@@ -588,7 +590,8 @@ def init_data_map(args,create_dirs=True):
 		dataMap.setImageType(args.imtype)
 	#
 	if create_dirs:
-		for d in [dataMap.procDir,dataMap.getCalDir(),dataMap.getDiagDir()]:
+		for d in [dataMap.procDir,dataMap.getCalDir(),dataMap.getDiagDir(),
+		          dataMap.getTmpDir()]:
 			if not os.path.exists(d):
 				os.makedirs(d)
 		for _utdir in dataMap.getUtDirs():
