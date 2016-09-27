@@ -4,6 +4,7 @@ import os
 from collections import defaultdict
 import numpy as np
 from astropy.table import Table
+from astropy.stats import sigma_clip
 import fitsio
 
 import matplotlib.pyplot as plt
@@ -21,6 +22,7 @@ def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
 		catf = dataMap('cat')(f)
 		try:
 			imFits = fitsio.FITS(procf)
+			print frameId,procf,' processing'
 		except:
 			print frameId,procf,' does not exist'
 			continue
@@ -35,12 +37,14 @@ def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
 			for extNum in range(1,5):
 				objs = catFits[extNum].read()
 				ii = np.where((objs['FLAGS']==0) &
-				              (objs['CLASS_STAR'] > 0.5))[0]
+				              (objs['MAG_AUTO']-objs['MAG_PSF'] > -0.15) &
+				              (objs['MAGERR_PSF'] < 0.1))[0]
 				if len(ii) > 5:
-					fwhm.append(np.median(objs['FWHM_IMAGE'][ii]))
+					v = sigma_clip(objs['FWHM_IMAGE'][ii])
+					fwhm.append(float(np.ma.median(v)))
 				else:
 					fwhm.append(-1)
-		except:
+		except IOError:
 			print i,catf,' does not exist'
 			fwhm = [-1,-1,-1,-1]
 		cols['fwhmPix'].append(fwhm)
