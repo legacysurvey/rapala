@@ -588,9 +588,58 @@ def selfcal(s82cat):
 	s82cat['sigMagCal'] = np.ma.std(s82cat['dmagCal'],axis=1)
 	return s82cat
 
-def focalplanevar2(s82cat,band,nbin=4,frameno=None,cal=False,
+def sdsscal(s82cat,mode='amp'):
+	exptime = np.array([100.]*6 + [25.,50.,100.,200.,400.])
+	nimg = len(exptime)
+	bokmag = -2.5*np.ma.log10(s82cat['cps']/exptime[:,np.newaxis])
+	s82cat['dmagExt'] = 0*s82cat['dmag']
+	s82cat['dmagExt'] = np.ma.masked
+	gcterms = np.loadtxt('config/bok2sdss_g_gicoeff.dat')
+	rcterms = np.loadtxt('config/bok2sdss_r_gicoeff.dat')
+	gminusi = s82cat['psfmag_g']-s82cat['psfmag_i']
+	sdssmag = {'g':s82cat['psfmag_g']+np.polyval(gcterms,gminusi),
+	           'r':s82cat['psfmag_r']+np.polyval(rcterms,gminusi)}
+	if mode=='amp':
+		zp = np.ma.zeros((nimg,2,16))
+		for amp in range(1,17):
+			isamp = s82cat['ampNum'] == amp
+			for j in range(nimg):
+				for k in range(2):
+					b = 'gr'[k]
+					good = s82cat['nobs'][:,k] >= 1
+					ii = np.where(good & isamp[:,j,k])[0]
+					if len(ii)==0:
+						zp[j,k,amp-1] = np.ma.masked
+						continue
+					dmag = np.ma.subtract(bokmag[ii,j,k],sdssmag[b][ii])
+					zp[j,k,amp-1] = np.ma.median(sigma_clip(dmag,sigma=2.0))
+					s82cat['dmagExt'][ii,j,k] = dmag - zp[j,k,amp-1]
+					s82cat['dmagExt'][ii,j,k].mask |= dmag.mask
+	elif mode=='ccd':
+		zp = np.ma.zeros((nimg,2,4))
+		for ccd in range(1,5):
+			isccd = s82cat['ccdNum'] == ccd
+			for j in range(nimg):
+				for k in range(2):
+					b = 'gr'[k]
+					good = s82cat['nobs'][:,k] >= 1
+					ii = np.where(good & isccd[:,j,k])[0]
+					if len(ii)==0:
+						zp[j,k,ccd-1] = np.ma.masked
+						continue
+					dmag = np.ma.subtract(bokmag[ii,j,k],sdssmag[b][ii])
+					zp[j,k,ccd-1] = np.ma.median(sigma_clip(dmag,sigma=2.0))
+					s82cat['dmagExt'][ii,j,k] = dmag - zp[j,k,ccd-1]
+					s82cat['dmagExt'][ii,j,k].mask |= dmag.mask
+	elif mode=='image':
+		raise ValueError
+	else:
+		raise ValueError
+	s82cat['sigMagExt'] = np.ma.std(s82cat['dmagExt'],axis=1)
+	return s82cat,zp
+
+def focalplanevar2(s82cat,band,nbin=4,frameno=None,dmk='dmag',
                    doplot=False,vr=0.015,shownum=False):
-	dmk = 'dmag' if not cal else 'dmagCal'
 	tab = s82cat
 	bk = 'gr'.find(band)
 	nx = 4096 // nbin
@@ -615,7 +664,10 @@ def focalplanevar2(s82cat,band,nbin=4,frameno=None,cal=False,
 		if vr is None:
 			vmin,vmax = None,None
 		else:
-			vmin,vmax = -vr,vr
+			try:
+				vmin,vmax = vr
+			except:
+				vmin,vmax = -vr,vr
 		fig = plt.figure(figsize=(6,6.15))
 		plt.subplots_adjust(0.04,0.035,0.96,0.88,0.25,0.12)
 		for pnum,ccdi in enumerate([0,2,1,3],start=1):
@@ -889,8 +941,7 @@ def etc_check():
 			        (field,airmass,skyextinction,skymag,fwhm,t/3,dfac)
 		print
 
-def compare_scatter(phot1,phot2,names,minnobs=4,cal=False):
-	sigk = 'sigMag' if not cal else 'sigMagCal'
+def compare_scatter(phot1,phot2,names,minnobs=4,sigk='sigMag'):
 	m1,m2 = srcor(phot1['ra'],phot1['dec'],phot2['ra'],phot2['dec'],1.0)
 	plt.figure(figsize=(10,5))
 	plt.subplots_adjust(0.08,0.12,0.95,0.92,0.25)
