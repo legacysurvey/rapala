@@ -67,7 +67,8 @@ def _extract_metadata_fromheader(ccds,i,expnum,oframe):
 		# some of the dirs have been appended with the filter
 		fdir += oframe['filter'][-1]
 	for ccdNum,ccd in enumerate(ccds,start=1):
-		imfn = ''.join(['p',expstr[:4],oframe['filter'],expstr[4:],
+		filt = oframe['filter'].replace('bokr','r')
+		imfn = ''.join(['p',expstr[:4],filt,expstr[4:],
 		                '_%d'%ccdNum,'.fits'])
 		fpath = os.path.join(fdir,imfn)
 		# extensions are not always named so use number

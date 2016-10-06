@@ -57,10 +57,11 @@ def get_ps1_stars(ra,dec):
 	               (ps1cat['DEC']>dec.min()-delta) )[0]
 	return ps1cat[ii]
 
-def match_ps1(catf,stars=True,isldac=False,radius=10.):
+def match_ps1(catf,stars=True,isldac=False,radius=10.,singleccd=False):
 	cats = []
 	fitscat = fits.open(catf)
-	for ccdNum in range(1,5):
+	ccds = range(1,5) if not singleccd else [1]
+	for ccdNum in ccds:
 		if isldac:
 			cat = fitscat[2*ccdNum].data
 		else:
