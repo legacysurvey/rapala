@@ -250,29 +250,38 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
 				pass
 	_tmpf.close()
 
-def process_naoc_image(image,outputDir='./',overwrite=False):
+def process_image(image,outputDir='./',overwrite=False,naocver=False):
 	print 'processing ',image
 	imFile = os.path.basename(image)
+	isfz = imFile.endswith('.fz')
+	imFile = imFile.replace('.fz','')
 	catFile = os.path.join(outputDir,imFile.replace('.fits','.cat.fits'))
 	psfFile = os.path.join(outputDir,imFile.replace('.fits','.psf'))
 	ps1File = os.path.join(outputDir,imFile.replace('.fits','.ps1match.fits'))
 	if not os.path.exists(catFile) or not os.path.exists(psfFile) or overwrite:
+		if isfz:
+			_image = os.path.join(outputDir,imFile)
+			print 'funpack %s -O %s' % (image,_image)
+			os.system('funpack -O %s %s' % (_image,image))
+			image = _image
 		sextract(image,frompv=False,redo=True,
 		         withpsf=True,redopsf=True,psfpath=psfFile,onlypsf=True)
 		shutil.move(psfFile.replace('.psf','.ldac_cat.fits'),catFile)
 		shutil.move(psfFile.replace('.psf','.ldac_cat.psf'),psfFile)
+		if isfz:
+			os.remove(image)
 	if not os.path.exists(ps1File) or overwrite:
-		ps1m = ps1cal.match_ps1(catFile,isldac=True,singleccd=True)
+		ps1m = ps1cal.match_ps1(catFile,isldac=True,singleccd=naocver)
 		if ps1m is None:
 			print image,' PS1CAL FAILED!!!'
 		else:
-			ps1m['ccdNum'] = int(imFile[-6])
+			if naocver:
+				ps1m['ccdNum'] = int(imFile[-6])
 			ps1m.write(ps1File,overwrite=True)
 
-def process_naoc_images(images,outputDir='./',overwrite=False,nproc=1):
+def process_images(images,nproc=1,**kwargs):
 	pool = multiprocessing.Pool(nproc)
-	_proc = partial(process_naoc_image,
-	                outputDir=outputDir,overwrite=overwrite)
+	_proc = partial(process_image,**kwargs)
 	pool.map(_proc,images)
 
 def process_idm_images(images,outputDir='./',overwrite=False):
@@ -329,6 +338,8 @@ if __name__=='__main__':
 	                    help="don't delete temporary files")
 	parser.add_argument("--sdssrm",action="store_true",
 	                    help="use sdssrm pipeline products")
+	parser.add_argument("--naocver",action="store_true",
+	                    help="use NAOC pipeline products (split by ccd)")
 	parser.add_argument("-p","--processes",type=int,default=1,
 	                    help="number of processes")
 	args = parser.parse_args()
@@ -342,8 +353,9 @@ if __name__=='__main__':
 		                   outputDir=args.outputdir,
 		                   overwrite=args.redo)
 	else:
-		process_naoc_images(args.inputFiles,
-		                    outputDir=args.outputdir,
-		                    overwrite=args.redo,
-		                    nproc=args.processes)
+		process_images(args.inputFiles,
+		               outputDir=args.outputdir,
+		               overwrite=args.redo,
+		               nproc=args.processes,
+		               naocver=args.naocver)
 
