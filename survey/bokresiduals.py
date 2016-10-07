@@ -51,6 +51,7 @@ def merge_residual_maps(ps1matches,nbin,nproc,version):
 	return astrom_resid.filled(np.nan),astrom_nobj,astrom_rms
 
 def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc'):
+	files = []
 	ccds = Table.read(ccdsFile)
 	ccds = ccds[ccds['cali_ref']=='PS1'] # only images with calibration
 	if byutd:
@@ -60,14 +61,16 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc'):
 	rmsTab = []
 	prefix = 'astrom_resid_%s' % version
 	for k,g in zip(ccds.groups.keys,ccds.groups):
-		print 'processing ',k,len(g)
+		print 'processing ',tuple(k),len(g)
 		if byutd:
 			filt,ccdnum,utd = k
 			utdstr = '_'+utd
 		else:
 			filt,ccdnum = k
 			utdstr = ''
-		outfn = '%s_%s_ccd%d%s.fits'%(prefix,filt,ccdnum,utdstr)
+		outfn = '%s_%s%s_ccd%d.fits' % (prefix,filt,utdstr,ccdnum)
+		if ccdnum==1:
+			files.append((prefix,utdstr))
 		if os.path.exists(outfn):
 			continue
 		if version=='naoc':
@@ -90,33 +93,40 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc'):
 		t['raRms'] = resid_rms[:,0]
 		t['decRms'] = resid_rms[:,1]
 		rmsTab.append(t)
-	vstack(rmsTab).write(prefix+'rms.fits')
+	if len(rmsTab) > 0:
+		vstack(rmsTab).write(prefix+'_rms.fits')
+	return files
 
-def make_plots(prefix='astrom_resid',**kwargs):
+def make_plots(files,**kwargs):
 	vmin = kwargs.get('vmin',-0.15)
-	vmax = kwargs.get('vmax',-0.15)
-	with PdfPages(prefix+'.pdf') as pdf:
-		for b in 'gr':
-			for i,s in enumerate(['ra','dec']):
-				fig = plt.figure(figsize=(7.25,8))
-				fig.subplots_adjust(0.02,0.08,0.98,0.94,0.03,0.01)
-				cax = fig.add_axes([0.1,0.03,0.8,0.03])
-				for ccdnum in [1,3,2,4]:
-					imf = '_'.join([prefix,b,'ccd%d.fits'%ccdnum])
-					im = fits.getdata(imf)
-					ax = fig.add_subplot(2,2,ccdnum)
-					_im = ax.imshow(im[i],vmin=vmin,vmax=vmax,
-					                cmap=plt.cm.coolwarm,
-					                origin='lower',interpolation='nearest')
-					ax.xaxis.set_visible(False)
-					ax.yaxis.set_visible(False)
-					if ccdnum==1:
-						cb = fig.colorbar(_im,cax,orientation='horizontal')
-						cb.ax.tick_params(labelsize=9)
-				fig.text(0.5,0.98,'%s band %s residuals' % (b,s),
-				         ha='center',va='top',size=14)
-				pdf.savefig()
-				plt.close()
+	vmax = kwargs.get('vmax', 0.15)
+	for f in files:
+		prefix = '%s%s' % f
+		with PdfPages(prefix+'.pdf') as pdf:
+			for b in 'gr':
+				for i,s in enumerate(['ra','dec']):
+					fig = plt.figure(figsize=(7.25,8))
+					fig.subplots_adjust(0.02,0.08,0.98,0.94,0.03,0.01)
+					cax = fig.add_axes([0.1,0.03,0.8,0.03])
+					for ccdnum in [1,3,2,4]:
+						imf = '%s_%s%s_ccd%d.fits' % (f[0],b,f[1],ccdnum)
+						try:
+							im = fits.getdata(imf)
+						except IOError:
+							continue
+						ax = fig.add_subplot(2,2,ccdnum)
+						_im = ax.imshow(im[i],vmin=vmin,vmax=vmax,
+						                cmap=plt.cm.coolwarm,
+						                origin='lower',interpolation='nearest')
+						ax.xaxis.set_visible(False)
+						ax.yaxis.set_visible(False)
+						if ccdnum==1:
+							cb = fig.colorbar(_im,cax,orientation='horizontal')
+							cb.ax.tick_params(labelsize=9)
+					fig.text(0.5,0.98,'%s band %s residuals' % (b,s),
+					         ha='center',va='top',size=14)
+					pdf.savefig()
+					plt.close()
 
 if __name__=='__main__':
 	import argparse
@@ -135,7 +145,12 @@ if __name__=='__main__':
 	                    help="make plots")
 	parser.add_argument("--range",type=str,
 	                    help="plot range")
+	parser.add_argument("--utd",action="store_true",
+	                    help="by utdate")
 	args = parser.parse_args()
+	files = make_residual_maps(args.input,args.outputdir,
+	                           args.nbin,args.processes,
+	                           version=args.version,byutd=args.utd)
 	if args.plots:
 		kwargs = {}
 		if args.range:
@@ -146,9 +161,5 @@ if __name__=='__main__':
 				vmin = -vmax
 			kwargs['vmin'] = vmin
 			kwargs['vmax'] = vmax
-		make_plots(prefix=args.input,**kwargs)
-	else:
-		make_residual_maps(args.input,args.outputdir,
-		                   args.nbin,args.processes,
-		                   version=args.version)
+		make_plots(files,**kwargs)
 
