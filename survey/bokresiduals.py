@@ -87,7 +87,8 @@ def merge_residual_maps(ps1matches,ccdnum,nbin,nproc,version):
 	return (astrom_resid.filled(np.nan),astrom_nobj,astrom_rms,
 	        photom_resid.filled(np.nan),photom_nobj,photom_rms)
 
-def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc'):
+def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
+                       files_only=False):
 	files = []
 	ccds = Table.read(ccdsFile)
 	ccds = ccds[ccds['cali_ref']=='PS1'] # only images with calibration
@@ -110,6 +111,8 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc'):
 		poutfn = '%s_%s%s_ccd%d.fits' % (pprefix,filt,utdstr,ccdnum)
 		if ccdnum==1:
 			files.append((aprefix,pprefix,utdstr))
+		if files_only:
+			continue
 		if version=='naoc':
 #			dat = [ os.path.join(outdir,'p%s%s%s_%d.ps1match.fits') % 
 #			                               (expstr[:4],filt,expstr[4:8],ccdnum) 
@@ -142,7 +145,7 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc'):
 		vstack(rmsTab).write(version+'_rms.fits',overwrite=True)
 	return files
 
-def make_plots(files,**kwargs):
+def make_plots(files,version='naoc',**kwargs):
 	vmin = kwargs.get('vmin',-0.15)
 	vmax = kwargs.get('vmax', 0.15)
 	for aprefix,pprefix,utdstr in files:
@@ -207,10 +210,13 @@ if __name__=='__main__':
 	                    help="plot range")
 	parser.add_argument("--utd",action="store_true",
 	                    help="by utdate")
+	parser.add_argument("--plotonly",action="store_true",
+	                    help="only make plot")
 	args = parser.parse_args()
 	files = make_residual_maps(args.input,args.outputdir,
 	                           args.nbin,args.processes,
-	                           version=args.version,byutd=args.utd)
+	                           version=args.version,byutd=args.utd,
+	                           files_only=args.plotonly)
 	if args.plots:
 		kwargs = {}
 		if args.range:
