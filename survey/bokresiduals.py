@@ -23,7 +23,11 @@ def _get_ps1_bokmag(band,ps1m,j):
 def _residual_map(inp,ccdnum=1,nbin=8,version=None):
 	filter,zp,ps1mf = inp
 	print ps1mf
-	shape = (4032//nbin,4096//nbin)
+	try:
+		nbinx,nbiny = nbin
+	except:
+		nbinx = nbiny = nbin
+	shape = (4032//nbiny,4096//nbinx)
 	if version.startswith('noao'):
 		shape = shape[::-1]
 	astrom_resid = np.zeros((2,)+shape,dtype=np.float32)
@@ -42,8 +46,8 @@ def _residual_map(inp,ccdnum=1,nbin=8,version=None):
 	dde = 3600*(ps1m['DEC'] - ps1m['DELTA_J2000'])
 	sep = np.sqrt(dra**2 + dde**2)
 	g = ~(sigma_clip(sep,sigma=2.5,iters=2).mask)
-	xi = (ps1m['X_IMAGE']/nbin).astype(np.int32)
-	yi = (ps1m['Y_IMAGE']/nbin).astype(np.int32)
+	xi = (ps1m['X_IMAGE']/nbinx).astype(np.int32)
+	yi = (ps1m['Y_IMAGE']/nbiny).astype(np.int32)
 	g &= (yi<shape[0]) & (xi<shape[1]) # remove edge sources
 	np.add.at(astrom_resid[0], (yi[g],xi[g]), dra[g])
 	np.add.at(astrom_resid[1], (yi[g],xi[g]), dde[g])
@@ -169,8 +173,7 @@ def make_plots(files,version='naoc',**kwargs):
 							except IOError:
 								continue
 							if version=='noaoV0':
-								im = im.transpose()
-								im = im[::-1,:]
+								im = np.flipud(im.transpose())
 							if False: #'photom' in prefix:
 								_vmin,_vmax = -1,1
 							else:
@@ -190,6 +193,65 @@ def make_plots(files,version='naoc',**kwargs):
 						         ha='center',va='top',size=14)
 						pdf.savefig()
 						plt.close()
+
+def line_plots(version='naoc'):
+	if version=='naoc':
+		ims = np.array([fits.getdata('astrom_resid_naoc_r_ccd%d.fits'%i) 
+		                       for i in range(1,5)])
+		nobj = np.array([fits.getdata('astrom_resid_naoc_r_ccd%d_nstar.fits'%i) 
+		                       for i in range(1,5)])
+	elif version=='noaoV0':
+		ims = np.array([fits.getdata('astrom_resid_noaoV0_r_ccd%d.fits'%i) 
+		                       for i in range(1,5)])
+		ims = ims.swapaxes(2,3)[:,:,::-1,:]
+		nobj = np.array(
+		        [fits.getdata('astrom_resid_noaoV0_r_ccd%d_nstar.fits'%i) 
+		                       for i in range(1,5)])
+		nobj = nobj.swapaxes(2,3)[:,:,::-1,:]
+	ims = np.ma.array(ims,mask=(nobj==0))
+	nbin = 4032 // ims.shape[2]
+	yi = np.arange(ims.shape[2])*nbin
+	xi = np.arange(ims.shape[3])*nbin
+	ymid = ims.shape[2]//2
+	xmid = ims.shape[3]//2
+	d1 = sigma_clip(ims[:,0,ymid-1]-ims[:,0,ymid],axis=1).mean(axis=1)
+	d2 = sigma_clip(ims[:,1,ymid-1]-ims[:,1,ymid],axis=1).mean(axis=1)
+	d3 = sigma_clip(ims[:,0,:,xmid-1]-ims[:,0,:,xmid],axis=1).mean(axis=1)
+	d4 = sigma_clip(ims[:,1,:,xmid-1]-ims[:,1,:,xmid],axis=1).mean(axis=1)
+	for i,d in enumerate([d1,d2,d3,d4]):
+		s = ['d(ra) at dec boundary',
+		     'd(dec) at dec boundary',
+		     'd(ra) at ra boundary',
+		     'd(dec) at ra boundary'][i]
+		print '%25s  ' % s,
+		print ' '.join(['%6.3f'%x for x in d])
+	plt.figure()
+	#
+	plt.subplot(221)
+	#plt.fill_between(xi,ims[:,0].std(axis=1).transpose())
+	lines = plt.plot(xi,ims[:,0].mean(axis=1).transpose())
+	plt.xlim(-5,xi.max()+5)
+	plt.ylim(-0.1,0.1)
+	plt.legend(lines,['CCD%d'%i for i in range(1,5)],ncol=2,fontsize=10)
+	plt.title(r'$\Delta(ra)$ along ra axis',size=11)
+	#
+	plt.subplot(222)
+	plt.plot(yi,ims[:,1].mean(axis=2).transpose())
+	plt.xlim(-5,yi.max()+5)
+	plt.ylim(-0.1,0.1)
+	plt.title(r'$\Delta(dec)$ along dec axis',size=11)
+	#
+	plt.subplot(223)
+	lines = plt.plot(xi,ims[:,1].mean(axis=1).transpose())
+	plt.xlim(-5,xi.max()+5)
+	plt.ylim(-0.1,0.1)
+	plt.title(r'$\Delta(dec)$ along ra axis',size=11)
+	#
+	plt.subplot(224)
+	plt.plot(yi,ims[:,0].mean(axis=2).transpose())
+	plt.xlim(-5,yi.max()+5)
+	plt.ylim(-0.1,0.1)
+	plt.title(r'$\Delta(ra)$ along dec axis',size=11)
 
 if __name__=='__main__':
 	import argparse
@@ -213,8 +275,9 @@ if __name__=='__main__':
 	parser.add_argument("--plotonly",action="store_true",
 	                    help="only make plot")
 	args = parser.parse_args()
+	nbin = args.nbin.split(',')
 	files = make_residual_maps(args.input,args.outputdir,
-	                           args.nbin,args.processes,
+	                           nbin,args.processes,
 	                           version=args.version,byutd=args.utd,
 	                           files_only=args.plotonly)
 	if args.plots:
