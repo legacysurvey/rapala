@@ -209,9 +209,10 @@ def line_plots(version='naoc'):
 		                       for i in range(1,5)])
 		nobj = nobj.swapaxes(2,3)[:,:,::-1,:]
 	ims = np.ma.array(ims,mask=np.tile(nobj==0,(2,1,1,1)).swapaxes(0,1))
-	nbin = 4032 // ims.shape[2]
-	yi = np.arange(ims.shape[2])*nbin
-	xi = np.arange(ims.shape[3])*nbin
+	nbiny = 4032 // ims.shape[2]
+	nbinx = 4096 // ims.shape[3]
+	yi = np.arange(ims.shape[2])*nbiny
+	xi = np.arange(ims.shape[3])*nbinx
 	ymid = ims.shape[2]//2
 	xmid = ims.shape[3]//2
 	d1 = sigma_clip(ims[:,0,ymid-1]-ims[:,0,ymid],axis=1).mean(axis=1)
@@ -232,23 +233,27 @@ def line_plots(version='naoc'):
 	lines = plt.plot(xi,ims[:,0].mean(axis=1).transpose())
 	plt.xlim(-5,xi.max()+5)
 	plt.ylim(-0.1,0.1)
+	plt.axvline(xmid,c='0.2',ls='--')
 	plt.legend(lines,['CCD%d'%i for i in range(1,5)],ncol=2,fontsize=10)
 	plt.title(r'$\Delta(ra)$ along ra axis',size=11)
 	#
 	plt.subplot(222)
 	plt.plot(yi,ims[:,1].mean(axis=2).transpose())
+	plt.axvline(ymid,c='0.2',ls='--')
 	plt.xlim(-5,yi.max()+5)
 	plt.ylim(-0.1,0.1)
 	plt.title(r'$\Delta(dec)$ along dec axis',size=11)
 	#
 	plt.subplot(223)
-	lines = plt.plot(xi,ims[:,1].mean(axis=1).transpose())
+	plt.plot(xi,ims[:,1].mean(axis=1).transpose())
+	plt.axvline(xmid,c='0.2',ls='--')
 	plt.xlim(-5,xi.max()+5)
 	plt.ylim(-0.1,0.1)
 	plt.title(r'$\Delta(dec)$ along ra axis',size=11)
 	#
 	plt.subplot(224)
 	plt.plot(yi,ims[:,0].mean(axis=2).transpose())
+	plt.axvline(ymid,c='0.2',ls='--')
 	plt.xlim(-5,yi.max()+5)
 	plt.ylim(-0.1,0.1)
 	plt.title(r'$\Delta(ra)$ along dec axis',size=11)
