@@ -208,7 +208,7 @@ def line_plots(version='naoc'):
 		        [fits.getdata('astrom_resid_noaoV0_r_ccd%d_nstar.fits'%i) 
 		                       for i in range(1,5)])
 		nobj = nobj.swapaxes(2,3)[:,:,::-1,:]
-	ims = np.ma.array(ims,mask=(nobj==0))
+	ims = np.ma.array(ims,mask=np.tile(nobj==0,(2,1,1,1)).swapaxes(0,1))
 	nbin = 4032 // ims.shape[2]
 	yi = np.arange(ims.shape[2])*nbin
 	xi = np.arange(ims.shape[3])*nbin
@@ -262,7 +262,7 @@ if __name__=='__main__':
 	                    help="output directory")
 	parser.add_argument("-p","--processes",type=int,default=1,
 	                    help="number of processes")
-	parser.add_argument("--nbin",type=int,default=32,
+	parser.add_argument("--nbin",type=str,default='32',
 	                    help="bin size for residual images")
 	parser.add_argument("-V","--version",type=str,default='naoc',
 	                    help="pipeline version")
@@ -275,7 +275,8 @@ if __name__=='__main__':
 	parser.add_argument("--plotonly",action="store_true",
 	                    help="only make plot")
 	args = parser.parse_args()
-	nbin = args.nbin.split(',')
+	nbin = [int(v) for v in args.nbin.split(',')]
+	print 'binning is ',nbin
 	files = make_residual_maps(args.input,args.outputdir,
 	                           nbin,args.processes,
 	                           version=args.version,byutd=args.utd,
