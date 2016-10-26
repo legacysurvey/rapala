@@ -2,15 +2,137 @@
 
 import os
 from collections import defaultdict
+from itertools import imap
 import numpy as np
+import multiprocessing as mp
+from functools import partial
+import ctypes
 from astropy.table import Table
 import fitsio
 
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 from . import bokutil
 from . import bokproc
 from . import bokastrom
+
+def _image_fun(nbin,targets,read_data_fun,f):
+	nx,ny,nbinx,nbiny = nbin
+	data = read_data_fun(f)
+	if data is None:
+		return
+	xi = (data['x']/nbinx).astype(np.int32)
+	yi = (data['y']/nbiny).astype(np.int32)
+	ccdi = data['ccdNum'] - 1
+	rv = {}
+	for t in targets:
+		arr = np.zeros((4,ny,nx,3),dtype=np.float32)
+		g = np.where(~np.isnan(data[t]))
+		v = data[t][g]
+		b = np.vstack([v,v**2,np.repeat(1,len(v))]).transpose()
+		np.add.at(arr, (ccdi[g],yi[g],xi[g]), b)
+		rv[t] = arr
+	return rv
+
+class FocalPlaneMap(object):
+	def __init__(self,nbin,targets,readDataFun,nproc=1,
+	             maxMem=10,prefix='fpmap'):
+		try:
+			self.nbinx,self.nbiny = nbin
+		except:
+			self.nbinx = self.nbiny = nbin
+		self.nx = 4096 // self.nbinx
+		self.ny = 4032 // self.nbiny
+		self.N = self.nx * self.ny
+		self.targets = targets
+		self.nproc = nproc
+		if self.nproc == 1:
+			self._map = imap
+		else:
+			self.pool = mp.Pool(self.nproc)
+			self._map = self.mp_map
+			memsz = self.nx*self.ny*4*3 * len(self.targets) * self.nproc
+			memsz = float(memsz*4) / 1024**3
+			self.maxChunkSize = int(np.floor(maxMem/memsz))
+		self.readDataFun = readDataFun
+		self.outIms = None
+		self.prefix = prefix
+	def mp_map(self,fun,files):
+		nChunks = len(files) // (self.nproc*3)
+		chunkSize = min(self.maxChunkSize,nChunks)
+		return self.pool.imap_unordered(fun,files,chunkSize)
+	def ingest(self,files):
+		_fun = partial(_image_fun,(self.nx,self.ny,self.nbinx,self.nbiny),
+		               self.targets,self.readDataFun)
+		rv = self._map(_fun,files)
+		if self.outIms is None:
+			self.outIms = rv.next()
+		for res in rv:
+			for t in self.targets:
+				self.outIms[t] += res[t]
+		for t in self.targets:
+			# mean is SUM(x) / N
+			self.outIms[t][...,0] /= self.outIms[t][...,2]
+			# rms is SQRT( SUM(x^2)/N - <x>^2)
+			self.outIms[t][...,1] = np.sqrt( 
+			          self.outIms[t][...,1]/self.outIms[t][...,2] - 
+			                    self.outIms[t][...,0]**2)
+		return self.outIms
+	def write(self,prefix=None):
+		if not prefix:
+			prefix = self.prefix
+		for t in self.targets:
+			for k,s in enumerate(['mean','rms','n']):
+				outfn = prefix+'_%s_%s.fits' % (t,s)
+				if os.path.exists(outfn):
+					os.remove(outfn)
+				fits = fitsio.FITS(outfn,'rw')
+				fits.write(None)
+				for i in range(4):
+					fits.write(self.outIms[t][i,:,:,k],extname='CCD%d'%(i+1))
+				fits.close()
+	def make_plots(self,prefix=None,**kwargs):
+		vmin = kwargs.get('vmin',-0.15)
+		vmax = kwargs.get('vmax', 0.15)
+		plt.ioff()
+		if not prefix:
+			prefix = self.prefix
+		for t in self.targets:
+			pdffn = prefix+'_%s.pdf' % t
+			with PdfPages(pdffn) as pdf:
+				for k,s in enumerate(['mean','rms','n']):
+					basenm = prefix+'_%s_%s' % (t,s)
+					fitsfn = basenm+'.fits'
+					fig = plt.figure(figsize=(7.25,8))
+					fig.subplots_adjust(0.02,0.08,0.98,0.94,0.03,0.01)
+					cax = fig.add_axes([0.1,0.03,0.8,0.03])
+					try:
+						fitsim = fitsio.FITS(fitsfn)
+					except IOError:
+						continue
+					ims = np.array([hdu.read() for hdu in fitsim[1:]])
+					if s == 'mean':
+						_vmin,_vmax = vmin,vmax
+					else:
+						_vmin,_vmax = np.percentile(ims,(0.1,99.9))
+					for ccdnum in [1,3,2,4]: # order as on sky
+						ax = fig.add_subplot(2,2,ccdnum)
+						_im = ax.imshow(ims[ccdnum-1],vmin=_vmin,vmax=_vmax,
+						                cmap=plt.cm.coolwarm,
+						                origin='lower',
+						                interpolation='nearest')
+						ax.xaxis.set_visible(False)
+						ax.yaxis.set_visible(False)
+						if ccdnum==1:
+							cb = fig.colorbar(_im,cax,
+							                  orientation='horizontal')
+							cb.ax.tick_params(labelsize=9)
+					fig.text(0.5,0.98,basenm.replace('_','-'),
+					         ha='center',va='top',size=14)
+					pdf.savefig()
+					plt.close()
+		plt.ion()
 
 def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
 	files_and_frames = dataMap.getFiles(with_frames=True)
