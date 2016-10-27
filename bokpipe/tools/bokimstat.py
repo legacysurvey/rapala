@@ -28,9 +28,13 @@ imstat = BokImStat(extensions=extns,quickprocess=args.oscan,
                    stats_region=args.statsreg)
 imstat.process_files(args.inputFiles)
 
-np.set_printoptions(precision=2,suppress=True)
+#np.set_printoptions(precision=2,suppress=True)
+
+printarr = lambda a: ' '.join(map(lambda x: '%6.2f'%x,a))
 
 for i,fn in enumerate(args.inputFiles):
-	print os.path.basename(fn),imstat.meanVals[i],imstat.rmsVals[i]
+	print os.path.basename(fn),
+	print printarr(imstat.meanVals[i]),
+	print printarr(imstat.rmsVals[i])
 
 
