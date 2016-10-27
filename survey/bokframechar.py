@@ -250,7 +250,8 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
 				pass
 	_tmpf.close()
 
-def process_image(image,outputDir='./',overwrite=False,naocver=False):
+def process_image(image,outputDir='./',overwrite=False,naocver=False,
+                  redoifnocal=True):
 	print 'processing ',image
 	imFile = os.path.basename(image)
 	isfz = imFile.endswith('.fz')
@@ -258,7 +259,9 @@ def process_image(image,outputDir='./',overwrite=False,naocver=False):
 	catFile = os.path.join(outputDir,imFile.replace('.fits','.cat.fits'))
 	psfFile = os.path.join(outputDir,imFile.replace('.fits','.psf'))
 	ps1File = os.path.join(outputDir,imFile.replace('.fits','.ps1match.fits'))
-	if not os.path.exists(catFile) or not os.path.exists(psfFile) or overwrite:
+	if ( not os.path.exists(catFile) or not os.path.exists(psfFile) 
+	      or overwrite
+	      or (not os.path.exists(ps1File) and redoifnocal) ):
 		if isfz:
 			_image = os.path.join(outputDir,imFile)
 			print 'funpack %s -O %s' % (image,_image)
