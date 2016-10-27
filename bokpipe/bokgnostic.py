@@ -69,6 +69,8 @@ class FocalPlaneMap(object):
 		if self.outIms is None:
 			self.outIms = rv.next()
 		for res in rv:
+			if res is None:
+				continue
 			for t in self.targets:
 				self.outIms[t] += res[t]
 		for t in self.targets:
@@ -98,9 +100,9 @@ class FocalPlaneMap(object):
 		plt.ioff()
 		if not prefix:
 			prefix = self.prefix
-		for t in self.targets:
-			pdffn = prefix+'_%s.pdf' % t
-			with PdfPages(pdffn) as pdf:
+		pdffn = prefix+'.pdf'
+		with PdfPages(pdffn) as pdf:
+			for t in self.targets:
 				for k,s in enumerate(['mean','rms','n']):
 					basenm = prefix+'_%s_%s' % (t,s)
 					fitsfn = basenm+'.fits'

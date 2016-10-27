@@ -41,19 +41,21 @@ def _ps1match_read_data(inp,flip=False):
 	rv['x'] = x[g]
 	rv['y'] = y[g]
 	rv['ccdNum'] = ps1m['ccdNum']
+	# index fields by filter
+	key = lambda k: k+'_'+b
 	# astrometric residuals
-	if 'dra_'+b in targs or 'dde_'+b in targs:
+	if key('dra') in targs or key('dde') in targs:
 		cosdec = np.cos(np.radians(ps1m['DEC']))
 		dra = 3600*(ps1m['RA'] - ps1m['ALPHA_J2000'])*cosdec
 		dde = 3600*(ps1m['DEC'] - ps1m['DELTA_J2000'])
 		sep = np.sqrt(dra**2 + dde**2)
 		bad = sigma_clip(sep,sigma=2.5,iters=2).mask
 		if 'dra_'+b in targs:
-			rv['dra_'+b] = np.ma.array(dra,mask=bad).filled(np.nan)
+			rv[key('dra')] = np.ma.array(dra,mask=bad).filled(np.nan)
 		if 'dde_'+b in targs:
-			rv['dde_'+b] = np.ma.array(dde,mask=bad).filled(np.nan)
+			rv[key('dde')] = np.ma.array(dde,mask=bad).filled(np.nan)
 	# photometric residuals
-	dmagk = 'dmag_'+b
+	dmagk = key('dmag')
 	if dmagk in targs:
 		j = 'ugriz'.find(b)
 		flux = np.ma.array(ps1m['FLUX_APER'],mask=ps1m['FLUX_APER']<=0)
@@ -68,13 +70,19 @@ def _ps1match_read_data(inp,flip=False):
 		if True:
 			dmag -= np.ma.median(dmag) # correct the zeropoint
 		rv[dmagk] = dmag.filled(np.nan)
+	for k in ['x2','y2','xy','a','b','theta']:
+		if k in targs:
+			rv[key(k)] = ps1m[k.upper()+'_IMAGE']
+	for k1,k2 in [('ellip','ELLIPTICITY'),('elong','ELONGATION')]:
+		if k1 in targs:
+			rv[key(k1)] = ps1m[k2]
 	return rv
 
 def _noao_ps1match_read_data(inp):
 	return _ps1match_read_data(flip=True)
 
 def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
-                       files_only=False):
+                       doplots=False,**kwargs):
 	files = []
 	ccds = Table.read(ccdsFile)
 	ccds = ccds[ccds['cali_ref']=='PS1'] # only images with calibration
@@ -82,7 +90,8 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
 		ccds = ccds.group_by(['filter','date_obs'])
 	else:
 		ccds = ccds.group_by(['filter'])
-	targlist = ('dra','dde','dmag')
+	targlist = ('dra','dde','dmag','x2','y2','xy',
+	            'a','b','theta','ellip','elong')
 	for k,g in zip(ccds.groups.keys,ccds.groups):
 		print 'processing ',tuple(k),len(g)
 		filt = str(k['filter'])
@@ -106,10 +115,11 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
 		zpt = np.choose(g['ccdnum']-1,[g['ccdzpt'+n] for n in 'abcd'])
 		dat = [ (targs,filt,zp,f) for zp,f in zip(zpt,dat) ]
 		bok2ps1fpMap = FocalPlaneMap(nbin,targs,_ps1match_read_data,nproc,
-		                             prefix=version)
+		                             prefix='fpmap_'+version)
 		bok2ps1fpMap.ingest(dat)
 		bok2ps1fpMap.write()
-		bok2ps1fpMap.make_plots()
+		if doplots:
+			bok2ps1fpMap.make_plots(**kwargs)
 
 def line_plots(version='naoc'):
 	raise NotImplementedError
@@ -199,11 +209,8 @@ if __name__=='__main__':
 	                    help="only make plot")
 	args = parser.parse_args()
 	nbin = [int(v) for v in args.nbin.split(',')]
+	if len(nbin)==1: nbin = nbin[0]
 	print 'binning is ',nbin
-	files = make_residual_maps(args.input,args.outputdir,
-	                           nbin,args.processes,
-	                           version=args.version,byutd=args.utd,
-	                           files_only=args.plotonly)
 	if args.plots:
 		kwargs = {}
 		if args.range:
@@ -214,5 +221,8 @@ if __name__=='__main__':
 				vmin = -vmax
 			kwargs['vmin'] = vmin
 			kwargs['vmax'] = vmax
-		make_plots(files,version=args.version,**kwargs)
+	fpmap = make_residual_maps(args.input,args.outputdir,
+	                           nbin,args.processes,
+	                           version=args.version,byutd=args.utd,
+	                           doplots=args.plots,**kwargs)
 
