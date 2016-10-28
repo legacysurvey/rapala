@@ -131,7 +131,7 @@ class FocalPlaneMap(object):
 							cb = fig.colorbar(_im,cax,
 							                  orientation='horizontal')
 							cb.ax.tick_params(labelsize=9)
-					fig.text(0.5,0.98,basenm.replace('_','-'),
+					fig.text(0.5,0.98,('%s_%s'%(t,s)).replace('_',' - '),
 					         ha='center',va='top',size=14)
 					pdf.savefig()
 					plt.close()

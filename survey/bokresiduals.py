@@ -95,7 +95,7 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
 		print 'processing ',tuple(k),len(g)
 		filt = str(k['filter'])
 		if byutd:
-			utdstr = str(k['utd'])
+			utdstr = str(k['date_obs'])
 			keys = [filt,utdstr]
 		else:
 			keys = [filt]
@@ -205,6 +205,8 @@ if __name__=='__main__':
 	                    help="make plots")
 	parser.add_argument("--range",type=str,
 	                    help="plot range")
+	parser.add_argument("--pclip",type=str,
+	                    help="plot range as percentile")
 	parser.add_argument("--utd",action="store_true",
 	                    help="by utdate")
 	parser.add_argument("--plotonly",action="store_true",
@@ -223,6 +225,8 @@ if __name__=='__main__':
 				vmin = -vmax
 			kwargs['vmin'] = vmin
 			kwargs['vmax'] = vmax
+		if args.pclip:
+			kwargs['pclip'] = [float(v) for v in args.pclip.split(',')]
 	fpmap = make_residual_maps(args.input,args.outputdir,
 	                           nbin,args.processes,
 	                           version=args.version,byutd=args.utd,
