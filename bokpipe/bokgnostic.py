@@ -119,9 +119,9 @@ class FocalPlaneMap(object):
 						_vmin,_vmax = vmin,vmax
 					else:
 						_vmin,_vmax = np.percentile(ims,pclip)
-					for ccdnum in [1,3,2,4]: # order as on sky
+					for im,ccdnum in zip(ims,[1,3,2,4]): # order as on sky
 						ax = fig.add_subplot(2,2,ccdnum)
-						_im = ax.imshow(ims[ccdnum-1],vmin=_vmin,vmax=_vmax,
+						_im = ax.imshow(im,vmin=_vmin,vmax=_vmax,
 						                cmap=plt.cm.coolwarm,
 						                origin='lower',
 						                interpolation='nearest')
