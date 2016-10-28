@@ -55,8 +55,7 @@ def _ps1match_read_data(inp,flip=False):
 		if 'dde_'+b in targs:
 			rv[key('dde')] = np.ma.array(dde,mask=bad).filled(np.nan)
 	# photometric residuals
-	dmagk = key('dmag')
-	if dmagk in targs:
+	if key('dmag') in targs:
 		j = 'ugriz'.find(b)
 		flux = np.ma.array(ps1m['FLUX_APER'],mask=ps1m['FLUX_APER']<=0)
 		bokmag = zp - 2.5*np.ma.log10(flux)
@@ -69,12 +68,12 @@ def _ps1match_read_data(inp,flip=False):
 		dmag.mask |= ~g
 		if True:
 			dmag -= np.ma.median(dmag) # correct the zeropoint
-		rv[dmagk] = dmag.filled(np.nan)
+		rv[key('dmag')] = dmag.filled(np.nan)
 	for k in ['x2','y2','xy','a','b','theta']:
-		if k in targs:
+		if key(k) in targs:
 			rv[key(k)] = ps1m[k.upper()+'_IMAGE']
 	for k1,k2 in [('ellip','ELLIPTICITY'),('elong','ELONGATION')]:
-		if k1 in targs:
+		if key(k1) in targs:
 			rv[key(k1)] = ps1m[k2]
 	return rv
 
@@ -82,7 +81,7 @@ def _noao_ps1match_read_data(inp):
 	return _ps1match_read_data(flip=True)
 
 def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
-                       doplots=False,**kwargs):
+                       doplots=False,plotonly=False,**kwargs):
 	files = []
 	ccds = Table.read(ccdsFile)
 	ccds = ccds[ccds['cali_ref']=='PS1'] # only images with calibration
@@ -97,9 +96,10 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
 		filt = str(k['filter'])
 		if byutd:
 			utdstr = str(k['utd'])
-			targs = [ '_'.join([t,filt,utdstr]) for t in targlist ]
+			keys = [filt,utdstr]
 		else:
-			targs = [ '_'.join([t,filt]) for t in targlist ]
+			keys = [filt]
+		targs = [ '_'.join([t]+keys) for t in targlist ]
 		if version=='naoc':
 #			dat = [ os.path.join(outdir,'p%s%s%s_%d.ps1match.fits') % 
 #			                               (expstr[:4],filt,expstr[4:8],ccdnum) 
@@ -114,10 +114,12 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
 			            for d,u,f in g['date_obs','ut','filter'] ]
 		zpt = np.choose(g['ccdnum']-1,[g['ccdzpt'+n] for n in 'abcd'])
 		dat = [ (targs,filt,zp,f) for zp,f in zip(zpt,dat) ]
+		fpname = '_'.join(['fpmap',version]+keys)
 		bok2ps1fpMap = FocalPlaneMap(nbin,targs,_ps1match_read_data,nproc,
-		                             prefix='fpmap_'+version)
-		bok2ps1fpMap.ingest(dat)
-		bok2ps1fpMap.write()
+		                             prefix=fpname)
+		if not plotonly:
+			bok2ps1fpMap.ingest(dat)
+			bok2ps1fpMap.write()
 		if doplots:
 			bok2ps1fpMap.make_plots(**kwargs)
 
@@ -224,5 +226,6 @@ if __name__=='__main__':
 	fpmap = make_residual_maps(args.input,args.outputdir,
 	                           nbin,args.processes,
 	                           version=args.version,byutd=args.utd,
-	                           doplots=args.plots,**kwargs)
+	                           doplots=args.plots,plotonly=args.plotonly,
+	                           **kwargs)
 

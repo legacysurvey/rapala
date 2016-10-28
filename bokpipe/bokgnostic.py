@@ -97,6 +97,7 @@ class FocalPlaneMap(object):
 	def make_plots(self,prefix=None,**kwargs):
 		vmin = kwargs.get('vmin',-0.15)
 		vmax = kwargs.get('vmax', 0.15)
+		pclip = kwargs.get('pclip',(1,99))
 		plt.ioff()
 		if not prefix:
 			prefix = self.prefix
@@ -114,10 +115,10 @@ class FocalPlaneMap(object):
 					except IOError:
 						continue
 					ims = np.array([hdu.read() for hdu in fitsim[1:]])
-					if s == 'mean':
+					if False: #s == 'mean':
 						_vmin,_vmax = vmin,vmax
 					else:
-						_vmin,_vmax = np.percentile(ims,(0.1,99.9))
+						_vmin,_vmax = np.percentile(ims,pclip)
 					for ccdnum in [1,3,2,4]: # order as on sky
 						ax = fig.add_subplot(2,2,ccdnum)
 						_im = ax.imshow(ims[ccdnum-1],vmin=_vmin,vmax=_vmax,
