@@ -7,8 +7,10 @@ from bokpipe.bokmkimage import make_fov_image_fromfile
 parser = argparse.ArgumentParser()
 parser.add_argument("fitsFile",type=str,
                     help="input FITS image")
-parser.add_argument("imgFile",type=str,
+parser.add_argument("imgFile",type=str,nargs='?',
                     help="output image file")
+parser.add_argument("--mask",type=str,
+                    help="input mask image")
 parser.add_argument("--nbin",type=int,default=1,
                     help="output image file")
 parser.add_argument("--coordsys",type=str,default='sky',
@@ -25,7 +27,12 @@ parser.add_argument("--cmap",type=str,
                     help="color map")
 args = parser.parse_args()
 
-make_fov_image_fromfile(args.fitsFile,args.imgFile,
+if args.imgFile:
+	outFile = args.imgFile
+else:
+	outFile = args.fitsFile.replace('.fits','.png')
+
+make_fov_image_fromfile(args.fitsFile,outFile,mask=args.mask,
                         nbin=args.nbin,coordsys=args.coordsys,
                         vmin=args.vmin,vmax=args.vmax,
                         lo=args.siglo,hi=args.sighi,

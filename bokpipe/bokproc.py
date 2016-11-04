@@ -719,7 +719,7 @@ def _combine_ccds(f,**kwargs):
 				try:
 					# copy in the nominal gain values from per-amp headers
 					gainKey = 'GAIN%02dA' % int(ext[2:])
-					hdr[gainKey] = hext[gainKey]
+					g0 = hdr[gainKey] = hext[gainKey]
 				except ValueError:
 					pass
 				if gainMap is not None:
@@ -735,6 +735,8 @@ def _combine_ccds(f,**kwargs):
 						except ValueError:
 							pass
 					im *= gc1 * gc2
+					# the final gain factor
+					hdr['GAIN%02d'%int(ext[2:])] = g0 * gc1 * gc2
 				if flatNorm:
 					_s = bokutil.stats_region('amp_corner_ccdcenter_128')
 					_a = bokutil.array_stats(im[_s],method='mode')

@@ -32,7 +32,7 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 		if n == 0:
 			i1,i2 = 100//fov['nbin'],1500//fov['nbin']
 			if input_vmin is None and input_vmax is None:
-				background = sigma_clip(im[i1:i2,i1:i2],iters=3,sig=2.2)
+				background = sigma_clip(im[i1:i2,i1:i2],iters=3,sigma=2.2)
 				m,s = background.mean(),background.std()
 				vmin = input_vmin if input_vmin is not None else m-losig*s
 				vmax = input_vmax if input_vmax is not None else m+hisig*s
@@ -62,7 +62,9 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 		if n == 0:
 			cb = fig.colorbar(_im,cax,orientation='horizontal')
 			cb.ax.tick_params(labelsize=9)
-	title = kwargs.get('title',fov.get('file','')+' '+fov.get('objname',''))
+	tstr = fov.get('file','')+' '+fov.get('objname','')
+	title = kwargs.get('title',tstr)
+	title = title[-60:]
 	fig.text(0.5,0.99,title,ha='center',va='top',size=12)
 	if pngfn is not None:
 		plt.savefig(pngfn)
