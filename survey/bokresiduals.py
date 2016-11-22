@@ -42,7 +42,7 @@ def _ps1match_read_data(inp,flip=False):
 	rv['y'] = y[g]
 	rv['ccdNum'] = ps1m['ccdNum']
 	# index fields by filter
-	key = lambda k: k+'_'+b
+	key = lambda k: k #+'_'+b
 	# astrometric residuals
 	if key('dra') in targs or key('dde') in targs:
 		cosdec = np.cos(np.radians(ps1m['DEC']))
@@ -50,9 +50,9 @@ def _ps1match_read_data(inp,flip=False):
 		dde = 3600*(ps1m['DEC'] - ps1m['DELTA_J2000'])
 		sep = np.sqrt(dra**2 + dde**2)
 		bad = sigma_clip(sep,sigma=2.5,iters=2).mask
-		if 'dra_'+b in targs:
+		if key('dra') in targs:
 			rv[key('dra')] = np.ma.array(dra,mask=bad).filled(np.nan)
-		if 'dde_'+b in targs:
+		if key('dde') in targs:
 			rv[key('dde')] = np.ma.array(dde,mask=bad).filled(np.nan)
 	# photometric residuals
 	if key('dmag') in targs:
@@ -80,26 +80,40 @@ def _ps1match_read_data(inp,flip=False):
 def _noao_ps1match_read_data(inp):
 	return _ps1match_read_data(flip=True)
 
-def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
-                       doplots=False,plotonly=False,**kwargs):
+def make_residual_maps(ccdsFile,outdir,nbin,nproc,
+                       byutd=False,bymonth=False,nofilt=False,targets=None,
+                       version='naoc',doplots=False,plotonly=False,**kwargs):
 	files = []
 	ccds = Table.read(ccdsFile)
 	ccds = ccds[ccds['cali_ref']=='PS1'] # only images with calibration
+	grps = [] if nofilt else ['filter']
 	if byutd:
-		ccds = ccds.group_by(['filter','date_obs'])
+		grps.append('date_obs')
+	elif bymonth:
+		ccds['month'] = [ date[:7] for date in ccds['date_obs'] ]
+		grps.append('month')
+	ccds = ccds.group_by(grps)
+	if targets:
+		targlist = tuple(targets.split(','))
 	else:
-		ccds = ccds.group_by(['filter'])
-	targlist = ('dra','dde','dmag','x2','y2','xy',
-	            'a','b','theta','ellip','elong')
+		targlist = ('dra','dde','dmag','x2','y2','xy',
+		            'a','b','theta','ellip','elong')
+	# dmag requires per-filter zeropoints
+	assert not (nofilt and 'dmag' in targlist)
 	for k,g in zip(ccds.groups.keys,ccds.groups):
 		print 'processing ',tuple(k),len(g)
-		filt = str(k['filter'])
+		if nofilt:
+			keys = []
+			filt = None
+		else:
+			filt = str(k['filter'])
+			keys = [filt]
 		if byutd:
 			utdstr = str(k['date_obs'])
-			keys = [filt,utdstr]
-		else:
-			keys = [filt]
-		targs = [ '_'.join([t]+keys) for t in targlist ]
+			keys.append(utdstr)
+		elif bymonth:
+			utdstr = str(k['month'])
+			keys.append(utdstr)
 		if version=='naoc':
 #			dat = [ os.path.join(outdir,'p%s%s%s_%d.ps1match.fits') % 
 #			                               (expstr[:4],filt,expstr[4:8],ccdnum) 
@@ -113,9 +127,9 @@ def make_residual_maps(ccdsFile,outdir,nbin,nproc,byutd=False,version='naoc',
 			              (d[2:].replace('-',''),u[:8].replace(':',''),f))
 			            for d,u,f in g['date_obs','ut','filter'] ]
 		zpt = np.choose(g['ccdnum']-1,[g['ccdzpt'+n] for n in 'abcd'])
-		dat = [ (targs,filt,zp,f) for zp,f in zip(zpt,dat) ]
+		dat = [ (targlist,filt,zp,f) for zp,f in zip(zpt,dat) ]
 		fpname = '_'.join(['fpmap',version]+keys)
-		bok2ps1fpMap = FocalPlaneMap(nbin,targs,_ps1match_read_data,nproc,
+		bok2ps1fpMap = FocalPlaneMap(nbin,targlist,_ps1match_read_data,nproc,
 		                             prefix=fpname)
 		if not plotonly:
 			bok2ps1fpMap.ingest(dat)
@@ -209,6 +223,12 @@ if __name__=='__main__':
 	                    help="plot range as percentile")
 	parser.add_argument("--utd",action="store_true",
 	                    help="by utdate")
+	parser.add_argument("--monthly",action="store_true",
+	                    help="by month")
+	parser.add_argument("--nofilt",action="store_true",
+	                    help="no separation by filter")
+	parser.add_argument("--targets",type=str,
+	                    help="which targets to calculate")
 	parser.add_argument("--plotonly",action="store_true",
 	                    help="only make plot")
 	args = parser.parse_args()
@@ -227,9 +247,13 @@ if __name__=='__main__':
 			kwargs['vmax'] = vmax
 		if args.pclip:
 			kwargs['pclip'] = [float(v) for v in args.pclip.split(',')]
+	else:
+		kwargs = {}
 	fpmap = make_residual_maps(args.input,args.outputdir,
 	                           nbin,args.processes,
-	                           version=args.version,byutd=args.utd,
+	                           version=args.version,
+	                           byutd=args.utd,bymonth=args.monthly,
+	                           nofilt=args.nofilt,targets=args.targets,
 	                           doplots=args.plots,plotonly=args.plotonly,
 	                           **kwargs)
 

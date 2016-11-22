@@ -60,7 +60,7 @@ class FocalPlaneMap(object):
 		self.prefix = prefix
 	def mp_map(self,fun,files):
 		nChunks = len(files) // (self.nproc*3)
-		chunkSize = min(self.maxChunkSize,nChunks)
+		chunkSize = max(1,min(self.maxChunkSize,nChunks))
 		return self.pool.imap_unordered(fun,files,chunkSize)
 	def ingest(self,files):
 		_fun = partial(_image_fun,(self.nx,self.ny,self.nbinx,self.nbiny),
