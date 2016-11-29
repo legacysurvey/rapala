@@ -21,8 +21,9 @@ try:
 	bass_dir = os.environ['BASSDIR']
 	bass_data_dir = os.environ['BASSDATA']
 except:
-	print 'must set env variables BASSDIR and BASSDATA'
-	raise ImportError
+	print 'env variables BASSDIR and BASSDATA, many things will fail'
+	bass_dir = None
+	bass_data_dir = None
 
 try:
 	rdxdir = os.environ['BASSRDXDIR']
