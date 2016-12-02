@@ -128,6 +128,62 @@ def rows2slice(rows):
 		s = np.s_[rows[0]:rows[1],:]
 	return s
 
+def ccd_join(ims,ccdNum,origin='center'):
+	'''Given a set of 4 amplifier images (in numerical order, i.e., CCD1 is
+	       [IM1,IM2,IM3,IM4]), combine them into a single CCD image.
+	     origin='center' means (x,y) = (0,0) is at the corner nearest to
+	            the center of the focal plane.
+	'''
+	im1,im2,im3,im4 = ims
+	# if the arrays are masked, np.[hv]stack will unmask all elements.
+	# but if they are not masked, np.ma.[hv]stack will make them masked.
+	if any([isinstance(im,np.ma.masked_array) for im in ims]):
+		hstack,vstack = np.ma.hstack,np.ma.vstack
+	else:
+		hstack,vstack = np.hstack,np.vstack
+	# orient the channel images N through E and stack into CCD image
+	ccdIm = vstack([ hstack([ np.flipud(np.rot90(im2)),
+	                          np.rot90(im4,3) ]),
+	                 hstack([ np.rot90(im1),
+	                          np.fliplr(np.rot90(im3)) ]) ])
+	if origin == 'lower left':
+		pass
+	elif origin == 'center':
+		if ccdNum == 1:
+			ccdIm = np.fliplr(ccdIm)
+		elif ccdNum == 2:
+			ccdIm = np.rot90(ccdIm,2)
+		elif ccdNum == 3:
+			pass
+		elif ccdNum == 4:
+			ccdIm = np.flipud(ccdIm)
+	return ccdIm
+
+def ccd_split(ccdIm,ccdNum,origin='center'):
+	'''Reverse of ccd_join: given a CCD image, split it into 4 amplifier
+	   images with their original orientation. Returned in numerical order
+	   (i.e., [IM1,IM2,IM3,IM4] for CCD1)'''
+	# see above (ccd_join).
+	if origin == 'lower left':
+		pass
+	elif origin == 'center':
+		if ccdNum == 1:
+			ccdIm = np.fliplr(ccdIm)
+		elif ccdNum == 2:
+			ccdIm = np.rot90(ccdIm,2)
+		elif ccdNum == 3:
+			pass
+		elif ccdNum == 4:
+			ccdIm = np.flipud(ccdIm)
+	tmp1,tmp2 = np.vsplit(ccdIm,2)
+	im2,im4 = np.hsplit(tmp1,2)
+	im1,im3 = np.hsplit(tmp2,2)
+	im2 = np.rot90(np.flipud(im2),-1)
+	im4 = np.rot90(im4,-3)
+	im1 = np.rot90(im1,-1)
+	im3 = np.rot90(np.fliplr(im3),-1)
+	return [im1,im2,im3,im4]
+
 def build_cube(fileList,extn,masks=None,rows=None,badKey=None):
 	s = rows2slice(rows)
 	cube = np.dstack( [ fitsio.FITS(f)[extn][s] for f in fileList ] )

@@ -11,6 +11,7 @@ from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
 from scipy.signal import spline_filter
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 import scipy.ndimage.measurements as meas
+from skimage import measure
 from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
 from astropy.convolution.convolve import convolve
@@ -24,6 +25,10 @@ from .bokoscan import extract_overscan,overscan_subtract
 
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
+def amp_iterator():
+	'''iterate over amplifiers split by CCD'''
+	for i in range(0,16,4):
+		yield ampOrder[i:i+4]
 
 # a 90Prime FITS MEF file has 16 extensions, one for each amplifier
 # iterate over them in the order given above
@@ -505,24 +510,40 @@ class BokSkySubtract(bokutil.BokProcess):
 ###############################################################################
 
 class BokCalcGainBalanceFactors(bokutil.BokProcess):
+	maskFracThresh = 0.67
+	ampMap = [ ((2,2,None),(2,0,'y'),(2,3,'x'),(0,1,'x')),
+	           ((1,1,None),(1,0,'x'),(1,3,'y'),(3,2,'x')),
+	           ((1,1,None),(1,0,'x'),(1,3,'y'),(3,2,'x')),
+	           ((0,0,None),(0,1,'x'),(0,2,'y'),(2,3,'x')) ]
+	# avoid correcting CCD3 from CCD1, because that is the glowing edge
+	# the result is a CCW rotation starting from CCD1
+	ccdMap = [(1,None,None,None),(2,2,7,'x'),(4,4,13,'y'),(3,14,11,'x')]
+	satVal = 1.4*55000
 	def __init__(self,**kwargs):
 		kwargs.setdefault('read_only',True)
 		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
-		self.ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
-		                                              'amp_corner_ccdcenter'))
 		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
-		self.clipArgs.setdefault('clip_iters',4)
+		self.clipArgs.setdefault('clip_iters',3)
 		self.clipArgs.setdefault('clip_sig',2.5)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.median)
-		self.saveArrays = kwargs.get('save_arrays',False)
+		self.ratioClipArgs = {'clip_iters':3,'clip_sig':2.0}
+		self.amplen = kwargs.get('amp_strip_length',512)
+		self.ampwid = kwargs.get('amp_strip_width',64)
+		self.ccdstrip = kwargs.get('ccd_strip_extent',(100,1500,20,40))
+		self.ampEdgeSlices = {'x':np.s_[-self.amplen:,-self.ampwid:],
+		                      'y':np.s_[-self.ampwid:,-self.amplen:]}
+		i1,i2,j1,j2 = self.ccdstrip
+		self.ccdEdgeSlices = {'x':np.s_[i1:i2,j1:j2],
+		                      'y':np.s_[j1:j2,i1:i2]}
+		self.skyRegion = bokutil.stats_region('amp_central_quadrant')
 		self.reset()
 	def reset(self):
 		self.files = []
-		self.gainCors = []
+		self.ampRelGains = []
+		self.ccdRelGains = []
 		self.allSkyVals = []
-		self.arrays = []
 	def _preprocess(self,fits,f):
 		if self.nProc > 1:
 			# this prevents the return values from _getOutput from piling up
@@ -531,48 +552,173 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self._proclog('calculating gain balance factors for %s' % 
 		                  self.inputNameMap(f))
 		self.files.append(f)
-		self.skyVals = []
-	def _postprocess(self,fits,f):
-		skyVals = np.array(self.skyVals)
-		# the mean sky level within each CCD
-		meanSkyCcd = skyVals.reshape(4,4).mean(axis=-1)
-		# the correction needed to balance each amp to the per-CCD sky level
-		ampGainCor = np.repeat(meanSkyCcd,4) / skyVals
-		# the mean sky level across all CCDs
-		meanSky = np.mean(skyVals)
-		# the correction needed to balance the CCDs
-		ccdGainCor = meanSky / meanSkyCcd
-		ccdGainCor = np.repeat(ccdGainCor,4)
-		self.gainCors.append((ampGainCor,ccdGainCor))
-		self.allSkyVals.append(skyVals)
+		self.hduData = []
+		self.rawSky = []
 	def process_hdu(self,extName,data,hdr):
-		# XXX would be more efficient to read a subregion
-		stats = bokutil.array_stats(data[self.ampCorStatReg],
-		                            method=self.statsMethod,
-		                            retArray=self.saveArrays,
-		                            **self.clipArgs)
-		if self.saveArrays:
-			skyVal,skyArr = stats
-			self.arrays.append(skyArr)
-		else:
-			skyVal = stats
-		self.skyVals.append(skyVal)
+		self.hduData.append(data)
+		self.rawSky.append(sigma_clip(data[self.skyRegion]).mean())
 		return data,hdr
+	@staticmethod
+	def _grow_saturated_blobs(ccdIm,saturated):
+		yi,xi = np.indices(ccdIm.shape)
+		# quick background calculation
+		tmpim = bokutil.array_clip(ccdIm[100:-100:10,100:-100:10])
+		imMean,imRms = tmpim.mean(),tmpim.std()
+		# identify contiguous blogs associated with saturated pixels 
+		# (i.e., stars) and count the number of saturated pixels in 
+		# each blob, then sort by the largest number (brightest stars)
+		satBlobs = measure.label(saturated,background=0)
+		# create image with nominal mask
+		for blob in range(1,satBlobs.max()+1):
+			nSat = np.sum(satBlobs==blob)
+			if nSat < 100:
+				continue
+			# a quick & hokey centering algorithm -- middle of the 
+			# saturated blob!
+			yextent = np.sum(satBlobs==blob,axis=0)
+			jj = np.where(yextent==yextent.max())[0]
+			xc = xi[0,jj].mean()
+			jj = np.where((satBlobs==blob)[:,int(xc)])[0]
+			yc = yi[jj,int(xc)].mean()
+			R = np.sqrt((xi-xc)**2 + (yi-yc)**2)
+			# empirically found to be a reasonable minimum radius
+			rad = pow(10,0.5*(np.log10(nSat)-np.log10(50)) + 1.6)
+			ccdIm[R<rad] = np.ma.masked
+		return ccdIm
+	def _apply_bright_star_mask(self):
+		for ccdNum,extGroup in enumerate(amp_iterator(),start=1):
+			ims = [ self.hduData[ampNum-1] for ampNum in extGroup ]
+			ccdIm = bokutil.ccd_join(ims,ccdNum)
+			saturated = (ccdIm > self.satVal) & ~ccdIm.mask
+			# bright stars have swamped the image, mask it all
+			if saturated.sum() > 50000:
+				ccdIm[:,:] = np.ma.masked
+			else:
+				ccdIm = self._grow_saturated_blobs(ccdIm,saturated)
+			ims = bokutil.ccd_split(ccdIm,ccdNum)
+			for ampNum,im in zip(extGroup,ims):
+				self.hduData[ampNum-1].mask |= im.mask
+	def _slice_ok(self,imslice,nslice):
+		return np.sum(imslice.mask)/float(nslice) < self.maskFracThresh
+	def _get_img_slice(self,imslice):
+		nslice = imslice.size
+		if not self._slice_ok(imslice,nslice): 
+			return None
+		imslice = bokutil.array_clip(imslice,**self.clipArgs)
+		imslice.mask |= binary_dilation(imslice.mask,iterations=1)
+		if not self._slice_ok(imslice,nslice): 
+			return None
+		return imslice
+	def _get_img_slices(self,refExt,calExt,edgedir,which='amp'):
+		if which=='amp':
+			s = self.ampEdgeSlices[edgedir]
+		elif which=='ccd':
+			s = self.ccdEdgeSlices[edgedir]
+		refslice = self._get_img_slice(self.hduData[refExt][s])
+		calslice = self._get_img_slice(self.hduData[calExt][s])
+		if refslice is None or calslice is None:
+			print 'could not correct ',which,refExt,calExt
+		return refslice,calslice
+	def _get_flux_ratio(self,refExt,calExt,edgedir,which):
+		refslice,calslice = self._get_img_slices(refExt,calExt,edgedir,'amp')
+		if refslice is None or calslice is None:
+			return 0.0
+		axis = {'x':1,'y':0}[edgedir]
+		refv = refslice.mean(axis=axis)
+		calv = calslice.mean(axis=axis)
+		fratio = np.ma.divide(refv,calv)
+		return bokutil.array_clip(fratio,**self.ratioClipArgs).mean()
+	def _postprocess(self,fits,f):
+		self._apply_bright_star_mask()
+		gains = np.zeros(16,dtype=np.float32)
+		# balance the amps
+		for ccdi,extGroup in enumerate(amp_iterator()):
+			for ampi,ampj,edgedir in self.ampMap[ccdi]:
+				refExt = 4*ccdi + ampi
+				calExt = 4*ccdi + ampj
+				if refExt==calExt:
+					# the reference amp
+					gains[calExt] = 1.0
+				else:
+					gains[calExt] = self._get_flux_ratio(refExt,calExt,
+					                                     edgedir,'amp')
+		# store the CCD count ratios
+		ccdratios = np.ones(4,dtype=np.float32)
+		for ccdNum,refExt,calExt,edgedir in self.ccdMap:
+			if refExt==calExt:
+				# the reference CCD
+				ccdratios[ccdNum-1] = 1.0
+			else:
+				ccdratios[ccdNum-1] = self._get_flux_ratio(refExt,calExt,
+				                                           edgedir,'ccd')
+		#
+		self.ampRelGains.append(gains)
+		self.ccdRelGains.append(ccdratios)
+		self.allSkyVals.append(np.array(self.rawSky))
 	def _getOutput(self):
-		return (self.files,self.gainCors,self.allSkyVals,self.arrays)
+		return (self.files,self.ampRelGains,self.ccdRelGains,self.allSkyVals)
 	def _ingestOutput(self,procOut):
-		self.files,self.gainCors,self.allSkyVals,self.arrays = zip(*procOut)
+		self.files,self.ampRelGains,self.ccdRelGains,self.allSkyVals = \
+		              zip(*procOut)
 		# squeeze out the extra axis that occurs since output elements
 		# are in lists of unit length when multiprocessing
 		self.files = np.array(self.files).squeeze()
-		self.gainCors = np.array(self.gainCors).squeeze()
+		self.ampRelGains = np.array(self.ampRelGains).squeeze()
+		self.ccdRelGains = np.array(self.ccdRelGains).squeeze()
 		self.allSkyVals = np.array(self.allSkyVals).squeeze()
-		self.arrays = np.array(self.arrays).squeeze()
+	def _median_gain_trend(self,gc):
+		gc_clip = sigma_clip(gc,iters=2,sigma=2.0,axis=0)
+		gc_mean = gc_clip.mean(axis=0).filled()
+		rv = gc.copy()
+		rv[:] = gc_mean
+		return rv
+	def _spline_gain_trend(self,gc):
+		nimg = gc.shape[0]
+		xx = np.arange(nimg)
+		self.nKnots = 3
+		knots = np.linspace(0,nimg,self.nKnots+2)[1:-1]
+		rv = gc.copy()
+		for j in range(16):
+			#ii = np.where(~gc[:,j].mask)[0]
+			ii = xx
+			spfit = LSQUnivariateSpline(xx[ii],gc[ii,j],#.filled(),
+			                            knots,bbox=[0,nimg],k=3)
+			rv[:,j] = spfit(xx)
+		return rv
 	def calc_mean_corrections(self):
-		gc = np.array(self.gainCors)
-		return sigma_clip(gc,iters=2,sigma=2.0,axis=0).mean(axis=0).filled()
+		self.ampRelGains = np.array(self.ampRelGains)
+		self.ccdRelGains = np.array(self.ccdRelGains)
+		raw_ampg = self.ampRelGains.copy()
+		raw_ccdg = self.ccdRelGains.copy()
+		if False:
+			ampg = self._median_gain_trend(raw_ampg)
+			ccdg = self._median_gain_trend(raw_ccdg)
+		else:
+			ampg = self._spline_gain_trend(raw_ampg)
+			ccdg = self._spline_gain_trend(raw_ccdg)
+		# propagate the gain corrections starting from the reference
+		for ccdi,extGroup in enumerate(amp_iterator()):
+			for ampi,ampj,edgedir in self.ampMap[ccdi]:
+				refExt = 4*ccdi + ampi
+				calExt = 4*ccdi + ampj
+				ampg[:,calExt] *= ampg[:,refExt]
+				raw_ampg[:,calExt] *= ampg[:,refExt]
+		for ccdNum,refExt,calExt,edgedir in self.ccdMap:
+			if refExt==calExt:
+				ccdg[:,ccdNum-1] = 1.0
+			else:
+				refCcd = refExt // 4
+				ccdscale = ccdg[:,refCcd] * (ampg[:,refExt]/ampg[:,calExt])
+				ccdg[:,ccdNum-1] *= ccdscale
+				raw_ccdg[:,ccdNum-1] *= ccdscale
+		ccdg = np.repeat(ccdg,4,axis=1)
+		raw_ccdg = np.repeat(raw_ccdg,4,axis=1)
+		self.gainCors = np.dstack([ampg,ccdg])
+		self.correctedGains = np.dstack([raw_ampg,raw_ccdg])
+		return self.gainCors
 	def get_values(self):
-		return np.array(self.gainCors),np.array(self.allSkyVals)
+		return ( np.array(self.correctedGains),
+		         np.array(self.allSkyVals) )
 
 ###############################################################################
 #                                                                             #
@@ -582,23 +728,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 ###############################################################################
 
 def _orient_mosaic(hdr,ims,ccdNum,origin):
-	im1,im2,im3,im4 = ims
-	# orient the channel images N through E and stack into CCD image
-	outIm = np.vstack([ np.hstack([ np.flipud(np.rot90(im2)),
-	                                np.rot90(im4,3) ]),
-	                    np.hstack([ np.rot90(im1),
-	                                np.fliplr(np.rot90(im3)) ]) ])
-	if origin == 'lower left':
-		pass
-	elif origin == 'center':
-		if ccdNum == 1:
-			outIm = np.fliplr(outIm)
-		elif ccdNum == 2:
-			outIm = np.rot90(outIm,2)
-		elif ccdNum == 3:
-			pass
-		elif ccdNum == 4:
-			outIm = np.flipud(outIm)
+	outIm = bokutil.ccd_join(ims,ccdNum,origin=origin)
 	ny,nx = outIm.shape
 	det_i = (ccdNum-1) // 2
 	det_j = ccdNum % 2
@@ -724,7 +854,7 @@ def _combine_ccds(f,**kwargs):
 					pass
 				if gainMap is not None:
 					ampIdx = ampOrder[4*(ccdNum-1)+j] - 1
-					gc1,gc2 = gainMap['corrections'][f][:,ampIdx]
+					gc1,gc2 = gainMap['corrections'][f][ampIdx]
 					sky = gainMap['skyvals'][f][ampIdx]
 					hdr['SKY%02dB'%int(ext[2:])] = sky
 					hdr['GAIN%02dB'%int(ext[2:])] = gc1

@@ -207,8 +207,8 @@ def balance_gains(dataMap,**kwargs):
 			gainBalance.process_files(files)
 			gainCor = gainBalance.calc_mean_corrections()
 			gainCorV,skyV = gainBalance.get_values()
-		for f,skyv in zip(files,skyV):
-			gainMap['corrections'][f] = gainCor
+		for f,gc,skyv in zip(files,gainCor,skyV):
+			gainMap['corrections'][f] = gc
 			gainMap['skyvals'][f] = skyv
 		gainBalance.reset()
 		if not os.path.exists(diagfile) and \
