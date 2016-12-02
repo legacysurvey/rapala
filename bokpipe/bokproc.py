@@ -8,6 +8,7 @@ import multiprocessing
 from functools import partial
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
+from scipy.interpolate import LSQUnivariateSpline
 from scipy.signal import spline_filter
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 import scipy.ndimage.measurements as meas
