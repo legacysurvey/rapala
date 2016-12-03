@@ -520,6 +520,8 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	# the result is a CCW rotation starting from CCD1
 	ccdMap = [(1,None,None,None),(2,2,7,'x'),(4,4,13,'y'),(3,14,11,'x')]
 	satVal = 1.4*55000
+	nSplineKnots = 1
+	splineOrder = 2
 	def __init__(self,**kwargs):
 		kwargs.setdefault('read_only',True)
 		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
@@ -532,13 +534,16 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.ratioClipArgs = {'clip_iters':3,'clip_sig':2.0}
 		self.amplen = kwargs.get('amp_strip_length',512)
 		self.ampwid = kwargs.get('amp_strip_width',64)
-		self.ccdstrip = kwargs.get('ccd_strip_extent',(100,2000,10,50))
+		self.ccdlen = kwargs.get('ccd_strip_length',1500)
+		self.ccdwid = kwargs.get('ccd_strip_width',(10,50))
+		j1,j2 = self.ccdwid
 		self.ampEdgeSlices = {'x':np.s_[-self.amplen:,-self.ampwid:],
 		                      'y':np.s_[-self.ampwid:,-self.amplen:]}
-		i1,i2,j1,j2 = self.ccdstrip
-		self.ccdEdgeSlices = {'x':np.s_[i1:i2,j1:j2],
-		                      'y':np.s_[j1:j2,i1:i2]}
+		self.ccdEdgeSlices = {'x':np.s_[-self.ccdlen:,j1:j2],
+		                      'y':np.s_[j1:j2,-self.ccdlen:]}
 		self.skyRegion = bokutil.stats_region('amp_central_quadrant')
+		self.gainTrendMethod = kwargs.get('gain_trend_meth','median')
+		assert self.gainTrendMethod in ['median','spline']
 		self.reset()
 	def reset(self):
 		self.files = []
@@ -563,6 +568,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	def _grow_saturated_blobs(ccdIm,saturated):
 		yi,xi = np.indices(ccdIm.shape)
 		# quick background calculation
+		# XXX already have in rawSky!!!
 		tmpim = bokutil.array_clip(ccdIm[100:-100:10,100:-100:10])
 		imMean,imRms = tmpim.mean(),tmpim.std()
 		# identify contiguous blogs associated with saturated pixels 
@@ -668,59 +674,58 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.ccdRelGains = np.array(self.ccdRelGains).squeeze()
 		self.allSkyVals = np.array(self.allSkyVals).squeeze()
 	def _median_gain_trend(self,gc):
+		gc = np.ma.array(gc,mask=(gc==0))
 		gc_clip = sigma_clip(gc,iters=2,sigma=2.0,axis=0)
-		gc_mean = gc_clip.mean(axis=0).filled()
-		rv = gc.copy()
-		rv[:] = gc_mean
-		return rv
+		gc[:] = gc_clip.mean(axis=0)
+		return gc.filled(0)
 	def _spline_gain_trend(self,gc):
 		nimg,ngain = gc.shape
+		gc = np.ma.array(gc,mask=(gc==0))
 		xx = np.arange(nimg)
-		self.nKnots = 3
-		knots = np.linspace(0,nimg,self.nKnots+2)[1:-1]
-		rv = gc.copy()
+		knots = np.linspace(0,nimg,self.nSplineKnots+2)[1:-1]
 		for j in range(ngain):
-			#ii = np.where(~gc[:,j].mask)[0]
-			ii = xx
-			spfit = LSQUnivariateSpline(xx[ii],gc[ii,j],#.filled(),
-			                            knots,bbox=[0,nimg],k=3)
-			rv[:,j] = spfit(xx)
-		return rv
+			ii = np.where(~gc[:,j].mask)[0]
+			spfit = LSQUnivariateSpline(xx[ii],gc[ii,j].filled(),
+			                            knots,bbox=[0,nimg],k=self.splineOrder)
+			gc[:,j] = spfit(xx)
+		return gc.filled(0)
 	def calc_mean_corrections(self):
 		self.ampRelGains = np.array(self.ampRelGains)
 		self.ccdRelGains = np.array(self.ccdRelGains)
 		raw_ampg = self.ampRelGains.copy()
 		raw_ccdg = self.ccdRelGains.copy()
-		if True:
+		if self.gainTrendMethod == 'median':
 			ampg = self._median_gain_trend(raw_ampg)
 			ccdg = self._median_gain_trend(raw_ccdg)
-		else:
+		elif self.gainTrendMethod == 'spline':
 			ampg = self._spline_gain_trend(raw_ampg)
 			ccdg = self._spline_gain_trend(raw_ccdg)
 		# propagate the gain corrections starting from the reference
+		ampgscale = np.ones_like(self.ampRelGains)
 		for ccdi,extGroup in enumerate(amp_iterator()):
 			for ampi,ampj,edgedir in self.ampMap[ccdi]:
 				refExt = 4*ccdi + ampi
 				calExt = 4*ccdi + ampj
-				ampg[:,calExt] *= ampg[:,refExt]
-				raw_ampg[:,calExt] *= ampg[:,refExt]
+				ampgscale[:,calExt] *= ampg[:,refExt]
+		ccdgscale = np.ones_like(self.ccdRelGains)
 		for ccdNum,refExt,calExt,edgedir in self.ccdMap:
-			if refExt==calExt:
-				ccdg[:,ccdNum-1] = 1.0
-			else:
+			if refExt!=calExt:
 				refCcd = refExt // 4
-				ccdscale = ccdg[:,refCcd] * (ampg[:,refExt]/ampg[:,calExt])
-				ccdg[:,ccdNum-1] *= ccdscale
-				raw_ccdg[:,ccdNum-1] *= ccdscale
-		ccdg = np.repeat(ccdg,4,axis=1)
-		raw_ccdg = np.repeat(raw_ccdg,4,axis=1)
-		self.gainCors = np.dstack([ampg,ccdg])
-		self.correctedGains = np.dstack([raw_ampg,raw_ccdg])
+				ccdgscale[:,ccdNum-1] = ccdg[:,refCcd] * \
+				                        (ampg[:,refExt]/ampg[:,calExt]) 
+		self.ampGainTrend = ampg
+		self.ccdGainTrend = ccdg
+		self.gainCors = np.dstack([ampg*ampgscale,
+		                           np.repeat(ccdg*ccdgscale,4,axis=1)])
+		self.correctedGains = np.dstack([raw_ampg*ampgscale,
+		                            np.repeat(raw_ccdg*ccdgscale,4,axis=1)])
 		return self.gainCors
 	def get_values(self):
 		return ( np.array(self.ampRelGains),
 		         np.array(self.ccdRelGains),
 		         np.array(self.correctedGains),
+		         np.array(self.ampGainTrend),
+		         np.array(self.ccdGainTrend),
 		         np.array(self.allSkyVals) )
 
 ###############################################################################
