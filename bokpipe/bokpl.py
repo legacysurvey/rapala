@@ -206,14 +206,15 @@ def balance_gains(dataMap,**kwargs):
 		else:
 			gainBalance.process_files(files)
 			gainCor = gainBalance.calc_mean_corrections()
-			gainCorV,skyV = gainBalance.get_values()
+			ampGainV,ccdGainV,gainCorV,skyV = gainBalance.get_values()
 		for f,gc,skyv in zip(files,gainCor,skyV):
 			gainMap['corrections'][f] = gc
 			gainMap['skyvals'][f] = skyv
 		gainBalance.reset()
 		if not os.path.exists(diagfile) and \
 		     not kwargs.get('nosavegain',False):
-			np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor)
+			np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor,
+			         rawAmpGain=ampGainV,rawCcdGain=ccdGainV)
 	return gainMap
 
 def process_all(dataMap,nobiascorr=False,noflatcorr=False,

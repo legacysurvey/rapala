@@ -532,7 +532,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.ratioClipArgs = {'clip_iters':3,'clip_sig':2.0}
 		self.amplen = kwargs.get('amp_strip_length',512)
 		self.ampwid = kwargs.get('amp_strip_width',64)
-		self.ccdstrip = kwargs.get('ccd_strip_extent',(100,1500,20,40))
+		self.ccdstrip = kwargs.get('ccd_strip_extent',(100,2000,10,50))
 		self.ampEdgeSlices = {'x':np.s_[-self.amplen:,-self.ampwid:],
 		                      'y':np.s_[-self.ampwid:,-self.amplen:]}
 		i1,i2,j1,j2 = self.ccdstrip
@@ -610,7 +610,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		if not self._slice_ok(imslice,nslice): 
 			return None
 		return imslice
-	def _get_img_slices(self,refExt,calExt,edgedir,which='amp'):
+	def _get_img_slices(self,refExt,calExt,edgedir,which):
 		if which=='amp':
 			s = self.ampEdgeSlices[edgedir]
 		elif which=='ccd':
@@ -621,7 +621,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 			print 'could not correct ',which,refExt,calExt
 		return refslice,calslice
 	def _get_flux_ratio(self,refExt,calExt,edgedir,which):
-		refslice,calslice = self._get_img_slices(refExt,calExt,edgedir,'amp')
+		refslice,calslice = self._get_img_slices(refExt,calExt,edgedir,which)
 		if refslice is None or calslice is None:
 			return 0.0
 		axis = {'x':1,'y':0}[edgedir]
@@ -674,12 +674,12 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		rv[:] = gc_mean
 		return rv
 	def _spline_gain_trend(self,gc):
-		nimg = gc.shape[0]
+		nimg,ngain = gc.shape
 		xx = np.arange(nimg)
 		self.nKnots = 3
 		knots = np.linspace(0,nimg,self.nKnots+2)[1:-1]
 		rv = gc.copy()
-		for j in range(16):
+		for j in range(ngain):
 			#ii = np.where(~gc[:,j].mask)[0]
 			ii = xx
 			spfit = LSQUnivariateSpline(xx[ii],gc[ii,j],#.filled(),
@@ -691,7 +691,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.ccdRelGains = np.array(self.ccdRelGains)
 		raw_ampg = self.ampRelGains.copy()
 		raw_ccdg = self.ccdRelGains.copy()
-		if False:
+		if True:
 			ampg = self._median_gain_trend(raw_ampg)
 			ccdg = self._median_gain_trend(raw_ccdg)
 		else:
@@ -718,7 +718,9 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.correctedGains = np.dstack([raw_ampg,raw_ccdg])
 		return self.gainCors
 	def get_values(self):
-		return ( np.array(self.correctedGains),
+		return ( np.array(self.ampRelGains),
+		         np.array(self.ccdRelGains),
+		         np.array(self.correctedGains),
 		         np.array(self.allSkyVals) )
 
 ###############################################################################
