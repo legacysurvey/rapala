@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+import matplotlib
+# Force matplotlib to not use any Xwindows backend.
+matplotlib.use('Agg')
+
 import argparse
 
 from bokpipe.bokmkimage import make_fov_image_fromfile

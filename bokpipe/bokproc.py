@@ -542,7 +542,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.ccdEdgeSlices = {'x':np.s_[-self.ccdlen:,j1:j2],
 		                      'y':np.s_[j1:j2,-self.ccdlen:]}
 		self.skyRegion = bokutil.stats_region('amp_central_quadrant')
-		self.gainTrendMethod = kwargs.get('gain_trend_meth','median')
+		self.gainTrendMethod = kwargs.get('gain_trend_meth','spline')
 		assert self.gainTrendMethod in ['median','spline']
 		self.reset()
 	def reset(self):
