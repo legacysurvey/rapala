@@ -674,13 +674,13 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.ccdRelGains = np.array(self.ccdRelGains).squeeze()
 		self.allSkyVals = np.array(self.allSkyVals).squeeze()
 	def _median_gain_trend(self,gc):
-		gc = np.ma.array(gc,mask=(gc==0))
+		gc = np.ma.array(gc,mask=(gc==0),copy=True)
 		gc_clip = sigma_clip(gc,iters=2,sigma=2.0,axis=0)
 		gc[:] = gc_clip.mean(axis=0)
 		return gc.filled(0)
 	def _spline_gain_trend(self,gc):
 		nimg,ngain = gc.shape
-		gc = np.ma.array(gc,mask=(gc==0))
+		gc = np.ma.array(gc,mask=(gc==0),copy=True)
 		xx = np.arange(nimg)
 		knots = np.linspace(0,nimg,self.nSplineKnots+2)[1:-1]
 		for j in range(ngain):
@@ -690,10 +690,8 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 			gc[:,j] = spfit(xx)
 		return gc.filled(0)
 	def calc_mean_corrections(self):
-		self.ampRelGains = np.array(self.ampRelGains)
-		self.ccdRelGains = np.array(self.ccdRelGains)
-		raw_ampg = self.ampRelGains.copy()
-		raw_ccdg = self.ccdRelGains.copy()
+		raw_ampg = self.ampRelGains = np.array(self.ampRelGains)
+		raw_ccdg = self.ccdRelGains = np.array(self.ccdRelGains)
 		if self.gainTrendMethod == 'median':
 			ampg = self._median_gain_trend(raw_ampg)
 			ccdg = self._median_gain_trend(raw_ccdg)
@@ -701,24 +699,24 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 			ampg = self._spline_gain_trend(raw_ampg)
 			ccdg = self._spline_gain_trend(raw_ccdg)
 		# propagate the gain corrections starting from the reference
-		ampgscale = np.ones_like(self.ampRelGains)
+		ampgscale = ampg.copy()
 		for ccdi,extGroup in enumerate(amp_iterator()):
 			for ampi,ampj,edgedir in self.ampMap[ccdi]:
 				refExt = 4*ccdi + ampi
 				calExt = 4*ccdi + ampj
-				ampgscale[:,calExt] *= ampg[:,refExt]
-		ccdgscale = np.ones_like(self.ccdRelGains)
+				ampgscale[:,calExt] *= ampgscale[:,refExt]
+		ccdgscale = ccdg.copy()
 		for ccdNum,refExt,calExt,edgedir in self.ccdMap:
 			if refExt!=calExt:
 				refCcd = refExt // 4
-				ccdgscale[:,ccdNum-1] = ccdg[:,refCcd] * \
-				                        (ampg[:,refExt]/ampg[:,calExt]) 
+				ccdgscale[:,ccdNum-1] *= ccdgscale[:,refCcd] * \
+				                    (ampgscale[:,refExt]/ampgscale[:,calExt]) 
 		self.ampGainTrend = ampg
 		self.ccdGainTrend = ccdg
-		self.gainCors = np.dstack([ampg*ampgscale,
-		                           np.repeat(ccdg*ccdgscale,4,axis=1)])
-		self.correctedGains = np.dstack([raw_ampg*ampgscale,
-		                            np.repeat(raw_ccdg*ccdgscale,4,axis=1)])
+		self.gainCors = np.dstack([ampgscale,
+		                           np.repeat(ccdgscale,4,axis=1)])
+		self.correctedGains = np.dstack([raw_ampg*(ampgscale/ampg),
+		                        np.repeat(raw_ccdg*(ccdgscale/ccdg),4,axis=1)])
 		return self.gainCors
 	def get_values(self):
 		return ( np.array(self.ampRelGains),

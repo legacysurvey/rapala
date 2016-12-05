@@ -214,7 +214,8 @@ def balance_gains(dataMap,**kwargs):
 		gainBalance.reset()
 		if not os.path.exists(diagfile) and \
 		     not kwargs.get('nosavegain',False):
-			np.savez(diagfile,gains=gainCorV,skys=skyV,gainCor=gainCor,
+			np.savez(diagfile,files=[os.path.basename(f) for f in files],
+			         gains=gainCorV,skys=skyV,gainCor=gainCor,
 			         ampTrend=ampTrend,ccdTrend=ccdTrend,
 			         rawAmpGain=ampGainV,rawCcdGain=ccdGainV)
 	return gainMap
