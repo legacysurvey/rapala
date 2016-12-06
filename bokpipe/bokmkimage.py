@@ -1,18 +1,28 @@
 #!/usr/bin/env python
 
 import numpy as np
-from astropy.stats import sigma_clip
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib import rc
+from astropy.stats import sigma_clip
+import astropy.visualization as vis
+from astropy.visualization.mpl_normalize import ImageNormalize
 import fitsio
 
 from . import bokutil
 
 def make_fov_image(fov,pngfn=None,**kwargs):
+	stretch = kwargs.get('stretch','linear')
+	interval = kwargs.get('interval','zscale')
+	imrange = kwargs.get('imrange')
+	contrast = kwargs.get('contrast',0.25)
 	maskFile = kwargs.get('mask')
-	losig = kwargs.get('lo',2.5)
-	hisig = kwargs.get('hi',5.0)
+	if interval == 'rms':
+		try:
+			losig,hisig = imrange
+		except:
+			losig,hisig = (2.5,5.0)
+	#
 	cmap = kwargs.get('cmap','jet')
 	cmap = plt.get_cmap(cmap)
 	cmap.set_bad('w',1.0)
@@ -20,8 +30,7 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	h = 0.455
 	if maskFile is not None:
 		maskFits = fitsio.FITS(maskFile)
-	input_vmin = kwargs.get('vmin')
-	input_vmax = kwargs.get('vmax')
+	stretch = {'linear':vis.LinearStretch()}[stretch]
 	rc('text',usetex=False)
 	fig = plt.figure(figsize=(6,6.5))
 	cax = fig.add_axes([0.1,0.04,0.8,0.01])
@@ -31,15 +40,17 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 			im = np.ma.masked_array(im,maskFits[ccd][:,:].astype(bool))
 		if n == 0:
 			i1,i2 = 100//fov['nbin'],1500//fov['nbin']
-			if input_vmin is None and input_vmax is None:
+			if interval=='zscale':
+				iv = vis.ZScaleInterval(contrast=contrast)
+				vmin,vmax = iv.get_limits(im)
+			elif interval=='rms':
 				background = sigma_clip(im[i1:i2,i1:i2],iters=3,sigma=2.2)
 				m,s = background.mean(),background.std()
-				vmin = input_vmin if input_vmin is not None else m-losig*s
-				vmax = input_vmax if input_vmax is not None else m+hisig*s
+				vmin,vmax = m-losig*s,m+hisig*s
 			else:
-				vmin = input_vmin
-				vmax = input_vmax
-			norm = colors.Normalize(vmin=vmin,vmax=vmax)
+				vmin,vmax = imrange
+			#norm = colors.Normalize(vmin=vmin,vmax=vmax)
+			norm = ImageNormalize(vmin=vmin,vmax=vmax,stretch=stretch)
 		if im.ndim == 3:
 			im = im.mean(axis=-1)
 		x = fov[ccd]['x']
