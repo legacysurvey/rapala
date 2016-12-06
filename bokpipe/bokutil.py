@@ -322,8 +322,8 @@ class BokMefImage(object):
 		if isinstance(maskFits,basestring):
 			maskFits = fitsio.FITS(maskFits)
 			self.closeFiles.append(maskFits)
-		elif isinstance(maskFits,fitsio.FITS):
-			return ValueError
+		#elif not isinstance(maskFits,fitsio.FITS):
+		#	return ValueError
 		self.masks.append(maskFits)
 	def update(self,data,header=None,noconvert=False):
 		if self.readOnly:

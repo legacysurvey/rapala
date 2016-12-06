@@ -266,7 +266,8 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 		                     gain_map=gainMap,
 		                     **kwargs)
 
-def make_illumcorr_image(dataMap,byUtd=False,max_images=None,**kwargs):
+def make_illumcorr_image(dataMap,byUtd=False,max_images=None,
+                         iterfit=True,**kwargs):
 	redo = kwargs.get('redo',False)
 	if byUtd:
 		filtAndUtd = [ fu for fu in zip(dataMap.getFilters(),
@@ -298,6 +299,16 @@ def make_illumcorr_image(dataMap,byUtd=False,max_images=None,**kwargs):
 		                           mask_file=dataMap.getCalMap('badpix4'),
 		                           read_only=True)
 		illum = bokproc.SplineBackgroundFit(fits,nKnots=7,order=3,nbin=8)
+		if iterfit:
+			mask = {}
+			for extn,data,hdr in fits:
+				resid = data - illum.get(extn)
+				arr = bokutil.array_clip(resid[10:-10:10,10:-10:10])
+				mn = arr.mean()
+				sd = arr.std()
+				mask[extn] = np.abs(resid-mn) > 3*sd
+			fits.add_mask(mask)
+			illum = bokproc.SplineBackgroundFit(fits,nKnots=17,order=3,nbin=4)
 		normFun = lambda arr: arr / np.float32(illum(0,0))
 		illum.write(outFn,opfun=normFun,clobber=True)
 
