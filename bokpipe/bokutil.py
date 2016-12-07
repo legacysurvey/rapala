@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os
+import os,sys
 from time import time
 from datetime import datetime
 from collections import OrderedDict
@@ -532,12 +532,19 @@ class BokProcess(object):
 		self._postprocess(fits,f)
 		fits.close()
 		return self._getOutput()
+	def _process_file_exc(self,f):
+		try:
+			return self.process_file(f)
+		except Exception,e:
+			sys.stderr.write('ERROR: failed to process %s [%s]\n' %
+			                       (self.inputNameMap(f),e))
+			return None
 	def process_files(self,fileList):
 		# pool objects can't be pickled so have to save it, remove it from
 		# object, then restore it
 		procMap = self.procMap
 		self.procMap = None
-		procOut = procMap(self.process_file,fileList)
+		procOut = procMap(self._process_file_exc,fileList)
 		if self.nProc > 1:
 			self._ingestOutput(procOut)
 		self.procMap = procMap

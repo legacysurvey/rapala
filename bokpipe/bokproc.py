@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os
+import os,sys
 import re
 import shutil
 import tempfile
@@ -900,9 +900,15 @@ def _combine_ccds(f,**kwargs):
 		if outputFile == inputFile:
 			shutil.move(tmpFileName,inputFile)
 
+def _combine_ccds_exc(f,**kwargs):
+	try:
+		_combine_ccds(f,**kwargs)
+	except Exception,e:
+		sys.stderr.write('FAILED: combine %s [%s]\n'%(f,e))
+
 def combine_ccds(fileList,**kwargs):
 	procmap = kwargs.pop('procmap',map)
-	combfunc = partial(_combine_ccds,**kwargs)
+	combfunc = partial(_combine_ccds_exc,**kwargs)
 	procmap(combfunc,fileList)
 
 
