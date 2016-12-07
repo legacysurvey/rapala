@@ -81,12 +81,22 @@ class BokImStat(bokutil.BokProcess):
 		self.statSec = bokutil.stats_region(kwargs.get('stats_region'))
 		self.clipArgs = kwargs.get('clip_args',{})
 		self.quickprocess = kwargs.get('quickprocess',False)
+		self.checkbad = kwargs.get('checkbad',False)
 		self.meanVals = []
 		self.rmsVals = []
+		self.badVals = []
 	def _preprocess(self,fits,f):
 		self.imgMeans = []
 		self.imgStds = []
+		self.imgBad = []
 	def process_hdu(self,extName,data,hdr):
+		if self.checkbad:
+			xy = np.indices(data.shape)
+			inf = np.isinf(data)
+			nan = np.isnan(data)
+			data = np.ma.array(data,mask=np.logical_or(inf,nan))
+			#zero = np.ma.less_equal(data,0)
+			self.imgBad.append(xy[:,data.mask])
 		if self.quickprocess:
 			pix = overscan_subtract(data,hdr,method='mean_value',
 			                        reject='sigma_clip',clip_iters=1,
@@ -101,12 +111,14 @@ class BokImStat(bokutil.BokProcess):
 	def _postprocess(self,fits,f):
 		self.meanVals.append(self.imgMeans)
 		self.rmsVals.append(self.imgStds)
+		self.badVals.append(self.imgBad)
 	def _finish(self):
 		self.meanVals = np.array(self.meanVals)
 		self.rmsVals = np.array(self.rmsVals)
 	def reset(self):
 		self.meanVals = []
 		self.rmsVals = []
+		self.badVals = []
 
 def interpolate_masked_pixels(data,along='twod',method='linear'):
 	if along=='rows':
