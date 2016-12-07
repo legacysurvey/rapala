@@ -571,6 +571,7 @@ class BokMefImageCube(object):
 		self.badPixelMask = None
 		self.scaleKey = kwargs.get('scale_key','IMSCL')
 		self._scales = None
+		self.minNexp = None
 	def set_badpixelmask(self,maskFits):
 		if isinstance(maskFits,FakeFITS):
 			self.badPixelMask = maskFits
@@ -705,6 +706,9 @@ class BokMefImageCube(object):
 				if self.badPixelMask is not None:
 					bpmsk = self.badPixelMask[extn][rows2slice(rows)]
 					_stack.mask |= bpmsk.astype(np.bool)
+				if self.minNexp is not None:
+					nexp = np.sum(~imCube.mask,axis=-1)
+					_stack.mask |= nexp < self.minNexp
 				stack.append(_stack)
 				if self.withExpTimeMap:
 					expTime.append(np.sum(~imCube.mask*expTimes,axis=-1))

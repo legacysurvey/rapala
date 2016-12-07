@@ -223,6 +223,7 @@ class BokBiasStack(bokutil.ClippedMeanStack):
 		super(BokBiasStack,self).__init__(**kwargs)
 		self.headerKey = 'BIAS'
 		self.findRollOffs = kwargs.get('find_rolloffs',False)
+		self.minNexp = 5
 	def _reject_pixels(self,imCube):
 		imCube = super(BokBiasStack,self)._reject_pixels(imCube)
 		if self.findRollOffs:
@@ -231,6 +232,13 @@ class BokBiasStack(bokutil.ClippedMeanStack):
 			bad = np.where(v < -50)[0]
 			imCube[:100,:,bad] = np.ma.masked
 		return imCube
+	def _postprocess(self,extName,stack,hdr):
+		colmedian = np.ma.median(stack,axis=0).filled(0)
+		# don't know of a better way to fill along columns
+		colmedian = np.repeat(colmedian[np.newaxis,:],stack.shape[0],axis=0)
+		ismasked = stack.mask.copy() # copy suppresses a warning
+		stack[ismasked] = colmedian[ismasked]
+		return stack,hdr
 
 class BokDomeFlatStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
