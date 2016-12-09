@@ -718,9 +718,14 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		knots = np.linspace(0,nimg,self.nSplineKnots+2)[1:-1]
 		for j in range(ngain):
 			ii = np.where(~gc[:,j].mask)[0]
-			spfit = LSQUnivariateSpline(xx[ii],gc[ii,j].filled(),
-			                            knots,bbox=[0,nimg],k=self.splineOrder)
-			gc[:,j] = spfit(xx)
+			try:
+				spfit = LSQUnivariateSpline(xx[ii],gc[ii,j].filled(),
+				                            knots,bbox=[0,nimg],
+				                            k=self.splineOrder)
+				gc[:,j] = spfit(xx)
+			except ValueError:
+				print 'WARNING: spline fit failed, reverting to mean'
+				gc[:,j] = sigma_clip(gc[:,j],iters=2,sigma=2.0).mean()
 		return gc.filled(0)
 	def calc_mean_corrections(self):
 		raw_ampg = self.ampRelGains = np.array(self.ampRelGains)
