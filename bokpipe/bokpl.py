@@ -233,6 +233,18 @@ def balance_gains(dataMap,**kwargs):
 			         rawAmpGain=ampGainV,rawCcdGain=ccdGainV)
 	return gainMap
 
+def files_by_utdfilt(dataMap):
+	if len(dataMap.utDates) > 20: # XXX >> nProc
+		filesUtdFilt = [ dataMap.getFiles(imType='object')
+		                   for _utd in dataMap.iterUtDates()
+		                     for _filt in dataMap.iterFilters() ]
+		filesUtdFilt = filter(lambda l: l is not None, filesUtdFilt)
+		# also return flattened list
+		files = [ f for utdfilt in filesUtdFilt for f in utdfilt ]
+	else:
+		files = filesUtdFilt = dataMap.getFiles(imType='object')
+	return files,filesUtdFilt
+
 def process_all(dataMap,nobiascorr=False,noflatcorr=False,
                 fixpix=False,rampcorr=False,noweightmap=False,
                 nocombine=False,prockey='CCDPROC',**kwargs):
@@ -248,10 +260,10 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 	                             bias=bias,flat=flat,ramp=ramp,
 	                             fringe=None,illum=None,skyflat=None,
 	                             fixpix=fixpix,**kwargs)
-	files = dataMap.getFiles(imType='object')
-	if files is None:
+	files,filesUtdFilt = files_by_utdfilt(dataMap)
+	if files is None or len(files)==0:
 		return
-	proc.process_files(files)
+	proc.process_files(filesUtdFilt)
 	if nocombine:
 		return
 	# 2. balance gains using background counts

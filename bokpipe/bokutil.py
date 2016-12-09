@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os,sys
+import types
 from time import time
 from datetime import datetime
 from collections import OrderedDict
@@ -431,7 +432,6 @@ def _unpickle_method(func_name, obj, cls):
 	return func.__get__(obj, cls)
 
 import copy_reg
-import types
 copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
 
 class FakeFITS(object):
@@ -539,12 +539,18 @@ class BokProcess(object):
 			sys.stderr.write('ERROR: failed to process %s [%s]\n' %
 			                       (self.inputNameMap(f),e))
 			return None
+	def _process_file_group(self,fgrp):
+		return map(self._process_file_exc,fgrp)
 	def process_files(self,fileList):
 		# pool objects can't be pickled so have to save it, remove it from
 		# object, then restore it
 		procMap = self.procMap
 		self.procMap = None
-		procOut = procMap(self._process_file_exc,fileList)
+		if isinstance(fileList[0],types.StringTypes):
+			procOut = procMap(self._process_file_exc,fileList)
+		else:
+			procOut = procMap(self._process_file_group,fileList)
+			procOut = [ out for outgrp in procOut for out in outgrp ]
 		if self.nProc > 1:
 			self._ingestOutput(procOut)
 		self.procMap = procMap
