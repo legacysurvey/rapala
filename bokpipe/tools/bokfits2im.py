@@ -24,7 +24,8 @@ parser.add_argument("--stretch",type=str,default='linear',
 parser.add_argument("--interval",type=str,default='zscale',
                     help="interval\n"+
                          " zscale (default)\n"+
-                         " rms (combine with range)")
+                         " rms (combine with range)\n"+
+                         " fixed (combine with range)")
 parser.add_argument("--imrange",type=str,
                     help="range (vmin,vmax), (siglo,sighi)")
 parser.add_argument("--contrast",type=float,default=0.25,
@@ -38,9 +39,11 @@ if args.imgFile:
 else:
 	outFile = args.fitsFile.replace('.fits','.png')
 
+imrange = [float(v) for v in args.imrange.split(',')]
+
 make_fov_image_fromfile(args.fitsFile,outFile,mask=args.mask,
                         nbin=args.nbin,coordsys=args.coordsys,
                         stretch=args.stretch,interval=args.interval,
-                        imrange=args.imrange,contrast=args.contrast,
+                        imrange=imrange,contrast=args.contrast,
                         cmap=args.cmap)
 
