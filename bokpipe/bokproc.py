@@ -556,20 +556,28 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
-		self.clipArgs.setdefault('clip_iters',3)
+		self.clipArgs.setdefault('clip_iters',2)
 		self.clipArgs.setdefault('clip_sig',2.5)
-		self.clipArgs.setdefault('clip_cenfunc',np.ma.median)
-		self.ratioClipArgs = {'clip_iters':3,'clip_sig':2.0}
-		self.amplen = kwargs.get('amp_strip_length',512)
-		self.ampwid = kwargs.get('amp_strip_width',64)
+		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)#np.ma.median)
+		self.ratioClipArgs = {'clip_iters':2,'clip_sig':2.0}
+		self.amplen = kwargs.get('amp_strip_length',1024)
+		self.ampwid = kwargs.get('amp_strip_width',32)
+		self.ampstride = kwargs.get('amp_strip_stride',8)
 		self.ccdlen = kwargs.get('ccd_strip_length',1500)
 		self.ccdwid = kwargs.get('ccd_strip_width',(10,50))
+		self.ccdstride = kwargs.get('ccd_strip_stride',10)
 		j1,j2 = self.ccdwid
-		self.ampEdgeSlices = {'x':np.s_[-self.amplen:,-self.ampwid:],
-		                      'y':np.s_[-self.ampwid:,-self.amplen:]}
-		self.ccdEdgeSlices = {'x':np.s_[-self.ccdlen:,j1:j2],
-		                      'y':np.s_[j1:j2,-self.ccdlen:]}
-		self.skyRegion = bokutil.stats_region('amp_central_quadrant')
+		self.ampEdgeSlices = {
+		  'x':np.s_[-self.amplen::self.ampstride,-self.ampwid:],
+		  'y':np.s_[-self.ampwid:,-self.amplen::self.ampstride]
+		}
+		self.ccdEdgeSlices = {
+		  'x':np.s_[-self.ccdlen::self.ccdstride,j1:j2],
+		  'y':np.s_[j1:j2,-self.ccdlen::self.ccdstride]
+		}
+		skyreg = bokutil.stats_region('amp_central_quadrant')
+		# hugely downsample
+		self.skyRegion = tuple([ np.s_[s.start:s.stop:10] for s in skyreg ])
 		self.gainTrendMethod = kwargs.get('gain_trend_meth','spline')
 		assert self.gainTrendMethod in ['median','spline']
 		self.reset()
@@ -590,15 +598,12 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.rawSky = []
 	def process_hdu(self,extName,data,hdr):
 		self.hduData.append(data)
-		self.rawSky.append(sigma_clip(data[self.skyRegion]).mean())
+		sky = bokutil.array_clip(data[self.skyRegion],clip_iters=2).mean()
+		self.rawSky.append(sky)
 		return data,hdr
 	@staticmethod
 	def _grow_saturated_blobs(ccdIm,saturated):
 		yi,xi = np.indices(ccdIm.shape)
-		# quick background calculation
-		# XXX already have in rawSky!!!
-		tmpim = bokutil.array_clip(ccdIm[100:-100:10,100:-100:10])
-		imMean,imRms = tmpim.mean(),tmpim.std()
 		# identify contiguous blogs associated with saturated pixels 
 		# (i.e., stars) and count the number of saturated pixels in 
 		# each blob, then sort by the largest number (brightest stars)
@@ -606,7 +611,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		# create image with nominal mask
 		for blob in range(1,satBlobs.max()+1):
 			nSat = np.sum(satBlobs==blob)
-			if nSat < 100:
+			if nSat < 1000:
 				continue
 			# a quick & hokey centering algorithm -- middle of the 
 			# saturated blob!
