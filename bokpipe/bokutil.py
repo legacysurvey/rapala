@@ -551,6 +551,7 @@ class BokProcess(object):
 		else:
 			procOut = procMap(self._process_file_group,fileList)
 			procOut = [ out for outgrp in procOut for out in outgrp ]
+		procOut = filter(lambda p: p is not None,procOut)
 		if self.nProc > 1:
 			self._ingestOutput(procOut)
 		self.procMap = procMap
