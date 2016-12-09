@@ -63,12 +63,14 @@ def _bias_worker(dataMap,biasStack,nSkip,writeccdim,biasIn,**kwargs):
 def _bias_worker_exc(*args,**kwargs):
 	try:
 		_bias_worker(*args,**kwargs)
-	except:
+	except Exception,e:
 		try:
 			pid = multiprocessing.current_process().name.split('-')[1]
 		except:
 			pid = '1'
-		print '[%2s] 2DBIAS: %s FAILED!!!' % (pid,args[-1][0])
+		print '[%2s] 2DBIAS: %s FAILED!!! [%s]' % (pid,args[-1][0],e)
+		return (args[-1][0],False)
+	return (args[-1][0],True)
 
 def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
                    writeccdim=False,**kwargs):
@@ -86,7 +88,8 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 	p_bias_worker = partial(_bias_worker_exc,dataMap,biasStack,
 	                        nSkip,writeccdim,**kwargs)
 	# returns [(biasFile,biasFiles)...]
-	procmap(p_bias_worker,dataMap.getCalSequences('zero'))
+	status = procmap(p_bias_worker,dataMap.getCalSequences('zero'))
+	dataMap.updateCalSequences('zero',status)
 
 def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
                  debug,flatIn,**kwargs):
@@ -111,14 +114,23 @@ def _flat_worker(dataMap,bias2Dsub,flatStack,normFlat,nSkip,writeccdim,
 		makeccd4image(dataMap,flatFile,**kwargs)
 
 def _flat_worker_exc(*args,**kwargs):
+	flatFile = args[-1][0]
 	try:
 		_flat_worker(*args,**kwargs)
-	except:
+	except Exception,e:
 		try:
 			pid = multiprocessing.current_process().name.split('-')[1]
 		except:
 			pid = '1'
-		print '[%2s] DOMEFLAT: %s FAILED!!!' % (pid,args[-1][0])
+		print '[%2s] DOMEFLAT: %s FAILED!!! [%s]' % (pid,flatFile,e)
+		flatStack = args[2]
+		flatFilePath = flatStack.outputNameMap(flatFile)
+		try:
+			os.remove(flatFilePath)
+		except:
+			pass
+		return (flatFile,False)
+	return (flatFile,True)
 
 def make_dome_flats(dataMap,nobiascorr=False,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
@@ -153,7 +165,8 @@ def make_dome_flats(dataMap,nobiascorr=False,
 		normFlat = None
 	p_flat_worker = partial(_flat_worker_exc,dataMap,bias2Dsub,flatStack,
 	                        normFlat,nSkip,writeccdim,debug,**kwargs)
-	procmap(p_flat_worker,dataMap.getCalSequences('flat'))
+	status = procmap(p_flat_worker,dataMap.getCalSequences('flat'))
+	dataMap.updateCalSequences('flat',status)
 
 def _ramp_worker(tmpDir,inputMap,calMap,verbose,biasIn):
 	biasFile,biasList = biasIn
@@ -243,6 +256,7 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 		return
 	# 2. balance gains using background counts
 	gainMap = balance_gains(dataMap,**kwargs)
+	return
 	# 3. combine per-amp images (16) into CCD images (4)
 	bokproc.combine_ccds(files,
 	                     input_map=dataMap('proc1'), 

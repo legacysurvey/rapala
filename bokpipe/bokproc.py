@@ -9,6 +9,7 @@ from functools import partial
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
 from scipy.interpolate import LSQUnivariateSpline
+from scipy.interpolate import interp1d,interp2d
 from scipy.signal import spline_filter
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 import scipy.ndimage.measurements as meas
@@ -59,7 +60,11 @@ saturation_dn = 65000
 # XXX
 configdir = os.environ['BOKPIPE']+'/config/'
 
-from scipy.interpolate import interp1d,interp2d
+class OverExposedFlatException(Exception):
+	def __init__(self,value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
 
 class BokImArith(bokutil.BokProcess):
 	def __init__(self,op,operand,**kwargs):
@@ -253,6 +258,7 @@ class BokBiasStack(bokutil.ClippedMeanStack):
 		return stack,hdr
 
 class BokDomeFlatStack(bokutil.ClippedMeanStack):
+	overExposedFlatCounts = 40000
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','amp_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
@@ -262,6 +268,8 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		                    bokutil.stats_region('amp_corner_ccdcenter_256'))
 	def _postprocess(self,extName,stack,hdr):
 		flatNorm = bokutil.array_stats(stack[self.normPix])
+		if flatNorm > self.overExposedFlatCounts:
+			raise OverExposedFlatException("counts=%d"%flatNorm)
 		stack /= flatNorm
 		try:
 			stack = stack.filled(1.0)

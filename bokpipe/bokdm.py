@@ -79,6 +79,10 @@ def load_caldb(calDbFile):
 		calDb = pickle.load(caldbf)
 	return calDb
 
+def write_caldb(calDbFile,calDb):
+	with open(calDbFile,"wb") as caldbf:
+		pickle.dump(calDb,caldbf)
+
 def init_cal_db(calDbFile,obsDb,filts,overwrite=False):
 	if overwrite:
 		try:
@@ -155,6 +159,7 @@ class MasterCalibrator(BokCalibrator):
 		self.masterFits = None
 	def _load_fits(self):
 		if self.masterFits is None:
+			print 'Loading master cal ',self.masterFile
 			self.masterFits = FakeFITS(self.masterFile)
 	def setTarget(self,f):
 		pass
@@ -204,6 +209,7 @@ class CalibratorMap(BokCalibrator):
 			if self.currentFits:
 				self.currentFits.close()
 			self.currentFile = cal
+			print 'loading cal ',self.currentFile
 			self.currentFits = FakeFITS(self.currentFile)
 			return True
 		return False
@@ -389,6 +395,13 @@ class BokDataManager(object):
 		            for fn,utd,mjd,filt,seq in self.calDb[calType] 
 		              if utd in self.utDates and 
 		                 ((calType=='zero') or (filt in self.filt)) ]
+	def updateCalSequences(self,calType,status):
+		failed = [ fn for fn,success in status if not success ]
+		newList = list(filter(lambda tup: tup[0] not in failed, 
+		                      self.calDb[calType]))
+		self.calDb[calType] = newList
+		write_caldb(self.calDbFile,self.calDb)
+		self._config_cals()
 	def storeCalibrator(self,calType,frames,useFilt=True):
 		calFn = caldb_store(self.calDbFile,self.obsDb,calType,[frames],
 		                    useFilt=useFilt)[0]

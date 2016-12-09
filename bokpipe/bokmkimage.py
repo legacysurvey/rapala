@@ -47,8 +47,10 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 				background = sigma_clip(im[i1:i2,i1:i2],iters=3,sigma=2.2)
 				m,s = background.mean(),background.std()
 				vmin,vmax = m-losig*s,m+hisig*s
-			else:
+			elif interval=='fixed':
 				vmin,vmax = imrange
+			else:
+				raise ValueError
 			#norm = colors.Normalize(vmin=vmin,vmax=vmax)
 			norm = ImageNormalize(vmin=vmin,vmax=vmax,stretch=stretch)
 		if im.ndim == 3:
