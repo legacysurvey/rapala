@@ -563,8 +563,6 @@ def _img_worker(imdir,_fmap,maskmap,fin):
 	imgfile = os.path.join(imgd,fn.replace('.fits','.png'))
 	if os.path.exists(imgfile):
 		return
-	if not os.path.exists(imgd):
-		os.mkdir(imgd)
 	bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(fin))
 
 def make_images(dataMap,imtype='sky',msktype=None,processes=1):
@@ -584,6 +582,10 @@ def make_images(dataMap,imtype='sky',msktype=None,processes=1):
 	imdir = os.path.join(dataMap.getProcDir(),'images')
 	if not os.path.exists(imdir):
 		os.mkdir(imdir)
+	for utd in dataMap.getUtDates():
+		imgd = os.path.join(imdir,utd)
+		if not os.path.exists(imgd):
+			os.mkdir(imgd)
 	plt.ioff()
 	p_img_worker = partial(_img_worker,imdir,_fmap,maskmap)
 	procmap(p_img_worker,dataMap.getFiles(imType='object'))
