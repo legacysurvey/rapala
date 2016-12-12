@@ -465,7 +465,7 @@ class BokDataManager(object):
 		else:
 			return SimpleFileNameMap(self.rawDir,procDir)
 	def getFiles(self,imType=None,utd=None,filt=None,
-	             im_range=None,exclude_objs=None,
+	             im_range=None,filterFun=None,
 	             with_objnames=False,with_frames=False,as_sequences=False):
 		file_sel = self.obsDb['good'].copy()
 		# select on UT date(s)
@@ -510,9 +510,9 @@ class BokDataManager(object):
 			file_sel &= ( (self.obsDb['frameIndex'] >= self.frames[0]) & 
 			              (self.obsDb['frameIndex'] <= self.frames[1]) )
 		# list of objects to exclude
-		if exclude_objs is not None:
-			for objnm in exclude_objs:
-				file_sel &= ~(self.obsDb['objName'] == objnm)
+		if filterFun is not None:
+			ii = np.where(file_sel)[0]
+			file_sel[ii] &= filterFun(self.obsDb,ii)
 		# finally check input frame list
 		if self.frameList is not None:
 			isFrame = np.zeros(len(self.obsDb),dtype=bool)

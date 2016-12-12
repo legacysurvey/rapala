@@ -293,25 +293,27 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 		                     gain_map=gainMap,
 		                     **kwargs)
 
-def make_illumcorr_image(dataMap,byUtd=False,max_images=None,
+def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
+                         min_images=10,max_images=None,
                          iterfit=True,**kwargs):
 	redo = kwargs.get('redo',False)
 	if byUtd:
-		filtAndUtd = [ fu for fu in zip(dataMap.getFilters(),
-		                                dataMap.getUtDates()) ]
+		filtAndUtd = [ (f,u) for f in dataMap.getFilters()
+		                       for u in dataMap.getUtDates() ]
 	else:
 		filtAndUtd = [ (f,None) for f in dataMap.getFilters()]
 	for filt,utd in filtAndUtd:
 		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
-		         exclude_objs=['rm10','rm11','rm12','rm13'], # XXX
+		                                filterFun=filterFun,
 		                                with_frames=True)
-		if files is None:
+		if files is None or len(files) < min_images:
 			continue
 		outFn = dataMap.storeCalibrator('illum',frames)
 		if os.path.exists(outFn) and not redo:
 			continue
 		#
-		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,'tmpillum_%s.fits'%filt)
+		tmpFn = 'tmp'+os.path.basename(outFn)
+		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,tmpFn)
 		stackFun = bokutil.ClippedMeanStack(input_map=dataMap('comb'),
 		                                    scale='normalize_median',
 		                                    clip_iters=3,clip_sig=2.0,
@@ -521,7 +523,9 @@ def bokpipe(dataMap,**kwargs):
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'illum' in steps:
-		make_illumcorr_image(dataMap,**pipekwargs)
+		make_illumcorr_image(dataMap,
+		                     filterFun=kwargs.get('illum_filter_fun'),
+		                     **pipekwargs)
 		timerLog('illumination corr')
 	if 'fringe' in steps:
 		make_fringe_masters(dataMap,**pipekwargs)
@@ -728,7 +732,7 @@ def init_pipeline_args(parser):
 	                help='make astrometry diagnostic files')
 	return parser
 
-def run_pipe(dataMap,args):
+def run_pipe(dataMap,args,**_kwargs):
 	if args.newfiles:
 		dataMap.setInPlace(False)
 	if args.tmpdirin:
@@ -751,6 +755,8 @@ def run_pipe(dataMap,args):
 	opts = vars(args)
 	kwargs = { k : opts[k] for k in opts if opts[k] != None }
 	kwargs['steps'] = steps
+	for k,v in _kwargs.items():
+		kwargs[k] = v
 	# run pipeline processes
 	if args.images:
 		make_images(dataMap,*args.imagetype.split(','),
