@@ -208,16 +208,17 @@ def balance_gains(dataMap,**kwargs):
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
 	for utd in dataMap.iterUtDates():
-		files = dataMap.getFiles(imType='object')
+		files,ii = dataMap.getFiles(imType='object',with_frames=True)
 		if files is None:
 			continue
+		filt = dataMap.obsDb['filter'][ii]
 		diagfile = os.path.join(dataMap.getDiagDir(), 'gainbal_%s.npz'%utd)
 		if os.path.exists(diagfile):
 			gainDat = np.load(diagfile)
 			gainCor = gainDat['gainCor']
 			skyV = gainDat['skys']
 		else:
-			gainBalance.process_files(files)
+			gainBalance.process_files(files,filt)
 			gainCor = gainBalance.calc_mean_corrections()
 			ampGainV,ccdGainV,gainCorV,ampTrend,ccdTrend,skyV = \
 			               gainBalance.get_values()

@@ -532,13 +532,15 @@ class BokProcess(object):
 		self._postprocess(fits,f)
 		fits.close()
 		return self._getOutput()
+	def _null_result(self,f):
+		return None
 	def _process_file_exc(self,f):
 		try:
 			return self.process_file(f)
 		except Exception,e:
 			sys.stderr.write('ERROR: failed to process %s [%s]\n' %
 			                       (self.inputNameMap(f),e))
-			return None
+			return self._null_result(f)
 	def _process_file_group(self,fgrp):
 		return map(self._process_file_exc,fgrp)
 	def process_files(self,fileList):
