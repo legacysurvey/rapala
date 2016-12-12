@@ -269,7 +269,6 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 		return
 	# 2. balance gains using background counts
 	gainMap = balance_gains(dataMap,**kwargs)
-	return
 	# 3. combine per-amp images (16) into CCD images (4)
 	bokproc.combine_ccds(files,
 	                     input_map=dataMap('proc1'), 
