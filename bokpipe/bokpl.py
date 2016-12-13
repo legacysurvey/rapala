@@ -234,16 +234,18 @@ def balance_gains(dataMap,**kwargs):
 			         rawAmpGain=ampGainV,rawCcdGain=ccdGainV)
 	return gainMap
 
-def files_by_utdfilt(dataMap):
+def files_by_utdfilt(dataMap,**kwargs):
+	kwargs.setdefault('imType','object')
+	kwargs.setdefault('filt',None)
 	if len(dataMap.utDates) > 20: # XXX >> nProc
-		filesUtdFilt = [ dataMap.getFiles(imType='object')
+		filesUtdFilt = [ dataMap.getFiles(**kwargs)
 		                   for _utd in dataMap.iterUtDates()
 		                     for _filt in dataMap.iterFilters() ]
 		filesUtdFilt = filter(lambda l: l is not None, filesUtdFilt)
 		# also return flattened list
 		files = [ f for utdfilt in filesUtdFilt for f in utdfilt ]
 	else:
-		files = filesUtdFilt = dataMap.getFiles(imType='object')
+		files = filesUtdFilt = dataMap.getFiles(**kwargs)
 	return files,filesUtdFilt
 
 def process_all(dataMap,nobiascorr=False,noflatcorr=False,
@@ -282,7 +284,7 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 		                             flat=flat,
 		                             _mask_map=dataMap.getCalMap('badpix'),
 		                             **kwargs)
-		whmap.process_files(files)
+		whmap.process_files(filesUtdFilt)
 		# rescale the gain corrections to inverse variance
 		for f in gainMap['corrections']:
 			gainMap['corrections'][f] = (gainMap['corrections'][f].copy())**-2
@@ -296,6 +298,7 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
                          min_images=10,max_images=None,
                          iterfit=True,**kwargs):
 	redo = kwargs.get('redo',False)
+	verbose = kwargs.get('verbose',0)
 	if byUtd:
 		filtAndUtd = [ (f,u) for f in dataMap.getFilters()
 		                       for u in dataMap.getUtDates() ]
@@ -309,7 +312,11 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 			continue
 		outFn = dataMap.storeCalibrator('illum',frames)
 		if os.path.exists(outFn) and not redo:
+			if verbose > 0:
+				print 'ILLUM: %s already exists' % outFn
 			continue
+		if verbose > 0:
+			print 'ILLUM: generating %s from %d images' % (outFn,len(files))
 		#
 		tmpFn = 'tmp'+os.path.basename(outFn)
 		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,tmpFn)
@@ -390,18 +397,17 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 	fringe = None if nofringecorr else dataMap.getCalMap('fringe')
 	illum = None if noillumcorr else dataMap.getCalMap('illum')
 	skyflat = None if noskyflatcorr else dataMap.getCalMap('skyflat')
-	# the full list of files to process
-	files = dataMap.getFiles(imType='object')
-	if files is None:
-		return
-	# if only applying a fringe correction, only CCDProcess the images 
-	# that need it
+	# the list of files to process
 	if noillumcorr and noskyflatcorr and not nofringecorr:
-		_files = dataMap.getFiles(imType='object',
-		                          filt=dataMap.getFringeFilters())
+		# if only applying a fringe correction, only CCDProcess the images 
+		# that need it
+		files,filesUtdFilt = files_by_utdfilt(dataMap,
+		                                 filt=dataMap.getFringeFilters())
 	else:
-		_files = files
-	if len(_files) > 0:
+		files,filesUtdFilt = files_by_utdfilt(dataMap)
+	if files is None or len(files)==0:
+		return
+	if len(files) > 0:
 		proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
 		                             output_map=dataMap('proc2'),
 		                             mask_map=dataMap.getCalMap('badpix4'),
@@ -410,7 +416,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                             ramp=None,fixpix=False,fringe=fringe,
 		                             illum=illum,skyflat=skyflat,
 		                             **kwargs)
-		proc.process_files(_files)
+		proc.process_files(filesUtdFilt)
 	if not noweightmap and not (noillumcorr and noskyflatcorr):
 		# need to process the weight maps in the same fashion
 		wtproc = bokproc.BokCCDProcess(input_map=dataMap('weight'), 
@@ -422,7 +428,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                               illum=illum,skyflat=skyflat,
 		                               asweight=True,
 		                               **kwargs)
-		wtproc.process_files(files)
+		wtproc.process_files(filesUtdFilt)
 	if noskysub:
 		return
 	#
