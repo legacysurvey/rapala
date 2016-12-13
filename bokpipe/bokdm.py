@@ -510,7 +510,7 @@ class BokDataManager(object):
 			file_sel &= ( (self.obsDb['frameIndex'] >= self.frames[0]) & 
 			              (self.obsDb['frameIndex'] <= self.frames[1]) )
 		# list of objects to exclude
-		if filterFun is not None:
+		if filterFun is not None and file_sel.any():
 			ii = np.where(file_sel)[0]
 			file_sel[ii] &= filterFun(self.obsDb,ii)
 		# finally check input frame list
