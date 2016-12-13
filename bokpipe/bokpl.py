@@ -357,8 +357,8 @@ def make_fringe_masters(dataMap,byUtd=False,**kwargs):
 	                                            **kwargs)
 	fringeStack.set_badpixelmask(dataMap.getCalMap('badpix4'))
 	if byUtd:
-		filtAndUtd = [ fu for fu in zip(dataMap.getFringeFilters(),
-		                                dataMap.getUtDates()) ]
+		filtAndUtd = [ (f,u) for f in dataMap.getFringeFilters()
+		                       for u in dataMap.getUtDates() ]
 	else:
 		filtAndUtd = [ (f,None) for f in dataMap.getFringeFilters()]
 	for filt,utd in filtAndUtd:
@@ -378,8 +378,8 @@ def make_supersky_flats(dataMap,byUtd=False,**kwargs):
 	                                            **kwargs)
 	skyFlatStack.set_badpixelmask(dataMap.getCalMap('badpix4'))
 	if byUtd:
-		filtAndUtd = [ fu for fu in zip(dataMap.getFilters(),
-		                                dataMap.getUtDates()) ]
+		filtAndUtd = [ (f,u) for f in dataMap.getFilters()
+		                       for u in dataMap.getUtDates() ]
 	else:
 		filtAndUtd = [ (f,None) for f in dataMap.getFilters()]
 	for filt,utd in filtAndUtd:
