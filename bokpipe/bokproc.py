@@ -1173,8 +1173,7 @@ class BokFringePatternStack(bokutil.ClippedMeanStack):
 		cleanStack = spline_filter(cleanStack,self.smoothingLength)
 		# renormalize to unity, using the combined interp and input mask
 		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
-		normpix = sigma_clip(_stack[self.statsPix],iters=2,sigma=2.5,
-		                     cenfunc=np.ma.mean)
+		normpix = bokutil.array_clip(_stack[self.statsPix])
 		_stack -= normpix.mean()
 		return _stack,hdr
 	def _cleanup(self):
