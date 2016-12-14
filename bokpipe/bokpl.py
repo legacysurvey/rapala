@@ -397,17 +397,18 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 	fringe = None if nofringecorr else dataMap.getCalMap('fringe')
 	illum = None if noillumcorr else dataMap.getCalMap('illum')
 	skyflat = None if noskyflatcorr else dataMap.getCalMap('skyflat')
-	# the list of files to process
-	if noillumcorr and noskyflatcorr and not nofringecorr:
-		# if only applying a fringe correction, only CCDProcess the images 
-		# that need it
-		files,filesUtdFilt = files_by_utdfilt(dataMap,
-		                                 filt=dataMap.getFringeFilters())
-	else:
-		files,filesUtdFilt = files_by_utdfilt(dataMap)
+	# the full list of files to process
+	files,filesUtdFilt = files_by_utdfilt(dataMap)
 	if files is None or len(files)==0:
 		return
-	if len(files) > 0:
+	# if only applying a fringe correction, only CCDProcess the images 
+	# that need it
+	if noillumcorr and noskyflatcorr and not nofringecorr:
+		_,_filesUtdFilt = files_by_utdfilt(dataMap,
+		                                 filt=dataMap.getFringeFilters())
+	else:
+		_filesUtdFilt = filesUtdFilt
+	if len(_filesUtdFilt) > 0:
 		proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
 		                             output_map=dataMap('proc2'),
 		                             mask_map=dataMap.getCalMap('badpix4'),
@@ -416,7 +417,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                             ramp=None,fixpix=False,fringe=fringe,
 		                             illum=illum,skyflat=skyflat,
 		                             **kwargs)
-		proc.process_files(filesUtdFilt)
+		proc.process_files(_filesUtdFilt)
 	if not noweightmap and not (noillumcorr and noskyflatcorr):
 		# need to process the weight maps in the same fashion
 		wtproc = bokproc.BokCCDProcess(input_map=dataMap('weight'), 
