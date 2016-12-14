@@ -39,7 +39,10 @@ if args.imgFile:
 else:
 	outFile = args.fitsFile.replace('.fits','.png')
 
-imrange = [float(v) for v in args.imrange.split(',')]
+try:
+	imrange = [float(v) for v in args.imrange.split(',')]
+except:
+	imrange = None
 
 make_fov_image_fromfile(args.fitsFile,outFile,mask=args.mask,
                         nbin=args.nbin,coordsys=args.coordsys,
