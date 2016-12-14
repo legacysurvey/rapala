@@ -234,13 +234,13 @@ def balance_gains(dataMap,**kwargs):
 			         rawAmpGain=ampGainV,rawCcdGain=ccdGainV)
 	return gainMap
 
-def files_by_utdfilt(dataMap,**kwargs):
-	kwargs.setdefault('imType','object')
-	kwargs.setdefault('filt',None)
+def files_by_utdfilt(dataMap,imType='object',filt=None):
+	if filt is None:
+		filt = dataMap.getFilters()
 	if len(dataMap.utDates) > 20: # XXX >> nProc
-		filesUtdFilt = [ dataMap.getFiles(**kwargs)
+		filesUtdFilt = [ dataMap.getFiles(imType=imType,filt=_filt)
 		                   for _utd in dataMap.iterUtDates()
-		                     for _filt in dataMap.iterFilters() ]
+		                     for _filt in filt ]
 		filesUtdFilt = filter(lambda l: l is not None, filesUtdFilt)
 		# also return flattened list
 		files = [ f for utdfilt in filesUtdFilt for f in utdfilt ]
