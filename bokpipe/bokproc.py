@@ -578,9 +578,8 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		  'x':np.s_[-self.ccdlen::self.ccdstride,j1:j2],
 		  'y':np.s_[j1:j2,-self.ccdlen::self.ccdstride]
 		}
-		skyreg = bokutil.stats_region('amp_central_quadrant')
 		# hugely downsample
-		self.skyRegion = tuple([ np.s_[s.start:s.stop:10] for s in skyreg ])
+		self.skyRegion = bokutil.stats_region('amp_central_quadrant',10)
 		self.gainTrendMethod = kwargs.get('gain_trend_meth','spline')
 		assert self.gainTrendMethod in ['median','spline']
 		self.reset()
@@ -1050,16 +1049,18 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		self.loThresh = kwargs.get('low_thresh',5.0)
 		self.growThresh = kwargs.get('grow_thresh',1.0)
 		self.binGrowSize = kwargs.get('mask_grow_size',3)
-		self.nSample = kwargs.get('num_sample',4)
+		self.nSample = kwargs.get('num_sample',16)
 		self.nKnots = kwargs.get('num_spline_knots',3)
 		self.splineOrder = kwargs.get('spline_order',3)
-		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'))
+		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'),
+		                                     self.nSample)
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
 		self.clipArgs.setdefault('clip_iters',3)
 		self.clipArgs.setdefault('clip_sig',2.2)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
 		self.growKern = None #np.ones((self.binGrowSize,self.binGrowSize),dtype=bool)
+		self.nPad = 10
 		self.noConvert = True
 	def _preprocess(self,fits,f):
 		self._proclog('generating sky mask for %s' % f)
@@ -1067,8 +1068,7 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		if (data>hdr['SATUR']).sum() > 50000:
 			# if too many pixels are saturated mask the whole damn thing
 			hdr['BADSKY'] = 1
-		n = self.nSample
-		sky,rms = bokutil.array_stats(data[self.statsPix][::n,::n],
+		sky,rms = bokutil.array_stats(data[self.statsPix],
 		                              method='mode',rms=True,
 		                              **self.clipArgs)
 		binnedIm = bokutil.rebin(data,self.nBin)
@@ -1094,9 +1094,13 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		# grow the mask from positive deviations
 		binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
 		                structure=self.growKern,output=mask)
-		# fill in holes in the mask
-		binary_closing(mask,iterations=5,structure=self.growKern,
-		               output=mask)
+		# fill in holes in the mask -- binary closing will lose masked
+		# values at edge, so have to pad the mask first
+		# should also check scipy.ndimage.morphology.binary_fill_holes()...
+		maskpad = np.pad(mask,self.nPad,mode='constant',constant_values=0)
+		binary_closing(maskpad,iterations=5,structure=self.growKern,
+		               output=maskpad)
+		mask[:] |= maskpad[self.nPad:-self.nPad,self.nPad:-self.nPad]
 		# bright star mask
 		bsmask = False # XXX
 		# construct the output array
@@ -1106,10 +1110,13 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 class BokFringePatternStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','ccd_central_quadrant')
+		self.nSample = kwargs.get('num_sample',4)
 		#kwargs.setdefault('scale','normalize_mode')
 		kwargs.setdefault('maxmem',5)
 		kwargs.setdefault('fill_value',1.0)
 		super(BokFringePatternStack,self).__init__(**kwargs)
+		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'),
+		                                     self.nSample)
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
 		self.statsMethod = kwargs.get('stats_method','mode')
@@ -1192,6 +1199,7 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
 		# override some defaults
+		self.statsPix = bokutil.stats_region(self.statsRegion,8)
 		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs['clip_iters'] = 3
 		self.clipArgs['clip_sig'] = 2.2
@@ -1206,7 +1214,9 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		fits = bokutil.BokMefImage(self.inputNameMap(f),
 		                           mask_file=self.maskNameMap(f),
 		                           read_only=True)
-		normpix = fits.get(self.normCCD,self.statsPix)
+		# XXX have the get the full image and then subsample, because
+		#     fitsio doesn't handle negative slice boundaries
+		normpix = fits.get(self.normCCD)[self.statsPix]
 		meanVal = bokutil.array_stats(normpix,method=self.statsMethod,
 		                              **self.clipArgs)
 		norm = 1/meanVal
