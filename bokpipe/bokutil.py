@@ -91,9 +91,9 @@ def bok_getxy(hdr,coordsys='image',coord=None):
 # be careful - these slices can't be applied to read a subregion using fitsio.
 # i.e., fitsio.FITS(f)[extn][slice] will not work (reads to end of image),
 # but fitsio.FITS(f)[extn].read()[slice] will
-def stats_region(statreg):
+def stats_region(statreg,stride=None):
 	if statreg is None:
-		return np.s_[:,:]
+		return np.s_[::stride,::stride]
 	elif type(statreg) is tuple:
 		x1,x2,y1,y2 = statreg
 	elif statreg == 'amp_central_quadrant':
@@ -113,7 +113,7 @@ def stats_region(statreg):
 		x1,x2,y1,y2 = (1024,-1024,1024,-1024)
 	else:
 		raise ValueError
-	return np.s_[y1:y2,x1:x2]
+	return np.s_[y1:y2:stride,x1:x2:stride]
 
 def _write_stack_header_cards(fileList,cardPrefix):
 	hdr = fitsio.read_header(fileList[0])
