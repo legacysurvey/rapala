@@ -622,12 +622,10 @@ def make_images(dataMap,imtype='sky',msktype=None,processes=1):
 	else:
 		maskmap = dataMap.getCalMap(msktype)
 	imdir = os.path.join(dataMap.getProcDir(),'images')
-	if not os.path.exists(imdir):
-		os.mkdir(imdir)
-	for utd in dataMap.getUtDates():
-		imgd = os.path.join(imdir,utd)
+	for utDir in dataMap.getUtDirs():
+		imgd = os.path.join(imdir,utDir)
 		if not os.path.exists(imgd):
-			os.mkdir(imgd)
+			os.makedirs(imgd)
 	plt.ioff()
 	p_img_worker = partial(_img_worker,imdir,_fmap,maskmap)
 	procmap(p_img_worker,dataMap.getFiles(imType='object'))
