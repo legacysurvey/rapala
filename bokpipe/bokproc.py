@@ -349,6 +349,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.gainMultiply = kwargs.get('gain_multiply',True)
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
+		self.divideExpTime = kwargs.get('divide_exptime',False)
 		# hacky way to say arithmetic is appropriate for inverse-var maps
 		self.asWeight = kwargs.get('asweight',False)
 		# store the maps to calibration images
@@ -386,6 +387,9 @@ class BokCCDProcess(bokutil.BokProcess):
 				else:
 					fn = curPath
 				hdrCards[hdrKey] = fn
+		if self.divideExpTime:
+			hdrCards['BUNIT'] = 'counts/s'
+			self.curExpTime = fits.outFits[0].read_header()['EXPTIME']
 		fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
 		# XXX hacky way to preserve arithmetic on masked pixels,
@@ -429,6 +433,8 @@ class BokCCDProcess(bokutil.BokProcess):
 			hdr['SATUR'] = saturation_dn
 		if fscl is not None:
 			hdr['FRNGSCL'] = float(fscl)
+		if self.divideExpTime:
+			data /= self.curExpTime
 		return data,hdr
 
 class BokWeightMap(bokutil.BokProcess):

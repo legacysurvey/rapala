@@ -448,6 +448,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                             gain_multiply=False,bias=None,flat=None,
 		                             ramp=None,fixpix=False,fringe=fringe,
 		                             illum=illum,skyflat=skyflat,
+		                             divide_exptime=True,
 		                             **kwargs)
 		proc.process_files(_filesUtdFilt)
 	if not noweightmap and not (noillumcorr and noskyflatcorr):
@@ -459,7 +460,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                               gain_multiply=False,bias=None,flat=None,
 		                               ramp=None,fixpix=False,fringe=None,
 		                               illum=illum,skyflat=skyflat,
-		                               asweight=True,
+		                               divide_exptime=True,asweight=True,
 		                               **kwargs)
 		wtproc.process_files(filesUtdFilt)
 	if noskysub:
