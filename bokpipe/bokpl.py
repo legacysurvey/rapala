@@ -236,9 +236,9 @@ def balance_gains(dataMap,**kwargs):
 	return gainMap
 
 def files_by_utdfilt(dataMap,imType='object',filt=None):
-	if filt is None:
-		filt = dataMap.getFilters()
 	if len(dataMap.utDates) > 20: # XXX >> nProc
+		if filt is None:
+			filt = dataMap.getFilters()
 		filesUtdFilt = [ dataMap.getFiles(imType=imType,filt=_filt)
 		                   for _utd in dataMap.iterUtDates()
 		                     for _filt in filt ]
@@ -246,7 +246,7 @@ def files_by_utdfilt(dataMap,imType='object',filt=None):
 		# also return flattened list
 		files = [ f for utdfilt in filesUtdFilt for f in utdfilt ]
 	else:
-		files = filesUtdFilt = dataMap.getFiles(**kwargs)
+		files = filesUtdFilt = dataMap.getFiles(imType=imType,filt=filt)
 	return files,filesUtdFilt
 
 def process_all(dataMap,nobiascorr=False,noflatcorr=False,
