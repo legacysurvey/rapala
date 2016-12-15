@@ -8,6 +8,7 @@ from copy import copy
 from functools import partial
 import multiprocessing
 import numpy as np
+from scipy.ndimage.morphology import binary_dilation
 import fitsio
 from astropy.table import Table
 
@@ -367,13 +368,15 @@ def make_fringe_masters(dataMap,byUtd=False,**kwargs):
 		outfn = dataMap.storeCalibrator('fringe',frames)
 		fringeStack.stack(files,outfn)
 
-def make_supersky_flats(dataMap,byUtd=False,**kwargs):
+def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 	caldir = dataMap.getCalDir()
 	stackin = dataMap('sky') # XXX
+	statsReg = bokutil.stats_region(None,16)
+	growKern = None
+	growThresh = 2.0
 	skyFlatStack = bokproc.BokNightSkyFlatStack(input_map=stackin,
 	                                            mask_map=dataMap('skymask'),
 	                    exposure_time_map=bokio.FileNameMap(caldir,'.exp'),
-	                       raw_stack_file=bokio.FileNameMap(caldir,'_raw'),
 	                                        header_bad_key='BADSKY',
 	                                            **kwargs)
 	skyFlatStack.set_badpixelmask(dataMap.getCalMap('badpix4'))
@@ -385,8 +388,37 @@ def make_supersky_flats(dataMap,byUtd=False,**kwargs):
 	for filt,utd in filtAndUtd:
 		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
 		                                with_frames=True)
-		outfn = dataMap.storeCalibrator('skyflat',frames)
-		skyFlatStack.stack(files,outfn)
+		_outfn = outfn = dataMap.storeCalibrator('skyflat',frames)
+		if interpFill:
+			_outfn = _outfn.replace('.fits','_raw.fits')
+		skyFlatStack.stack(files,_outfn)
+		if interpFill:
+			fits = bokutil.BokMefImage(_outfn,
+			                           output_file=outfn,
+			                           mask_file=dataMap.getCalMap('badpix4'))
+			expMapFn = bokio.FileNameMap(caldir,'.exp')(_outfn)
+			expFits = bokutil.FakeFITS(expMapFn)
+			mask = {}
+			for ccd,data,hdr in fits:
+				expim = expFits[ccd]
+				# mask underexposed regions
+				expmask = expim < 0.5*np.median(expim[expim>0])
+				# mask large deviations
+				statsPix = bokutil.array_clip(data[statsReg],
+				                              clip_iters=2,clip_sig=5.0)
+				snr = np.abs(data-statsPix.mean())/statsPix.std()
+				m = (snr > 10) | (data==1) | expmask
+				# grow mask
+				binary_dilation(m,mask=(snr>growThresh),iterations=0,
+				                structure=growKern,output=m)
+				mask[ccd] = m
+			fits.add_mask(mask)
+			backfit = bokproc.SplineBackgroundFit(fits,nKnots=50,
+			                                      order=1,nbin=16)
+			for ccd,data,hdr in fits:
+				data[data.mask] = backfit.get(ccd)[data.mask]
+				fits.update(data.filled(),hdr)
+			fits.close()
 
 def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
                  nofringecorr=False,noskysub=False,noweightmap=False,

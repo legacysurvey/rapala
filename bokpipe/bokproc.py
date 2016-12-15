@@ -1205,8 +1205,6 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.clipArgs['clip_sig'] = 2.2
 		self.clipArgs['clip_cenfunc'] = np.ma.mean
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
-		self.rawStackFile = kwargs.get('raw_stack_file')
-		self.rawStackFits = None
 		self.procmap = kwargs.get('procmap',map)
 		self.normCCD = 'CCD1'
 		self.headerKey = 'SKYFL'
@@ -1236,16 +1234,6 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		norms = procmap(self._getnorm,fileList)
 		self.norms = np.array(norms).astype(np.float32)
 		self.procmap = procmap
-		if self.rawStackFile is not None:
-			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
-			rawFn = self.rawStackFile(outFits._filename)
-			if os.path.exists(rawFn):
-				os.remove(rawFn)
-			self.rawStackFits = fitsio.FITS(rawFn,'rw')
-			# if we've gotten to here, we already know any existing file 
-			# needs to be clobbered (XXX but this didn't work??? added above)
-			self.rawStackFits.write(None,header=outFits[0].read_header(),
-			                        clobber=True)
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
 			_scales = scales[np.newaxis,:]
@@ -1254,30 +1242,9 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.scales = _scales.squeeze()
 		return imCube * _scales
 	def _postprocess(self,extName,stack,hdr):
-		###import pdb; pdb.set_trace()
-		#### XXX hardcoded params
-		###stack = interpolate_masked_pixels(stack,along='rows',method='linear')
-		#### ignore the input mask and adopt the interpolation mask;
-		####   nan values mean no interpolation was possible
-		###interpMask = np.isnan(stack.data)
-		###cleanStack = np.ma.masked_array(stack.data,mask=interpMask)
-		###cleanStack = cleanStack.filled(1.0)
-		cleanStack = stack.filled(1.0)
-		interpMask = False
-		if self.rawStackFile is not None:
-			self.rawStackFits.write(cleanStack,extname=extName,header=hdr)
-		cleanStack = spline_filter(cleanStack,self.smoothingLength)
-		# renormalize to unity, using the combined interp and input mask
-		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
-		normpix = sigma_clip(_stack[self.statsPix],iters=2,sigma=2.5,
-		                     cenfunc=np.ma.mean)
-		_stack /= normpix.mean()
-		return _stack,hdr
-	def _cleanup(self):
-		super(BokNightSkyFlatStack,self)._cleanup()
-		if self.rawStackFits is not None:
-			self.rawStackFits.close()
-			self.rawStackFits = None
+		# renormalize to unity
+		stack /= bokutil.array_clip(stack[self.statsPix]).mean()
+		return stack,hdr
 
 
 
