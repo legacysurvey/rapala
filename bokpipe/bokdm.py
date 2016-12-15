@@ -205,11 +205,11 @@ class CalibratorMap(BokCalibrator):
 				return
 			else:
 				raise ValueError("image %s has no calibration" % f)
-		if f != self.currentFile:
+		if cal != self.currentFile:
+			print 'reset cal ',f,cal,self.currentFile
 			if self.currentFits:
 				self.currentFits.close()
 			self.currentFile = cal
-			print 'loading cal ',self.currentFile
 			self.currentFits = FakeFITS(self.currentFile)
 			return True
 		return False
