@@ -35,12 +35,12 @@ PHOT_AUTOPARAMS  2.5, 3.5       # MAG_AUTO parameters: <Kron_fact>,<min_radius>
 PHOT_PETROPARAMS 2.0, 3.5       # MAG_PETRO parameters: <Petrosian_fact>,
                                 # <min_radius>
  
-SATUR_LEVEL      75000.0        # level (in ADUs) at which arises saturation
+#SATUR_LEVEL      75000.0        # level (in ADUs) at which arises saturation
 SATUR_KEY        SATUR          # keyword for saturation level (in ADUs)
  
 MAG_ZEROPOINT    25.0           # magnitude zero-point
 MAG_GAMMA        4.0            # gamma of emulsion (for photographic scans)
-GAIN             1.0            # detector gain in e-/ADU
+#GAIN             1.0            # detector gain in e-/ADU
 GAIN_KEY         GAIN           # keyword for detector gain in e-/ADU
 PIXEL_SCALE      0.455          # size of pixel in arcsec (0=use FITS WCS info)
  

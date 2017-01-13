@@ -55,7 +55,7 @@ nominal_gain = np.array(
     1.42733335,  1.38764536,  1.3538, 1.45403028
   ] )
 
-saturation_dn = 65000
+saturation_dn = 62000
 
 # XXX
 configdir = os.environ['BOKPIPE']+'/config/'
@@ -258,7 +258,7 @@ class BokBiasStack(bokutil.ClippedMeanStack):
 		return stack,hdr
 
 class BokDomeFlatStack(bokutil.ClippedMeanStack):
-	overExposedFlatCounts = 40000
+	overExposedFlatCounts = 45000
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','amp_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
@@ -388,7 +388,8 @@ class BokCCDProcess(bokutil.BokProcess):
 					fn = curPath
 				hdrCards[hdrKey] = fn
 		if self.divideExpTime:
-			hdrCards['BUNIT'] = 'counts/s'
+			#hdrCards['BUNIT'] = 'counts/s'
+			hdrCards['UNITS'] = 'counts/s'
 			self.curExpTime = fits.outFits[0].read_header()['EXPTIME']
 		fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
@@ -435,6 +436,8 @@ class BokCCDProcess(bokutil.BokProcess):
 			hdr['FRNGSCL'] = float(fscl)
 		if self.divideExpTime:
 			data /= self.curExpTime
+			hdr['SATUR'] /= self.curExpTime
+			hdr['GAIN'] *= self.curExpTime
 		return data,hdr
 
 class BokWeightMap(bokutil.BokProcess):
