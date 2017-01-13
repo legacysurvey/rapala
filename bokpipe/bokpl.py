@@ -484,15 +484,22 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 	skySub.add_mask(dataMap.getCalMap('badpix4'))
 	skySub.process_files(files)
 
-def set_wcs(dataMap,inputType='sky',keepwcscat=True,**kwargs):
+def set_wcs(dataMap,inputType='sky',savewcs=False,keepwcscat=True,
+            redowcscat=False,**kwargs):
 	filesAndFields = dataMap.getFiles(imType='object',with_objnames=True)
 	for imFile,fieldName in zip(*filesAndFields):
 		imageFile = dataMap(inputType)(imFile)
 		catFile = dataMap('wcscat')(imFile)
-		bokphot.sextract(imageFile,catFile,**kwargs)
+		# kwargs sent to the following are added sextractor/scamp parameters
+		#  (e.g., {'VERBOSE':'FULL'}), so remap the pipeline kwargs 
+		bokphot.sextract(imageFile,catFile,
+		                 clobber=redowcscat,
+		                 verbose=kwargs.get('verbose',0))
 		bokastrom.scamp_solve(imageFile,catFile,
 		                      dataMap.getScampRefCat(fieldName),
-		                      filt='r',**kwargs)
+		                      filt='r',savewcs=savewcs,
+		                      clobber=kwargs.get('clobber',False),
+		                      verbose=kwargs.get('verbose',0))
 		if not keepwcscat:
 			os.unlink(catFile)
 
@@ -582,11 +589,16 @@ def bokpipe(dataMap,**kwargs):
 		             noweightmap=kwargs.get('noweightmap'),
 		             noskysub=kwargs.get('noskysub'),
 		             prockey=kwargs.get('prockey','CCDPRO2'),
+		             redoskymask=kwargs.get('redoskymask'),
 		             save_sky=kwargs.get('savesky'),
 		             **pipekwargs)
 		timerLog('process2')
 	if 'wcs' in steps:
-		set_wcs(dataMap,**pipekwargs)
+		set_wcs(dataMap,
+		        savewcs=kwargs.get('savewcs',False),
+		        keepwcscat=kwargs.get('keepwcscat',True),
+		        redowcscat=kwargs.get('redowcscat',False),
+		        **pipekwargs)
 		timerLog('wcs')
 	if 'cat' in steps:
 		make_catalogs(dataMap,**pipekwargs)
@@ -765,6 +777,8 @@ def init_pipeline_args(parser):
 	                help='make png images instead of processing ')
 	parser.add_argument('--imagetype',type=str,default='sky',
 	                help='make images from (imtype,[msktype]) [default: sky]')
+	parser.add_argument('--savewcs',action='store_true',
+	                help='write wcs to headers')
 	parser.add_argument('--wcscheck',action='store_true',
 	                help='make astrometry diagnostic files')
 	return parser

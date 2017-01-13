@@ -41,9 +41,9 @@ def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
 	  '-FILTER_NAME',os.path.join(configDir,'default.conv'),
 	  '-STARNNW_NAME',os.path.join(configDir,'default.nnw'),
 	])
-	if verbose > 2:
+	if verbose >= 5:
 		cmd.extend(['-VERBOSE_TYPE','FULL'])
-	elif verbose > 1:
+	elif verbose >= 2:
 		cmd.extend(['-VERBOSE_TYPE','NORMAL'])
 	elif verbose > 0:
 		print 'generating wcs catalog for ',imageFile

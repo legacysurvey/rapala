@@ -51,9 +51,9 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	  'ASTRCLIP_NSIGMA':3.0,
 	  'CHECKPLOT_TYPE':'NONE',
 	}
-	if verbose > 2:
+	if verbose >= 5:
 		scamp_pars['VERBOSE_TYPE'] = 'FULL'
-	elif verbose > 1:
+	elif verbose >= 2:
 		scamp_pars['VERBOSE_TYPE'] = 'NORMAL'
 	if refStarCatFile is not None and os.path.exists(refStarCatFile):
 		scamp_pars['ASTREFCAT_NAME'] = refStarCatFile
