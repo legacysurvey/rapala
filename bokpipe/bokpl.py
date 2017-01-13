@@ -422,7 +422,7 @@ def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 
 def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
                  nofringecorr=False,noskysub=False,noweightmap=False,
-                 prockey='CCDPRO2',save_sky=False,**kwargs):
+                 prockey='CCDPRO2',redoskymask=False,save_sky=False,**kwargs):
 	#
 	# Second round: illumination, fringe, and skyflat corrections
 	#
@@ -469,11 +469,13 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 	# Sky subtraction
 	#
 	# Generate sky masks by agressively masking objects
+	skymskkwargs = copy(kwargs) # sky masks are time-consuming so only
+	skymskkwargs['clobber'] = redoskymask  # redo if really necessary
 	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
 	                                    input_map=dataMap('proc2'),
 	                                    output_map=dataMap('skymask'),
 	                                    mask_map=dataMap.getCalMap('badpix4'),
-	                                              **kwargs)
+	                                              **skymskkwargs)
 	skyFlatMask.process_files(files)
 	skyfitmap = dataMap('skyfit') if save_sky else None
 	skySub = bokproc.BokSkySubtract(input_map=dataMap('proc2'),
@@ -763,6 +765,8 @@ def init_pipeline_args(parser):
 	                help='sky subtraction method ([polynomial]|spline)')
 	parser.add_argument('--skyorder',type=int,default=1,
 	                help='sky subtraction order [default: 1 (linear)]')
+	parser.add_argument('--redoskymask',action='store_true',
+	                help='redo sky mask generation')
 	parser.add_argument('--savesky',action='store_true',
 	                help='save sky background fit')
 	parser.add_argument('--noweightmap',action='store_true',
