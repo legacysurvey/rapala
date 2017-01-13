@@ -339,7 +339,13 @@ class BokDataManager(object):
 	def getTmpDir(self):
 		return self._tmpDir
 	def setUtDates(self,utDates):
-		self.utDates = utDates
+		# allows a range of dates to be specified by simply shortening the
+		# string, i.e., '2014' is equivalent to '2014*'
+		# use set to make sure the list is unique
+		utdlist = list(set([ utd for f in utDates 
+		                           for utd in self.allUtDates 
+		                             if utd.startswith(f) ]))
+		self.utDates = sorted(utdlist)
 	def getUtDates(self):
 		return self.utDates
 	def iterUtDates(self):
