@@ -486,24 +486,38 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 	skySub.add_mask(dataMap.getCalMap('badpix4'))
 	skySub.process_files(files)
 
-def set_wcs(dataMap,inputType='sky',savewcs=False,keepwcscat=True,
-            redowcscat=False,**kwargs):
-	filesAndFields = dataMap.getFiles(imType='object',with_objnames=True)
-	for imFile,fieldName in zip(*filesAndFields):
+def _wcs_worker(dataMap,inputType,redowcscat,savewcs,keepwcscat,
+                clobber,verbose,inp):
+	try:
+		imFile,fieldName = inp
 		imageFile = dataMap(inputType)(imFile)
 		catFile = dataMap('wcscat')(imFile)
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] WCS: %s' % (pid,imFile)
 		# kwargs sent to the following are added sextractor/scamp parameters
 		#  (e.g., {'VERBOSE':'FULL'}), so remap the pipeline kwargs 
 		bokphot.sextract(imageFile,catFile,
-		                 clobber=redowcscat,
-		                 verbose=kwargs.get('verbose',0))
+		                 clobber=redowcscat,verbose=verbose)
 		bokastrom.scamp_solve(imageFile,catFile,
 		                      dataMap.getScampRefCat(fieldName),
 		                      filt='r',savewcs=savewcs,
-		                      clobber=kwargs.get('clobber',False),
-		                      verbose=kwargs.get('verbose',0))
+		                      clobber=clobber,verbose=verbose)
 		if not keepwcscat:
 			os.unlink(catFile)
+	except:
+		pass
+
+def set_wcs(dataMap,inputType='sky',savewcs=False,keepwcscat=True,
+            redowcscat=False,**kwargs):
+	procmap = kwargs.get('procmap',map)
+	filesAndFields = dataMap.getFiles(imType='object',with_objnames=True)
+	p_wcs_worker = partial(_wcs_worker,dataMap,inputType,redowcscat,
+	                       savewcs,keepwcscat,kwargs.get('clobber',False),
+	                       kwargs.get('verbose',0))
+	status = procmap(p_wcs_worker,zip(*filesAndFields))
 
 def make_catalogs(dataMap,inputType='sky',**kwargs):
 	files = dataMap.getFiles(imType='object')
