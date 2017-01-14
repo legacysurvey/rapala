@@ -512,16 +512,20 @@ def _wcs_worker(dataMap,inputType,redowcscat,savewcs,keepwcscat,
 
 def set_wcs(dataMap,inputType='sky',savewcs=False,keepwcscat=True,
             redowcscat=False,**kwargs):
-	procmap = kwargs.get('procmap',map)
+	procmap = kwargs.pop('procmap',map)
 	filesAndFields = dataMap.getFiles(imType='object',with_objnames=True)
 	p_wcs_worker = partial(_wcs_worker,dataMap,inputType,redowcscat,
 	                       savewcs,keepwcscat,kwargs.get('clobber',False),
 	                       kwargs.get('verbose',0))
 	status = procmap(p_wcs_worker,zip(*filesAndFields))
 
-def make_catalogs(dataMap,inputType='sky',**kwargs):
-	files = dataMap.getFiles(imType='object')
-	for imFile in files:
+def _cat_worker(dataMap,inputType,imFile,**kwargs):
+	try:
+		pid = multiprocessing.current_process().name.split('-')[1]
+	except:
+		pid = '1'
+	print '[%2s] CATALOG: %s' % (pid,imFile)
+	try:
 		imageFile = dataMap(inputType)(imFile)
 		psfFile = dataMap('psf')(imFile)
 		if not os.path.exists(psfFile):
@@ -530,6 +534,14 @@ def make_catalogs(dataMap,inputType='sky',**kwargs):
 			bokphot.run_psfex(catFile,psfFile,**kwargs)
 		catFile = dataMap('cat')(imFile)
 		bokphot.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
+	except:
+		pass
+
+def make_catalogs(dataMap,inputType='sky',**kwargs):
+	procmap = kwargs.pop('procmap',map)
+	files = dataMap.getFiles(imType='object')
+	p_cat_worker = partial(_cat_worker,dataMap,inputType,**kwargs)
+	status = procmap(p_cat_worker,files)
 
 def bokpipe(dataMap,**kwargs):
 	redo = kwargs.get('redo',False)
