@@ -77,8 +77,10 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 	if rename:
 		shutil.move(defPsfFile,psfFile)
 
-def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
+def aper_phot(image,hdr,ra,dec,aperRad,mask=None,varim=None,edge_buf=5,
+              **kwargs):
 	dopeak = kwargs.get('calc_peak',False)
+	bkgmethod = kwargs.get('background')
 	w = WCS(hdr)
 	foot = w.calc_footprint()
 	raMin,raMax = foot[:,0].min(),foot[:,0].max()
@@ -91,26 +93,37 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 	x = x[ii2]
 	y = y[ii2]
 	ii = ii[ii2]
-	bkg = sep.Background(image)
 	nObj,nAper = len(ii),len(aperRad)
 	cts = np.empty((nObj,nAper),dtype=np.float32)
 	ctserr = np.empty((nObj,nAper),dtype=np.float32)
 	flags = np.empty((nObj,nAper),dtype=np.int32)
-	# only data type sep appears to accept
-	if mask is not None:
-		mask = mask.astype(np.int32)
+	# compute global background fit if necessary
+	if varim is None or bkgmethod=='global':
+		bkg = sep.Background(image)
+	if varim is None:
+		varim = bkg.globalrms**2
+	im = image
+	skyann = None
+	if bkgmethod == 'global':
+		im = image - bkg.back()
+	elif bkgmethod == 'local':
+		skyann = (25.,40.)
 	for j,aper in enumerate(aperRad):
-		c,crms,f = sep.sum_circle(image-bkg.back(),x,y,aper,mask=mask,
-		                          gain=1.0,err=bkg.globalrms)
+		c,crms,f = sep.sum_circle(im,x,y,aper,mask=mask,
+		                          gain=1.0,bkgann=skyann,var=varim)
 		cts[:,j] = c
 		ctserr[:,j] = crms
 		flags[:,j] = f
 	rv = (x,y,ii,cts,ctserr,flags)
 	if dopeak:
 		# a pretty hacky way to do this
-		pkvals = np.array([ image[_y-5:_y+5,_x-5:_x+5].max() 
+		pkvals = np.array([ image[_y-3:_y+3+1,_x-3:_x+3+1].max() 
 		                     for _x,_y in zip(x.astype(int),y.astype(int)) ])
 		rv += (pkvals,)
+	if False:
+		nmasked = np.array([ mask[_y-3:_y+3+1,_x-3:_x+3+1].sum() 
+		                      for _x,_y in zip(x.astype(int),y.astype(int)) ])
+		rv += (nmasked,)
 	return rv
 
 def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
@@ -139,7 +152,7 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 		if badPixMask is None:
 			mask = None
 		else:
-			mask = badPixMask[extn].read()
+			mask = badPixMask[extn]
 			if maskIsWhtMap:
 				mask = (mask==0)
 			else:
