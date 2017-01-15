@@ -486,7 +486,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 	skySub.add_mask(dataMap.getCalMap('badpix4'))
 	skySub.process_files(files)
 
-def _wcs_worker(dataMap,inputType,redowcscat,savewcs,keepwcscat,
+def _wcs_worker(dataMap,inputType,savewcs,keepwcscat,
                 clobber,verbose,inp):
 	try:
 		imFile,fieldName = inp
@@ -500,7 +500,7 @@ def _wcs_worker(dataMap,inputType,redowcscat,savewcs,keepwcscat,
 		# kwargs sent to the following are added sextractor/scamp parameters
 		#  (e.g., {'VERBOSE':'FULL'}), so remap the pipeline kwargs 
 		bokphot.sextract(imageFile,catFile,
-		                 clobber=redowcscat,verbose=verbose)
+		                 clobber=clobber,verbose=verbose)
 		bokastrom.scamp_solve(imageFile,catFile,
 		                      dataMap.getScampRefCat(fieldName),
 		                      filt='r',savewcs=savewcs,
@@ -510,12 +510,11 @@ def _wcs_worker(dataMap,inputType,redowcscat,savewcs,keepwcscat,
 	except:
 		pass
 
-def set_wcs(dataMap,inputType='sky',savewcs=False,keepwcscat=True,
-            redowcscat=False,**kwargs):
+def set_wcs(dataMap,inputType='sky',savewcs=False,keepwcscat=True,**kwargs):
 	procmap = kwargs.pop('procmap',map)
 	filesAndFields = dataMap.getFiles(imType='object',with_objnames=True)
-	p_wcs_worker = partial(_wcs_worker,dataMap,inputType,redowcscat,
-	                       savewcs,keepwcscat,kwargs.get('clobber',False),
+	p_wcs_worker = partial(_wcs_worker,dataMap,inputType,savewcs,keepwcscat,
+	                       kwargs.get('clobber',False),
 	                       kwargs.get('verbose',0))
 	status = procmap(p_wcs_worker,zip(*filesAndFields))
 
@@ -625,7 +624,6 @@ def bokpipe(dataMap,**kwargs):
 		set_wcs(dataMap,
 		        savewcs=kwargs.get('savewcs',False),
 		        keepwcscat=kwargs.get('keepwcscat',True),
-		        redowcscat=kwargs.get('redowcscat',False),
 		        **pipekwargs)
 		timerLog('wcs')
 	if 'cat' in steps:
