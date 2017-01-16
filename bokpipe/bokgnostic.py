@@ -152,8 +152,10 @@ def run_scamp_diag(imageFiles,ncols=4,**kwargs):
 			print imFile,' missing'
 			rowstr += html_table_entry('','missing')
 		else:
-			hdr = bokastrom.read_headers(aheadfn)[0]
-			rms = 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS1']**2)
+			hdrs = bokastrom.read_headers(aheadfn)
+			rms = [ 3600*np.sqrt(hdr['ASTRRMS1']**2 + hdr['ASTRRMS2']**2)
+			            for hdr in hdrs ]
+			rms = np.mean(rms)
 			if rms < 0:
 				status = 'weird'
 			elif rms > 0.4:
