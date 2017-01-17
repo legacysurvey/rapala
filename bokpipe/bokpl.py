@@ -633,6 +633,34 @@ def bokpipe(dataMap,**kwargs):
 	if processes > 1:
 		pool.close()
 
+def make_variance_image(dataMap,f,bpMask,expTime,gains,skyAdu):
+	flatMap = dataMap.getCalMap('flat')
+	illumMap = dataMap.getCalMap('illum')
+	skyFlatMap = dataMap.getCalMap('skyflat')
+	flatMap.setTarget(f)
+	illumMap.setTarget(f)
+	skyFlatMap.setTarget(f)
+	varIms = {}
+	for ccdNum,extGroup in enumerate(bokproc.amp_iterator(),start=1):
+		# clipping flat field because of bad pixels, but the dome flats
+		# should be cleaned up to remove wild values
+		ims = [ skyAdu[i] *
+		         gains[i] *
+		          np.clip(flatMap.getImage('IM%d'%ampNum),0.1,10)**-2
+		            for i,ampNum in enumerate(extGroup) ]
+		varIms['CCD%d'%ccdNum] = bokutil.ccd_join(ims,ccdNum)
+	for extn in ['CCD%d'%ccdNum for ccdNum in range(1,5)]:
+		illum = illumMap.getImage(extn)
+		skyFlat = skyFlatMap.getImage(extn)
+		varIms[extn] *= ( illum * skyFlat )**-2
+		varIms[extn] += 10.**2 # hacky estimate of readnoise
+		varIms[extn] /= expTime**2
+		# required for sep
+		varIms[extn] = np.ascontiguousarray(varIms[extn])
+		badpix = bpMask[extn] > 0
+		varIms[extn][badpix] = 0
+	return varIms
+
 def _img_worker(imdir,_fmap,maskmap,fin):
 	f = _fmap(fin)
 	print f

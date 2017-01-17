@@ -132,7 +132,7 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,varim=None,edge_buf=5,
 	rv = (x,y,ii,cts,ctserr,flags,nmasked,pkvals)
 	return rv
 
-def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
+def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,varIm=None,
 	                aHeadFile=None,**kwargs):
 	from astropy.io.fits import getheader
 	maskIsWhtMap = kwargs.get('mask_is_weight_map',True)
@@ -161,7 +161,8 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 				mask = (mask==0)
 			else:
 				mask = mask.astype(np.bool)
-		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,**kwargs)
+		varim = varIm[extn] if varIm is not None else None
+		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,varim=varim,**kwargs)
 		n = len(phot[0])
 		if n==0:
 			continue

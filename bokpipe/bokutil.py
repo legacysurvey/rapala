@@ -161,7 +161,7 @@ def ccd_join(ims,ccdNum,origin='center'):
 	return ccdIm
 
 def ccd_split(ccdIm,ccdNum,origin='center'):
-	'''Reverse of ccd_join: given a CCD image, split it into 4 amplifier
+	'''Inverse of ccd_join: given a CCD image, split it into 4 amplifier
 	   images with their original orientation. Returned in numerical order
 	   (i.e., [IM1,IM2,IM3,IM4] for CCD1)'''
 	# see above (ccd_join).
