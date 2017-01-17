@@ -79,8 +79,9 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 
 def aper_phot(image,hdr,ra,dec,aperRad,mask=None,varim=None,edge_buf=5,
               **kwargs):
-	dopeak = kwargs.get('calc_peak',False)
 	bkgmethod = kwargs.get('background')
+	satVal = hdr['SATUR']
+	msk = mask | (image > satVal)
 	w = WCS(hdr)
 	foot = w.calc_footprint()
 	raMin,raMax = foot[:,0].min(),foot[:,0].max()
@@ -97,6 +98,8 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,varim=None,edge_buf=5,
 	cts = np.empty((nObj,nAper),dtype=np.float32)
 	ctserr = np.empty((nObj,nAper),dtype=np.float32)
 	flags = np.empty((nObj,nAper),dtype=np.int32)
+	nmasked = np.empty(nObj,dtype=np.int32)
+	pkvals = np.empty(nObj,dtype=np.float32)
 	# compute global background fit if necessary
 	if varim is None or bkgmethod=='global':
 		bkg = sep.Background(image)
@@ -108,33 +111,34 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,varim=None,edge_buf=5,
 		im = image - bkg.back()
 	elif bkgmethod == 'local':
 		skyann = (25.,40.)
+	# perform aperture photometry
 	for j,aper in enumerate(aperRad):
-		c,crms,f = sep.sum_circle(im,x,y,aper,mask=mask,
+		c,crms,f = sep.sum_circle(im,x,y,aper,mask=msk,
 		                          gain=1.0,bkgann=skyann,var=varim)
 		cts[:,j] = c
 		ctserr[:,j] = crms
 		flags[:,j] = f
-	rv = (x,y,ii,cts,ctserr,flags)
-	if dopeak:
-		# a pretty hacky way to do this
-		pkvals = np.array([ image[_y-3:_y+3+1,_x-3:_x+3+1].max() 
-		                     for _x,_y in zip(x.astype(int),y.astype(int)) ])
-		rv += (pkvals,)
-	if False:
-		nmasked = np.array([ mask[_y-3:_y+3+1,_x-3:_x+3+1].sum() 
-		                      for _x,_y in zip(x.astype(int),y.astype(int)) ])
-		rv += (nmasked,)
+	# clean up bad values
+	bad = np.isnan(cts) | np.isnan(ctserr)
+	cts[bad] = 0
+	ctserr[bad] = 0
+	flags[bad] |= 16
+	# additional masking and diagnostics
+	for i,(_x,_y) in enumerate(zip(x.astype(int),y.astype(int))):
+		nmasked[i] = msk[_y-3:_y+3+1,_x-3:_x+3+1].sum() 
+		pkvals[i] = image[_y-3:_y+3+1,_x-3:_x+3+1].max() 
+		if pkvals[i] > satVal:
+			flags[i] |= 4
+	rv = (x,y,ii,cts,ctserr,flags,nmasked,pkvals)
 	return rv
 
 def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 	                aHeadFile=None,**kwargs):
 	from astropy.io.fits import getheader
 	maskIsWhtMap = kwargs.get('mask_is_weight_map',True)
-	phot_cols = ('x','y','objId','counts','countsErr','flags')
-	phot_dtype = ('f4','f4','i4','f4','f4','i4')
-	if kwargs.get('calc_peak',False):
-		phot_cols += ('peakCounts',)
-		phot_dtype += ('f4',)
+	phot_cols = ('x','y','objId','counts','countsErr',
+	             'flags','nMasked','peakCounts')
+	phot_dtype = ('f4','f4','i4','f4','f4','i4','i4','f4')
 	phot_cols += ('ccdNum',)
 	phot_dtype += ('i4',)
 	if aHeadFile is not None:
