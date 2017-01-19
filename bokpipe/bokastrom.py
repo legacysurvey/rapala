@@ -7,7 +7,6 @@ import subprocess
 from copy import copy
 import numpy as np
 from astropy.io import fits
-from astropy.wcs import WCS
 
 configDir = os.path.join(os.path.split(__file__)[0],'config')
 

@@ -5,6 +5,7 @@ from collections import defaultdict
 import numpy as np
 from astropy.table import Table
 from astropy.stats import sigma_clip
+from astropy.wcs import WCS
 import fitsio
 
 import matplotlib.pyplot as plt
@@ -14,11 +15,11 @@ from . import bokproc
 from . import bokastrom
 
 def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
-	files_and_frames = dataMap.getFiles(with_frames=True)
+	files_and_frames = dataMap.getFiles(imType='object',with_frames=True)
 	cols = defaultdict(list)
 	for f,i in zip(*files_and_frames):
 		frameId,expTime = dataMap.obsDb['frameIndex','expTime'][i]
-		procf = dataMap('proc2')(f)
+		procf = dataMap('sky')(f)
 		catf = dataMap('cat')(f)
 		try:
 			imFits = fitsio.FITS(procf)
@@ -26,11 +27,28 @@ def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
 		except:
 			print frameId,procf,' does not exist'
 			continue
-		cols['frameId'].append(frameId)
+		cols['frameIndex'].append(frameId)
 		hdrs = [ imFits[extName].read_header()
 		                 for extName in ['CCD1','CCD2','CCD3','CCD4'] ]
 		cols['biasDN'].append([ h['OSCANMED'] for h in hdrs ])
-		cols['skyElPerSec'].append(hdrs[0]['SKYVAL']/expTime)
+		cols['skyElPerSec'].append(hdrs[0]['SKYVAL'])
+		cols['avCcdGain'].append([ np.mean([ h['GAIN%02d'%ampNum]
+		                          for ampNum in (ccdn*4+np.arange(4)+1) ])
+		                            for ccdn,h in enumerate(hdrs) ])
+		try:
+			if 'TPV' in hdrs[0]['CTYPE1']:
+				wcshdrs = hdrs
+			else:
+				aheadf = procf.replace('.fits','.ahead')
+				wcshdrs = bokastrom.read_headers(aheadf)
+			radec = [ WCS(h).all_pix2world(0,0,1) for h in wcshdrs ]
+			radec = np.array(radec)
+			raCent,decCent = np.mean(radec,axis=0)
+		except:
+			print i,procf,' unable to extract WCS'
+			raCent,decCent = 0.0,0.0
+		cols['raCenter'].append(raCent)
+		cols['decCenter'].append(decCent)
 		try:
 			catFits = fitsio.FITS(catf)
 			fwhm = []
