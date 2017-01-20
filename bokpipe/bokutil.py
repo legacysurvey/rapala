@@ -269,6 +269,7 @@ class BokMefImage(object):
 		self.extensions = kwargs.get('extensions')
 		maskFits = kwargs.get('mask_file')
 		headerCards = kwargs.get('add_header',{})
+		self.headerFixes = kwargs.get('header_fixes',[])
 		self.closeFiles = []
 		if self.readOnly:
 			self.fits = fitsio.FITS(self.fileName)
@@ -278,6 +279,10 @@ class BokMefImage(object):
 				self.outFits = self.fits = fitsio.FITS(self.fileName,'rw')
 				self.closeFiles.append(self.fits)
 				self.clobberHdus = True
+				for extNum,hdrfix in self.headerFixes:
+					if extNum == 0:
+						for k,v in hdrfix:
+							self.outFits[0].write_key(k,v)
 				if self.headerKey is not None:
 					self.outFits[0].write_key(self.headerKey,get_timestamp())
 			else:
@@ -298,6 +303,10 @@ class BokMefImage(object):
 					hdr = {}
 				for k,v in headerCards.items():
 					hdr[k] = v
+				for extNum,hdrfix in self.headerFixes:
+					if extNum == 0:
+						for k,v in hdrfix:
+							hdr[k] = v
 				if self.headerKey is not None:
 					hdr[self.headerKey] = get_timestamp()
 				self.outFits.write(None,header=hdr)
@@ -332,6 +341,12 @@ class BokMefImage(object):
 		if not noconvert:
 			# should probably instead track down all the upcasts
 			data = data.astype(np.float32)
+		# apply any header fixes
+		if header is not None:
+			for extNum,hdrfix in self.headerFixes:
+				if extNum == self.curExtName:
+					for k,v in hdrfix.items():
+						header[k] = v
 		# I thought this was overwriting existing HDUs, but doesn't seem to..
 		#self.outFits.write(data,extname=self.curExtName,header=header,
 		#                   clobber=self.clobberHdus)
@@ -472,6 +487,7 @@ class BokProcess(object):
 		self.clobber = kwargs.get('clobber',False)
 		self.readOnly = kwargs.get('read_only',False)
 		self.headerKey = kwargs.get('header_key')
+		self.headerFixes = kwargs.get('header_fixes',{})
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.extensions = kwargs.get('extensions')
@@ -513,6 +529,7 @@ class BokProcess(object):
 			                   keep_headers=self.keepHeaders,
 			                   clobber=self.clobber,
 			                   header_key=self.headerKey,
+			                   header_fixes=self.headerFixes.get(f,{}),
 			                   read_only=self.readOnly,
 			                   extensions=self.extensions)
 		except OutputExistsError,msg:

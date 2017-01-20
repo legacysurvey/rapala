@@ -37,14 +37,16 @@ def makeccd4image(dataMap,inputFile,outputFile=None,**kwargs):
 		ccd4map = lambda f: outputFile
 	bokproc.combine_ccds([inputFile,],output_map=ccd4map,**kwargs)
 
-def overscan_subtract(dataMap,fixsaturation=False,**kwargs):
+def overscan_subtract(dataMap,fixsaturation=False,header_fixes={},**kwargs):
 	if fixsaturation:
 		oscanSubtract = BokOverscanSubtractWithSatFix(input_map=dataMap('raw'),
 	                                        output_map=dataMap('oscan'),
+	                                        header_fixes=header_fixes,
 	                                        **kwargs)
 	else:
 		oscanSubtract = BokOverscanSubtract(input_map=dataMap('raw'),
 	                                        output_map=dataMap('oscan'),
+	                                        header_fixes=header_fixes,
 	                                        **kwargs)
 	oscanSubtract.process_files(dataMap.getFiles())
 
@@ -567,7 +569,9 @@ def bokpipe(dataMap,**kwargs):
 	timerLog = bokutil.TimerLog()
 	biasMap = None
 	if 'oscan' in steps:
-		overscan_subtract(dataMap,fixsaturation=kwargs.get('fixsaturation'),
+		overscan_subtract(dataMap,
+		                  fixsaturation=kwargs.get('fixsaturation'),
+		                  header_fixes=kwargs.get('header_fixes',{}),
 		                  **pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
