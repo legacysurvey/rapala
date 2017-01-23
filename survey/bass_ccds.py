@@ -10,6 +10,7 @@ from astropy.io import fits
 
 from bass import reform_filename,files2tiles,load_obsdb
 import bokdepth
+from bokframechar import get_ps1_zpastrom
 
 def get_bass_frames(obsLogFile):
 	# read in the observations logs created from trawling the headers,
@@ -26,11 +27,12 @@ def get_bass_frames(obsLogFile):
 	frames = frames[isbass]
 	return frames
 
-def process_frames(frames,overwrite=False,nproc=5,searchrad=None,dr3=False):
+def process_frames(frames,overwrite=False,nproc=5,searchrad=None,dr3=False,
+                   rawDir=None):
 	import multiprocessing
 	import bokframechar
-	# XXX use env
-	rawDir = '/global/project/projectdirs/cosmo/staging/bok/BOK_Raw'
+	if rawDir is None:
+		rawDir = os.environ['BASSRAWDATA']
 	files = [ os.path.join(rawDir,f['utDir'],f['fileName']+'.fits.fz')
 	                for f in frames ]
 	outputdir = os.path.join(os.environ['SCRATCH'],'imageval')
@@ -53,9 +55,10 @@ def process_frames(frames,overwrite=False,nproc=5,searchrad=None,dr3=False):
 			                            args=(_files,),kwargs=kwargs)
 			p.start()
 
-def _extract_metadata_fromheader(ccds,i,expnum,oframe):
+def _extract_metadata_fromheader(ccds,i,expnum,oframe,rdxDir=None):
 	expstr = str(expnum)
-	rdxdir = os.path.join(os.environ['BASSDATA'],'reduced')
+	if rdxDir is None:
+		rdxDir = os.path.join(os.environ['BASSDATA'],'reduced')
 	fdir = oframe['utDir']
 	# XXX shouldn't be here...
 	# gains taken from Mike Lesser's doc on 23-Sep-15
@@ -63,16 +66,16 @@ def _extract_metadata_fromheader(ccds,i,expnum,oframe):
 	          [1.48,1.43,1.53,1.48],
 	          [1.37,1.35,1.43,1.53],
 	          [1.35,1.31,1.66,1.39] ]
-	if not os.path.exists(os.path.join(rdxdir,fdir)):
-		# some of the dirs have been appended with the filter
-		fdir += oframe['filter'][-1]
+###	if not os.path.exists(os.path.join(rdxdir,fdir)):
+###		# some of the dirs have been appended with the filter
+###		fdir += oframe['filter'][-1]
 	for ccdNum,ccd in enumerate(ccds,start=1):
 		filt = oframe['filter'].replace('bokr','r')
 		imfn = ''.join(['p',expstr[:4],filt,expstr[4:],
 		                '_%d'%ccdNum,'.fits'])
 		fpath = os.path.join(fdir,imfn)
 		# extensions are not always named so use number
-		hdr = fits.getheader(os.path.join(rdxdir,fpath),0)#'CCD%d'%ccdNum)
+		hdr = fits.getheader(os.path.join(rdxDir,fpath),0)#'CCD%d'%ccdNum)
 		for k in ['seeing','crpix1','crpix2','crval1','crval2',
 		          'cd1_1','cd1_2','cd2_1','cd2_2','cali_ref']:
 			ccd[k][i] = hdr[k.upper()]
@@ -119,8 +122,46 @@ def _extract_metadata_fromfile(ccds,i,metadatf):
 				ccds[j][k+aname][i] = metaDat[ampkmap.get(k,k)][j,ai]
 	return ccds
 
+def _get_naoc_name(expnum,ccdNum,oframe,procdir,sfx=''):
+	expstr = str(expnum)
+	filt = oframe['filter'].replace('bokr','r')
+	imfn = ''.join(['p',expstr[:4],filt,expstr[4:],'_%d'%ccdNum,
+	                sfx,'.fits'])
+	return os.path.join(procdir,oframe['utDir'],imfn)
+
+def _redo_zeropoints(ccds,i,expnum,oframe,procdir,rdxDir=None):
+	if rdxDir is None:
+		rdxDir = os.path.join(os.environ['BASSDATA'],'reduced')
+	for j,ccdNum in enumerate(range(1,5)):
+		filt = oframe['filter'].replace('bokr','r')
+		#expTime = oframe['expTime']
+		ps1mf = _get_naoc_name(expnum,ccdNum,oframe,procdir,'.ps1match')
+		ps1m = fits.getdata(ps1mf)
+		# set expTime=1.0 because image units are e-/s
+		zps = get_ps1_zpastrom(ps1m,filt,1.0)#expTime)
+		# even though these are per-frame still need a copy for each ccd
+		for k in perframekeys:
+			if k=='seeing':
+				# since this is currently calculated per-ccd and only one ccd
+				# is available here, not actually using the mean across ccds
+				ccds[j][k][i] = zps[frmkmap.get(k,k)][j]
+			else:
+				ccds[j][k][i] = zps[frmkmap.get(k,k)]
+		# same as for seeing
+		ccds[j]['avsky'][i] = zps['avsky'][j]
+		for k in perccdkeys:
+			if k.startswith('ccd'):
+				ccds[j][k][i] = zps[ccdkmap.get(k,k)][j]
+		for ai,aname in enumerate('abcd'):
+			for k in perampkeys:
+				ccds[j][k+aname][i] = zps[ampkmap.get(k,k)][j,ai]
+	return ccds
+
 def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 	imgsource = kwargs.get('imgsource','raw')
+	redozeropts = kwargs.get('redozeropts',False)
+	rdxDir = kwargs.get('reduxdir',
+	                    os.path.join(os.environ['BASSDATA'],'reduced'))
 	framesOrig = frames
 	frames = frames.copy()
 	errlog = open(outfn.replace('.fits','_errors.log'),'w')
@@ -197,7 +238,8 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 		try:
 			if imgsource=='reduced':
 				ccds = _extract_metadata_fromheader(ccds,i,frame['expnum'],
-				                                    framesOrig[i])
+				                                    framesOrig[i],
+				                                    rdxDir=rdxDir)
 			else:
 				fn = frame['image_filename']
 				_fn = fn.replace('.fz','')
@@ -208,13 +250,27 @@ def frames2ccds(frames,procdir,outfn='bass-ccds-annotated.fits',**kwargs):
 			errlog.write('no processing for %s/%s\n' % 
 			               tuple(framesOrig['utDir','fileName'][i]))
 			continue
+		if redozeropts:
+			try:
+				ccds = _redo_zeropoints(ccds,i,frame['expnum'],
+				                        framesOrig[i],procdir,rdxDir=rdxDir)
+			except (IOError) as e:
+				errlog.write('no PS1 match data for %s/%s\n' % 
+				               tuple(framesOrig['utDir','fileName'][i]))
+				continue
 		# finally extract PSF data
 		try:
 			if imgsource=='reduced':
-				rdxdir = os.path.join(os.environ['BASSDATA'],'reduced')
-				psffns = [ os.path.join(rdxdir,
-				              ccd['image_filename'][i].replace('.fits','.psf'))
-				            for ccd in ccds ]
+				if redozeropts:
+					# very hacky way to access regenerated PSF files
+					psffns = [ _get_naoc_name(frame['expnum'],ccdNum,
+					                          framesOrig[i],procdir,
+					                          '.psf').replace('.fits','')
+					            for ccdNum,ccd in enumerate(ccds,start=1) ]
+				else:
+					psffns = [ os.path.join(rdxDir,
+					       ccd['image_filename'][i].replace('.fits','.psf'))
+					            for ccd in ccds ]
 				psfs = [ bokdepth.make_PSFEx_psf_fromfile(psffn,2048,2016)
 				            for psffn in psffns ]
 			else:
@@ -294,6 +350,10 @@ if __name__=='__main__':
 	       help="select only DR3 frames")
 	parser.add_argument("--searchradius",type=float,
 	       help="WCS search radius in deg when processing")
+	parser.add_argument("--redozeropts",action="store_true",
+	                    help="redo PS1 zeropoints")
+	parser.add_argument("--reduxdir",type=str,
+	       help="location of processed data")
 	args = parser.parse_args()
 	frames = vstack([get_bass_frames(t) for t in args.inputFiles])
 	if args.framenums is not None:
@@ -325,5 +385,7 @@ if __name__=='__main__':
 					nfound += 1
 			print nfound,len(frames)
 		else:
-			frames2ccds(frames,args.outputdir,args.ccdsfile,imgsource=imgsrc)
+			frames2ccds(frames,args.outputdir,args.ccdsfile,
+			            imgsource=imgsrc,redozeropts=args.redozeropts,
+			            reduxdir=args.reduxdir)
 

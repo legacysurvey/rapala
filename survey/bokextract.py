@@ -15,6 +15,8 @@ def sextract(imagepath,frompv=True,redo=False,
 		print catpath,' exists; skipping'
 		return
 	_imagepath = imagepath.replace('.fits','_pv.fits') if frompv else imagepath
+	if True:
+		outdev = open(os.devnull,'w')
 	if withpsf:
 		if psfpath is None:
 			ldaccatpath = catpath.replace('.cat','.ldac_cat')
@@ -24,21 +26,21 @@ def sextract(imagepath,frompv=True,redo=False,
 		if redopsf or not os.path.exists(psfpath):
 			cmd = ['sex','-c',os.path.join(cfgdir,'psfex.sex'),
 			       '-CATALOG_NAME',ldaccatpath,_imagepath]
-			subprocess.call(cmd)
+			subprocess.call(cmd,stdout=outdev)
 			cmd = ['psfex','-c',os.path.join(cfgdir,'default.psfex'),
 			       ldaccatpath]
-			subprocess.call(cmd)
+			subprocess.call(cmd,stdout=outdev)
 		else:
 			print 'using psf ',psfpath
 		if not onlypsf:
 			cmd = ['sex','-c',os.path.join(cfgdir,'default.sex'),
 			       '-CATALOG_NAME',catpath,
 			       '-PSF_NAME',psfpath,_imagepath]
-			subprocess.call(cmd)
+			subprocess.call(cmd,stdout=outdev)
 	else:
 		cmd = ['sex','-c',os.path.join(cfgdir,'default.sex'),
 		       '-CATALOG_NAME',catpath,_imagepath] + xargs
-		subprocess.call(cmd)
+		subprocess.call(cmd,stdout=outdev)
 
 def sextract_all(**kwargs):
 	files = sorted(glob.glob(os.path.join(rdxdir,'2015????','ccdproc3',

@@ -71,6 +71,7 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 	raoff = np.zeros(4,dtype=np.float32)
 	decoff = np.zeros(4,dtype=np.float32)
 	seeing = np.zeros(4,dtype=np.float32)
+	avsky = np.zeros(4,dtype=np.float32)
 	medgicolor = np.zeros(4,dtype=np.float32)
 	nccd = np.zeros(4,dtype=np.int32)
 	namp = np.zeros((4,4),dtype=np.int32)
@@ -85,17 +86,19 @@ def get_ps1_zpastrom(matchedCat,filt,expTime,apNum=1,brightLim=16.0):
 		nccd[ccdNum-1] = (~dmag.mask).sum()
 		raoff[ccdNum-1] = np.median(dra[ii[~dmag.mask]])*3600
 		decoff[ccdNum-1] = np.median(ddec[ii[~dmag.mask]])*3600
-		seeing = np.median(matchedCat['FWHM_IMAGE'][ii[~dmag.mask]])*pixscale
+		seeing[ccdNum-1] = np.median(matchedCat['FWHM_IMAGE'][ii[~dmag.mask]])*pixscale
 		medgicolor[ccdNum-1] = np.median(ps1gi[ii[~dmag.mask]])
+		avsky[ccdNum-1] = np.median(matchedCat['BACKGROUND'][ii])
 		for ai in range(4):
 			ii = np.where((matchedCat['ccdNum']==ccdNum) & 
 			              (ampIndex==ai))[0]
-			dmag = sigma_clip(ps1bokmag[ii]-bokmag[ii])
-			zpAmp[ccdNum-1,ai] = dmag.mean()
-			namp[ccdNum-1,ai] = (~dmag.mask).sum()
+			if len(ii) > 5:
+				dmag = sigma_clip(ps1bokmag[ii]-bokmag[ii])
+				zpAmp[ccdNum-1,ai] = dmag.mean()
+				namp[ccdNum-1,ai] = (~dmag.mask).sum()
 	return dict(zpim=zpIm,zpccd=zpCCD,zpamp=zpAmp,zprmsCCD=zprmsCCD,
 	            raoff=raoff,decoff=decoff,
-	            seeing=seeing,medgicolor=medgicolor,
+	            seeing=seeing,medgicolor=medgicolor,avsky=avsky,
 	            nstarsim=nim,nstarsccd=nccd,nstarsamp=namp)
 
 def _hextract_wcs(hdus,fromldac=False):
@@ -250,10 +253,12 @@ def process_raw_images(images,outputDir='./',overwrite=False,cleanup=True,
 				pass
 	_tmpf.close()
 
-def process_image(image,outputDir='./',overwrite=False,naocver=False,
-                  redoifnocal=True):
+def _process_image(image,outputDir='./',overwrite=False,naocver=False,
+                   redoifnocal=True):
 	print 'processing ',image
-	imFile = os.path.basename(image)
+	imDir,imFile = os.path.split(image)
+	imDir,utDir = os.path.split(imDir)
+	outputDir = os.path.join(outputDir,utDir)
 	isfz = imFile.endswith('.fz')
 	imFile = imFile.replace('.fz','')
 	catFile = os.path.join(outputDir,imFile.replace('.fits','.cat.fits'))
@@ -282,7 +287,28 @@ def process_image(image,outputDir='./',overwrite=False,naocver=False,
 				ps1m['ccdNum'] = int(imFile[-6])
 			ps1m.write(ps1File,overwrite=True)
 
+def process_image(image,**kwargs):
+	try:
+		_process_image(image,**kwargs)
+	except:
+		print image,' FAILED TO PROCESS'
+
 def process_images(images,nproc=1,**kwargs):
+	# have to make the dirs before splitting into subprocesses
+	outputDir = kwargs.get('outputDir','.')
+	dirs = { os.path.join(outputDir,os.path.split(os.path.split(f)[0])[1]):0
+	           for f in images }
+	for d in dirs.keys():
+		if not os.path.exists(d):
+			os.makedirs(d)
+	if True:
+		# prune all frames that already completed to the PS1 matching step
+		allps1m = glob.glob(os.path.join(outputDir,'*','*ps1match.*'))
+		allps1m = [ os.path.basename(f).replace('.ps1match','') 
+		                   for f in allps1m ]
+		images = [ im for im in images 
+		               if os.path.basename(im) not in allps1m ]
+	print len(images), ' frames to process'
 	pool = multiprocessing.Pool(nproc)
 	_proc = partial(process_image,**kwargs)
 	pool.map(_proc,images)
