@@ -1,15 +1,19 @@
 #!/usr/bin/env python
 
-import os
+import os,sys
 import re
 import shutil
 import tempfile
-import subprocess
+import multiprocessing
+from functools import partial
 import numpy as np
 from scipy.interpolate import LSQBivariateSpline,RectBivariateSpline,griddata
+from scipy.interpolate import LSQUnivariateSpline
+from scipy.interpolate import interp1d,interp2d
 from scipy.signal import spline_filter
 from scipy.ndimage.morphology import binary_dilation,binary_closing
 import scipy.ndimage.measurements as meas
+from skimage import measure
 from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
 from astropy.convolution.convolve import convolve
@@ -17,11 +21,16 @@ from astropy.convolution.kernels import Gaussian2DKernel
 import fitsio
 
 from .bokio import *
+from . import bokdm
 from . import bokutil
-from .bokoscan import extract_overscan
+from .bokoscan import extract_overscan,overscan_subtract
 
 # the order of the amplifiers in the FITS extensions, i.e., HDU1=amp#4
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
+def amp_iterator():
+	'''iterate over amplifiers split by CCD'''
+	for i in range(0,16,4):
+		yield ampOrder[i:i+4]
 
 # a 90Prime FITS MEF file has 16 extensions, one for each amplifier
 # iterate over them in the order given above
@@ -46,12 +55,16 @@ nominal_gain = np.array(
     1.42733335,  1.38764536,  1.3538, 1.45403028
   ] )
 
-saturation_dn = 65000
+saturation_dn = 62000
 
 # XXX
 configdir = os.environ['BOKPIPE']+'/config/'
 
-from scipy.interpolate import interp1d,interp2d
+class OverExposedFlatException(Exception):
+	def __init__(self,value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
 
 class BokImArith(bokutil.BokProcess):
 	def __init__(self,op,operand,**kwargs):
@@ -65,6 +78,52 @@ class BokImArith(bokutil.BokProcess):
 		self.operandFits = fitsio.FITS(self.operand)
 	def process_hdu(self,extName,data,hdr):
 		return self.op(data,self.operandFits[extName][:,:]),hdr
+
+class BokImStat(bokutil.BokProcess):
+	def __init__(self,**kwargs):
+		kwargs.setdefault('read_only',True)
+		super(BokImStat,self).__init__(**kwargs)
+		self.statSec = bokutil.stats_region(kwargs.get('stats_region'))
+		self.clipArgs = kwargs.get('clip_args',{})
+		self.quickprocess = kwargs.get('quickprocess',False)
+		self.checkbad = kwargs.get('checkbad',False)
+		self.meanVals = []
+		self.rmsVals = []
+		self.badVals = []
+	def _preprocess(self,fits,f):
+		self.imgMeans = []
+		self.imgStds = []
+		self.imgBad = []
+	def process_hdu(self,extName,data,hdr):
+		if self.checkbad:
+			xy = np.indices(data.shape)
+			inf = np.isinf(data)
+			nan = np.isnan(data)
+			data = np.ma.array(data,mask=np.logical_or(inf,nan))
+			#zero = np.ma.less_equal(data,0)
+			self.imgBad.append(xy[:,data.mask])
+		if self.quickprocess:
+			pix = overscan_subtract(data,hdr,method='mean_value',
+			                        reject='sigma_clip',clip_iters=1,
+			                        apply_filter=None)
+		else:
+			pix = data
+		v,s = bokutil.array_stats(pix[self.statSec],method='mean',
+		                          rms=True,clip=True,**self.clipArgs)
+		self.imgMeans.append(v)
+		self.imgStds.append(s)
+		return data,hdr
+	def _postprocess(self,fits,f):
+		self.meanVals.append(self.imgMeans)
+		self.rmsVals.append(self.imgStds)
+		self.badVals.append(self.imgBad)
+	def _finish(self):
+		self.meanVals = np.array(self.meanVals)
+		self.rmsVals = np.array(self.rmsVals)
+	def reset(self):
+		self.meanVals = []
+		self.rmsVals = []
+		self.badVals = []
 
 def interpolate_masked_pixels(data,along='twod',method='linear'):
 	if along=='rows':
@@ -108,9 +167,17 @@ class BackgroundFit(object):
 		                                    binclip=True,single=True,
 		                                    mingood=nbin**2//3)
 		self.coordSys = coordsys
-		extensions = ['CCD%d'%i for i in range(1,5)] # XXX 4-CCD only...
 	def __call__(self,extn):
 		raise NotImplementedError
+	def write(self,outFile,opfun=None,clobber=False):
+		outFits = fitsio.FITS(outFile,'rw',clobber=clobber)
+		outFits.write(None,header=self.fits.get_header(0))
+		for extn,data,hdr in self.fits:
+			im = self.get(extn)
+			if opfun:
+				im = opfun(im)
+			outFits.write(im.astype(np.float32),extname=extn,header=hdr)
+		outFits.close()
 
 class SplineBackgroundFit(BackgroundFit):
 	def __init__(self,fits,nKnots=2,order=1,**kwargs):
@@ -167,10 +234,31 @@ class PolynomialBackgroundFit(BackgroundFit):
 class BokBiasStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','amp_central_quadrant')
+		# this helps to deal with the roll-offs frequently seen in <=2015
+		kwargs.setdefault('clip_sig',2.0)
+		kwargs.setdefault('clip_cenfunc',np.ma.median)
 		super(BokBiasStack,self).__init__(**kwargs)
 		self.headerKey = 'BIAS'
+		self.findRollOffs = kwargs.get('find_rolloffs',False)
+		self.minNexp = 5
+	def _reject_pixels(self,imCube):
+		imCube = super(BokBiasStack,self)._reject_pixels(imCube)
+		if self.findRollOffs:
+			bslice = imCube[5:10,500:1500].reshape(-1,imCube.shape[-1])
+			v = np.ma.median(bslice,axis=0).filled()
+			bad = np.where(v < -50)[0]
+			imCube[:100,:,bad] = np.ma.masked
+		return imCube
+	def _postprocess(self,extName,stack,hdr):
+		colmedian = np.ma.median(stack,axis=0).filled(0)
+		# don't know of a better way to fill along columns
+		colmedian = np.repeat(colmedian[np.newaxis,:],stack.shape[0],axis=0)
+		ismasked = stack.mask.copy() # copy suppresses a warning
+		stack[ismasked] = colmedian[ismasked]
+		return stack,hdr
 
 class BokDomeFlatStack(bokutil.ClippedMeanStack):
+	overExposedFlatCounts = 45000
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','amp_central_quadrant')
 		kwargs.setdefault('scale','normalize_mode')
@@ -180,6 +268,8 @@ class BokDomeFlatStack(bokutil.ClippedMeanStack):
 		                    bokutil.stats_region('amp_corner_ccdcenter_256'))
 	def _postprocess(self,extName,stack,hdr):
 		flatNorm = bokutil.array_stats(stack[self.normPix])
+		if flatNorm > self.overExposedFlatCounts:
+			raise OverExposedFlatException("counts=%d"%flatNorm)
 		stack /= flatNorm
 		try:
 			stack = stack.filled(1.0)
@@ -209,7 +299,7 @@ class NormalizeFlat(bokutil.BokProcess):
 		if self.binnedFlatMap is not None:
 			self.binnedFlat = fitsio.FITS(self.binnedFlatMap(f),'rw')
 			self.binnedFlat.write(None,header=fits.get_header(0))
-	def _finish(self):
+	def _postprocess(self,fits,f):
 		if self.normedFlatFit is not None:
 			self.normedFlatFit.close()
 			self.normedFlatFit = None
@@ -259,81 +349,74 @@ class BokCCDProcess(bokutil.BokProcess):
 		self.gainMultiply = kwargs.get('gain_multiply',True)
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
+		self.divideExpTime = kwargs.get('divide_exptime',False)
 		# hacky way to say arithmetic is appropriate for inverse-var maps
 		self.asWeight = kwargs.get('asweight',False)
-		self.imTypes = ['bias','flat','ramp','illum','darksky']
-		#
-		self.procIms = {}
+		# store the maps to calibration images
+		self.imTypes = ['bias','flat','ramp','illum','fringe','skyflat']
+		self.calib = {}
 		for imType in self.imTypes:
-			fitsIn = kwargs.get(imType)
-			self.procIms[imType] = {'file':None,'fits':None}
-			self.procIms[imType]['master'] = True
-			if type(fitsIn) is fitsio.fitslib.FITS:
-				self.procIms[imType]['file'] = fitsIn._filename
-				self.procIms[imType]['fits'] = fitsIn
-			elif type(fitsIn) is str:
-				self.procIms[imType]['file'] = fitsIn
-				self.procIms[imType]['fits'] = fitsio.FITS(fitsIn)
-			elif type(fitsIn) is dict:
-				self.procIms[imType]['map'] = fitsIn
-				self.procIms[imType]['master'] = False
+			cal = kwargs.get(imType)
+			if cal is None:
+				cal = bokdm.NullCalibrator()
+			self.calib[imType] = cal
 	def _preprocess(self,fits,f):
-		print 'ccdproc ',fits.fileName,fits.outFileName
+		self._proclog('ccdproc %s -> %s' % (fits.fileName,fits.outFileName))
+		hdrCards = {}
 		for imType in self.imTypes:
-			calFn = None
-			if not self.procIms[imType]['master']:
-				inFile = self.procIms[imType]['map'][f]
-				if type(inFile) is fitsio.fitslib.FITS:
-					self.procIms[imType]['fits'] = inFile
-					calFn = inFile._filename
-				elif self.procIms[imType]['file'] != inFile:
-					if self.procIms[imType]['fits'] is not None:
-						self.procIms[imType]['fits'].close()
-					self.procIms[imType]['file'] = inFile
-					self.procIms[imType]['fits'] = fitsio.FITS(inFile)
-			if calFn is None:
-				calFn = self.procIms[imType]['file']
-			hdrCards = {}
+			self.calib[imType].setTarget(f)
+			calFn = self.calib[imType].getFileName()
 			if calFn is not None:
 				# e.g., hdr['BIASFILE'] = <filename>
 				hdrKey = str(imType.upper()+'FILE')[:8]
-				curPath = calFn.rstrip('.fits')
-				if len(curPath) > 65:
+				curPath = calFn
+				if len(curPath) > 50:
 					# trim the file path if it is long
 					fn = ''
-					while len(fn)<60:
+					while True:
 						curPath,curEl = os.path.split(curPath)
 						if len(fn) == 0:
 							fn = curEl
 						else:
-							fn = os.path.join(curEl,fn)
+							_fn = os.path.join(curEl,fn)
+							if len(_fn) < 50:
+								fn = _fn
+							else:
+								break
 					fn = os.path.join('...',fn)
 				else:
 					fn = curPath
 				hdrCards[hdrKey] = fn
-			fits.outFits[0].write_keys(hdrCards)
+		if self.divideExpTime:
+			#hdrCards['BUNIT'] = 'counts/s'
+			hdrCards['UNITS'] = 'counts/s'
+			self.curExpTime = fits.outFits[0].read_header()['EXPTIME']
+		fits.outFits[0].write_keys(hdrCards)
 	def process_hdu(self,extName,data,hdr):
 		# XXX hacky way to preserve arithmetic on masked pixels,
 		#     but need to keep mask for fixpix
 		if type(data) is np.ma.core.MaskedArray:
 			data = data.data
-		bias = self.procIms['bias']['fits'] 
+		fscl = None
+		bias = self.calib['bias'].getImage(extName)
 		if bias is not None:
-			data -= bias[extName][:,:]
-		ramp = self.procIms['ramp']['fits'] 
+			data -= bias
+		ramp = self.calib['ramp'].getImage(extName)
 		if ramp is not None:
-			# this correction may not exist on all extensions
-			try:
-				data -= ramp[extName][:,:]
-			except:
-				pass
-		for flatType in ['flat','illum','darksky']:
-			flat = self.procIms[flatType]['fits']
+			data -= ramp
+		for flatType in ['flat','illum','skyflat']:
+			if flatType == 'skyflat':
+				# ugly, but this is just where it goes
+				fringe = self.calib['fringe'].getImage(extName)
+				if fringe is not None:
+					fscl = self.calib['fringe'].getFringeScale(extName,data)
+					data -= fringe * fscl
+			flat = self.calib[flatType].getImage(extName)
 			if flat is not None:
 				if self.asWeight:
-					data *= flat[extName][:,:]**2  # inverse variance
+					data *= flat**2  # inverse variance
 				else:
-					data /= flat[extName][:,:]     # image counts
+					data /= flat     # image counts
 		if self.fixPix:
 			data = interpolate_masked_pixels(data,along=self.fixPixAlong,
 			                                 method=self.fixPixMethod)
@@ -349,6 +432,12 @@ class BokCCDProcess(bokutil.BokProcess):
 			hdr['GAIN%02dA'%chNum] = self.inputGain[extName]
 		elif 'SATUR' not in hdr:
 			hdr['SATUR'] = saturation_dn
+		if fscl is not None:
+			hdr['FRNGSCL'] = float(fscl)
+		if self.divideExpTime:
+			data /= self.curExpTime
+			hdr['SATUR'] /= self.curExpTime
+			hdr['GAIN'] *= self.curExpTime
 		return data,hdr
 
 class BokWeightMap(bokutil.BokProcess):
@@ -356,69 +445,40 @@ class BokWeightMap(bokutil.BokProcess):
 		kwargs.setdefault('header_key','WHTMAP')
 		super(BokWeightMap,self).__init__(**kwargs)
 		self._mask_map = kwargs.get('_mask_map')
+		if isinstance(self._mask_map,fitsio.FITS):
+			self._mask_map = bokutil.FakeFITS(self._mask_map)
 		self.inputGain = kwargs.get('input_gain',{ 'IM%d'%ampNum:g 
 		                          for ampNum,g in zip(ampOrder,nominal_gain)})
 		self.maskFile = None
-		# ... this is copied from CCDProcess... push up to BokProcess?
-		flatIn = kwargs.get('flat')
-		self.flat = {'file':None,'fits':None}
-		self.flatIsMaster = True
-		if type(flatIn) is fitsio.fitslib.FITS:
-			self.flat['file'] = flatIn._filename
-			self.flat['fits'] = flatIn
-		elif type(flatIn) is str:
-			self.flat['file'] = flatIn
-			self.flat['fits'] = fitsio.FITS(flatIn)
-		elif type(flatIn) is dict:
-			self.flat['map'] = flatIn
-			self.flatIsMaster = False
+		self.flat = kwargs.get('flat')
+		if self.flat is None:
+			self.flat = bokdm.NullCalibrator()
 	def _preprocess(self,fits,f):
-		print 'weight map ',fits.outFileName
+		self._proclog('weight map %s' % fits.outFileName)
 		try:
 			maskFile = self._mask_map(f)
 		except:
 			maskFile = self._mask_map
 		if maskFile != self.maskFile:
-			if type(maskFile) is str:
+			if isinstance(maskFile,basestring):
 				self.maskFile = self._mask_map(f)
 				self.maskFits = fitsio.FITS(self.maskFile)
 			else:
 				self.maskFits = maskFile
-		# ... also copied from CCDProcess... 
-		calFn = None
-		if not self.flatIsMaster:
-			inFile = self.flat['map'][f]
-			if type(inFile) is fitsio.fitslib.FITS:
-				self.flat['fits'] = inFile
-				calFn = inFile._filename
-			elif self.flat['file'] != inFile:
-				if self.flat['fits'] is not None:
-					self.flat['fits'].close()
-				self.flat['file'] = inFile
-				self.flat['fits'] = fitsio.FITS(inFile)
-		if calFn is None:
-			calFn = self.flat['file']
+		self.flat.setTarget(f)
+		calFn = self.flat.getFileName()
 		fits.outFits[0].write_keys({'FLATFILE':calFn})
 	def process_hdu(self,extName,data,hdr):
-		satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
 		data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
-		mask = data > satVal
-		#mask = binary_fill_holes(mask)
-		for i in np.where(np.any(mask,axis=1))[0]:
-			jj = np.where(mask[i])[0]
-			if len(jj)>=2:
-				bb = np.where((np.diff(jj)>1)&(np.diff(jj)<100))[0]
-				for b in bb:
-					mask[i,jj[b]:jj[b+1]] = True
-		mask |= ( (self.maskFits[extName].read() > 0) |
+		data,mask = bokutil.mask_saturation(extName,data)
+		mask |= ( (self.maskFits[extName][:,:] > 0) |
 		          (data==0) )
 		data -= np.median(oscan_cols)
 #		if oscan_rows is not None:
 #			data -= np.median(oscan_rows)
-		if self.flat['fits'] is None:
+		flatField = self.flat.getImage(extName)
+		if flatField is None:
 			flatField = 1.0
-		else:
-			flatField = self.flat['fits'][extName][:,:]
 		gain = self.inputGain[extName]
 		ivar = np.clip(data,1e-10,65535)**-1
 		ivar *= (gain/flatField)**-2
@@ -454,7 +514,8 @@ class BokSkySubtract(bokutil.BokProcess):
 		# the gradient
 		self.sky0 = self.skyFit(0,0)
 	def _preprocess(self,fits,f):
-		print 'sky subtracting ',fits.fileName,fits.outFileName
+		self._proclog('sky subtracting %s -> %s' % 
+		                       (fits.fileName,fits.outFileName))
 		self._fit_sky_model(fits)
 		if self.skyFitMap is not None:
 			self.skyFits = fitsio.FITS(self.skyFitMap(f),'rw')
@@ -464,6 +525,10 @@ class BokSkySubtract(bokutil.BokProcess):
 		if self.method=='spline':
 			hdrCards['SKYNKNOT'] = self.nKnots
 		fits.outFits[0].write_keys(hdrCards)
+	def _postprocess(self,fits,f):
+		if self.skyFits is not None:
+			self.skyFits.close()
+			self.skyFits = None
 	def process_hdu(self,extName,data,hdr):
 		if type(data) is np.ma.core.MaskedArray:
 			data = data.data
@@ -474,10 +539,6 @@ class BokSkySubtract(bokutil.BokProcess):
 		if self.skyFits is not None:
 			self.skyFits.write(skyFit,extname=extName,header=hdr)
 		return data,hdr
-	def _finish(self):
-		if self.skyFits is not None:
-			self.skyFits.close()
-			self.skyFits = None
 
 ###############################################################################
 #                                                                             #
@@ -487,60 +548,282 @@ class BokSkySubtract(bokutil.BokProcess):
 ###############################################################################
 
 class BokCalcGainBalanceFactors(bokutil.BokProcess):
+	maskFracThresh = 0.67
+	ampMap = [ ((2,2,None),(2,0,'y'),(2,3,'x'),(0,1,'x')),
+	           ((1,1,None),(1,0,'x'),(1,3,'y'),(3,2,'x')),
+	           ((1,1,None),(1,0,'x'),(1,3,'y'),(3,2,'x')),
+	           ((0,0,None),(0,1,'x'),(0,2,'y'),(2,3,'x')) ]
+	# avoid correcting CCD3 from CCD1, because that is the glowing edge
+	# the result is a CCW rotation starting from CCD1
+	ccdMap = [(1,None,None,None),(2,2,7,'x'),(4,4,13,'y'),(3,14,11,'x')]
+	satVal = 1.4*55000
+	nSplineKnots = 1
+	splineOrder = 2
+	nSplineRejIter = 1
+	splineRejThresh = 2.5
+	nFillEdge = 3
 	def __init__(self,**kwargs):
 		kwargs.setdefault('read_only',True)
 		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
-		self.ampCorStatReg = bokutil.stats_region(kwargs.get('stats_region',
-		                                              'amp_corner_ccdcenter'))
 		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
-		self.clipArgs.setdefault('clip_iters',4)
+		self.clipArgs.setdefault('clip_iters',2)
 		self.clipArgs.setdefault('clip_sig',2.5)
-		self.clipArgs.setdefault('clip_cenfunc',np.ma.median)
-		self.saveArrays = kwargs.get('save_arrays',False)
+		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)#np.ma.median)
+		self.ratioClipArgs = {'clip_iters':2,'clip_sig':2.0}
+		self.amplen = kwargs.get('amp_strip_length',1024)
+		self.ampwid = kwargs.get('amp_strip_width',32)
+		self.ampstride = kwargs.get('amp_strip_stride',8)
+		self.ccdlen = kwargs.get('ccd_strip_length',1500)
+		self.ccdwid = kwargs.get('ccd_strip_width',(10,50))
+		self.ccdstride = kwargs.get('ccd_strip_stride',10)
+		j1,j2 = self.ccdwid
+		self.ampEdgeSlices = {
+		  'x':np.s_[-self.amplen::self.ampstride,-self.ampwid:],
+		  'y':np.s_[-self.ampwid:,-self.amplen::self.ampstride]
+		}
+		self.ccdEdgeSlices = {
+		  'x':np.s_[-self.ccdlen::self.ccdstride,j1:j2],
+		  'y':np.s_[j1:j2,-self.ccdlen::self.ccdstride]
+		}
+		# hugely downsample
+		self.skyRegion = bokutil.stats_region('amp_central_quadrant',10)
+		self.gainTrendMethod = kwargs.get('gain_trend_meth','spline')
+		assert self.gainTrendMethod in ['median','spline']
 		self.reset()
 	def reset(self):
 		self.files = []
-		self.gainCors = []
+		self.ampRelGains = []
+		self.ccdRelGains = []
 		self.allSkyVals = []
-		if self.saveArrays:
-			self.arrays = []
+		self.allSkyRms = []
 	def _preprocess(self,fits,f):
-		print 'calculating gain balance factors for ',self.inputNameMap(f)
+		if self.nProc > 1:
+			# this prevents the return values from _getOutput from piling up
+			# with duplicates when a subprocess is reused
+			self.reset()
+		self._proclog('calculating gain balance factors for %s' % 
+		                  self.inputNameMap(f))
 		self.files.append(f)
-		self.skyVals = []
-	def _postprocess(self,fits,f):
-		skyVals = np.array(self.skyVals)
-		# the mean sky level within each CCD
-		meanSkyCcd = skyVals.reshape(4,4).mean(axis=-1)
-		# the correction needed to balance each amp to the per-CCD sky level
-		ampGainCor = np.repeat(meanSkyCcd,4) / skyVals
-		# the mean sky level across all CCDs
-		meanSky = np.mean(skyVals)
-		# the correction needed to balance the CCDs
-		ccdGainCor = meanSky / meanSkyCcd
-		ccdGainCor = np.repeat(ccdGainCor,4)
-		self.gainCors.append((ampGainCor,ccdGainCor))
-		self.allSkyVals.append(skyVals)
+		self.hduData = []
+		self.rawSky = []
+		self.rawSkyRms = []
 	def process_hdu(self,extName,data,hdr):
-		# XXX would be more efficient to read a subregion
-		stats = bokutil.array_stats(data[self.ampCorStatReg],
-		                            method=self.statsMethod,
-		                            retArray=self.saveArrays,
-		                            **self.clipArgs)
-		if self.saveArrays:
-			skyVal,skyArr = stats
-			self.arrays.append(skyArr)
-		else:
-			skyVal = stats
-		self.skyVals.append(skyVal)
+		self.hduData.append(data)
+		sky = bokutil.array_clip(data[self.skyRegion],clip_iters=2)
+		self.rawSky.append(sky.mean())
+		self.rawSkyRms.append(sky.std())
 		return data,hdr
+	def process_files(self,files,filters):
+		self.filters = filters
+		super(BokCalcGainBalanceFactors,self).process_files(files)
+	@staticmethod
+	def _grow_saturated_blobs(ccdIm,saturated):
+		yi,xi = np.indices(ccdIm.shape)
+		# identify contiguous blogs associated with saturated pixels 
+		# (i.e., stars) and count the number of saturated pixels in 
+		# each blob, then sort by the largest number (brightest stars)
+		satBlobs = measure.label(saturated,background=0)
+		# create image with nominal mask
+		for blob in range(1,satBlobs.max()+1):
+			nSat = np.sum(satBlobs==blob)
+			if nSat < 1000:
+				continue
+			# a quick & hokey centering algorithm -- middle of the 
+			# saturated blob!
+			yextent = np.sum(satBlobs==blob,axis=0)
+			jj = np.where(yextent==yextent.max())[0]
+			xc = xi[0,jj].mean()
+			jj = np.where((satBlobs==blob)[:,int(xc)])[0]
+			yc = yi[jj,int(xc)].mean()
+			R = np.sqrt((xi-xc)**2 + (yi-yc)**2)
+			# empirically found to be a reasonable minimum radius
+			rad = pow(10,0.5*(np.log10(nSat)-np.log10(50)) + 1.6)
+			ccdIm[R<rad] = np.ma.masked
+		return ccdIm
+	def _apply_bright_star_mask(self):
+		for ccdNum,extGroup in enumerate(amp_iterator(),start=1):
+			ims = [ self.hduData[ampNum-1] for ampNum in extGroup ]
+			ccdIm = bokutil.ccd_join(ims,ccdNum)
+			saturated = (ccdIm > self.satVal) & ~ccdIm.mask
+			# bright stars have swamped the image, mask it all
+			if saturated.sum() > 50000:
+				ccdIm[:,:] = np.ma.masked
+			else:
+				ccdIm = self._grow_saturated_blobs(ccdIm,saturated)
+			ims = bokutil.ccd_split(ccdIm,ccdNum)
+			for ampNum,im in zip(extGroup,ims):
+				self.hduData[ampNum-1].mask |= im.mask
+	def _slice_ok(self,imslice,nslice):
+		return np.sum(imslice.mask)/float(nslice) < self.maskFracThresh
+	def _get_img_slice(self,imslice):
+		nslice = imslice.size
+		if not self._slice_ok(imslice,nslice): 
+			return None
+		# XXX use the global sky+rms here instead of clipping within slice
+		imslice = bokutil.array_clip(imslice,**self.clipArgs)
+		imslice.mask |= binary_dilation(imslice.mask,iterations=1)
+		if not self._slice_ok(imslice,nslice): 
+			return None
+		return imslice
+	def _get_img_slices(self,refExt,calExt,edgedir,which):
+		if which=='amp':
+			s = self.ampEdgeSlices[edgedir]
+		elif which=='ccd':
+			s = self.ccdEdgeSlices[edgedir]
+		refslice = self._get_img_slice(self.hduData[refExt][s])
+		calslice = self._get_img_slice(self.hduData[calExt][s])
+		if refslice is None or calslice is None:
+			print 'could not correct ',which,refExt,calExt
+		return refslice,calslice
+	def _get_flux_ratio(self,refExt,calExt,edgedir,which):
+		refslice,calslice = self._get_img_slices(refExt,calExt,edgedir,which)
+		if refslice is None or calslice is None:
+			return 0.0
+		axis = {'x':1,'y':0}[edgedir]
+		refv = refslice.mean(axis=axis)
+		calv = calslice.mean(axis=axis)
+		fratio = np.ma.divide(refv,calv)
+		return bokutil.array_clip(fratio,**self.ratioClipArgs).mean()
+	def _postprocess(self,fits,f):
+		self._apply_bright_star_mask()
+		gains = np.zeros(16,dtype=np.float32)
+		# balance the amps
+		for ccdi,extGroup in enumerate(amp_iterator()):
+			for ampi,ampj,edgedir in self.ampMap[ccdi]:
+				refExt = 4*ccdi + ampi
+				calExt = 4*ccdi + ampj
+				if refExt==calExt:
+					# the reference amp
+					gains[calExt] = 1.0
+				else:
+					gains[calExt] = self._get_flux_ratio(refExt,calExt,
+					                                     edgedir,'amp')
+		# store the CCD count ratios
+		ccdratios = np.ones(4,dtype=np.float32)
+		for ccdNum,refExt,calExt,edgedir in self.ccdMap:
+			if refExt==calExt:
+				# the reference CCD
+				ccdratios[ccdNum-1] = 1.0
+			else:
+				ccdratios[ccdNum-1] = self._get_flux_ratio(refExt,calExt,
+				                                           edgedir,'ccd')
+		#
+		self.ampRelGains.append(gains)
+		self.ccdRelGains.append(ccdratios)
+		self.allSkyVals.append(np.array(self.rawSky))
+		self.allSkyRms.append(np.array(self.rawSkyRms))
+	def _getOutput(self):
+		return (self.files,self.ampRelGains,self.ccdRelGains,self.allSkyVals)
+	def _null_result(self,f):
+		return ([f],[np.zeros(16,dtype=np.float32)],
+		        [np.zeros(4,dtype=np.float32)],
+		        [np.zeros(16,dtype=np.float32)])
+	def _ingestOutput(self,procOut):
+		self.files,self.ampRelGains,self.ccdRelGains,self.allSkyVals = \
+		              zip(*procOut)
+		# squeeze out the extra axis that occurs since output elements
+		# are in lists of unit length when multiprocessing
+		self.files = np.array(self.files).squeeze()
+		self.filters = np.array(self.filters).squeeze()
+		self.ampRelGains = np.array(self.ampRelGains).squeeze()
+		self.ccdRelGains = np.array(self.ccdRelGains).squeeze()
+		self.allSkyVals = np.array(self.allSkyVals).squeeze()
+	def _median_gain_trend(self,gc):
+		gc = np.ma.array(gc,mask=(gc==0),copy=True)
+		gc_clip = sigma_clip(gc,iters=2,sigma=2.0,axis=0)
+		gc[:] = gc_clip.mean(axis=0)
+		return gc.filled(0),gc.mask
+	def _spline_gain_trend(self,rawgc):
+		nimg,ngain = rawgc.shape
+		seqno = np.arange(nimg,dtype=np.float32)
+		gc = np.ma.array(rawgc,mask=(rawgc==0),copy=True)
+		msk = gc.mask.copy()
+		knots = np.linspace(0,nimg,self.nSplineKnots+2)[1:-1]
+		for j in range(ngain):
+			if np.allclose(gc[:,j],1):
+				# a reference chip
+				continue
+			ii = np.where(~gc[:,j].mask)[0]
+			rejmask = np.zeros(len(seqno),dtype=np.bool)
+			try:
+				spfit = LSQUnivariateSpline(seqno[ii],gc[ii,j].filled(),
+				                            knots,bbox=[0,nimg],
+				                            k=self.splineOrder)
+				for iternum in range(self.nSplineRejIter):
+					ii = np.where(~(gc[:,j].mask | rejmask))[0]
+					resid = gc[ii,j] - spfit(seqno[ii])
+					resrms = np.ma.std(resid)
+					rejmask[ii] |= np.abs(resid/resrms) > self.splineRejThresh
+					ii = np.where(~(gc[:,j].mask | rejmask))[0]
+					spfit = LSQUnivariateSpline(seqno[ii],gc[ii,j].filled(),
+					                            knots,bbox=[0,nimg],
+					                            k=self.splineOrder)
+				gc[:,j] = spfit(seqno)
+				msk[:,j] |= rejmask
+				if ii[0] >= self.nFillEdge:
+					# force it to linear fit with no interior knots
+					i0 = min(5,len(ii)-5)
+					linspfit = LSQUnivariateSpline(seqno[ii[:i0]],
+					                               gc[ii[:i0],j].filled(),
+					                               [],bbox=[0,seqno[ii[i0]]],
+					                               k=1)
+					gc[:ii[0],j] = linspfit(seqno[:ii[0]])
+				if ii[-1] < len(seqno)-self.nFillEdge:
+					i0 = max(0,len(ii)-5)
+					linspfit = LSQUnivariateSpline(seqno[ii[i0:]],
+					                               gc[ii[i0:],j].filled(),
+					                               [],bbox=[seqno[ii[i0]],
+					                                        seqno[ii[-1]]],
+					                               k=1)
+					gc[ii[-1]+1:,j] = linspfit(seqno[ii[-1]+1:])
+			except ValueError:
+				print 'WARNING: spline fit failed, reverting to mean'
+				gc[:,j] = sigma_clip(gc[:,j],iters=2,sigma=2.0).mean()
+		return gc.filled(0),msk
 	def calc_mean_corrections(self):
-		gc = np.array(self.gainCors)
-		return sigma_clip(gc,iters=2,sig=2.0,axis=0).mean(axis=0).filled()
+		raw_ampg = self.ampRelGains = np.array(self.ampRelGains)
+		raw_ccdg = self.ccdRelGains = np.array(self.ccdRelGains)
+		filts = np.unique(self.filters)
+		ampg = np.zeros_like(raw_ampg)
+		ccdg = np.zeros_like(raw_ccdg)
+		for filt in filts:
+			ii = np.where(self.filters == filt)[0]
+			if len(ii)==0: continue
+			if self.gainTrendMethod == 'median':
+				ampg[ii],msk = self._median_gain_trend(raw_ampg[ii])
+				ccdg[ii],msk = self._median_gain_trend(raw_ccdg[ii])
+			elif self.gainTrendMethod == 'spline':
+				ampg[ii],msk = self._spline_gain_trend(raw_ampg[ii])
+				ccdg[ii],msk = self._spline_gain_trend(raw_ccdg[ii])
+		# propagate the gain corrections starting from the reference
+		ampgscale = ampg.copy()
+		for ccdi,extGroup in enumerate(amp_iterator()):
+			for ampi,ampj,edgedir in self.ampMap[ccdi]:
+				refExt = 4*ccdi + ampi
+				calExt = 4*ccdi + ampj
+				ampgscale[:,calExt] *= ampgscale[:,refExt]
+		ccdgscale = ccdg.copy()
+		for ccdNum,refExt,calExt,edgedir in self.ccdMap:
+			if refExt!=calExt:
+				refCcd = refExt // 4
+				ccdgscale[:,ccdNum-1] *= ccdgscale[:,refCcd] * \
+				                    (ampgscale[:,refExt]/ampgscale[:,calExt]) 
+		self.ampGainTrend = ampg
+		self.ccdGainTrend = ccdg
+		self.gainCors = np.dstack([ampgscale,
+		                           np.repeat(ccdgscale,4,axis=1)])
+		self.correctedGains = np.dstack([raw_ampg*(ampgscale/ampg),
+		                        np.repeat(raw_ccdg*(ccdgscale/ccdg),4,axis=1)])
+		return self.gainCors
 	def get_values(self):
-		return np.array(self.gainCors),np.array(self.allSkyVals)
+		return ( np.array(self.ampRelGains),
+		         np.array(self.ccdRelGains),
+		         np.array(self.correctedGains),
+		         np.array(self.ampGainTrend),
+		         np.array(self.ccdGainTrend),
+		         np.array(self.allSkyVals) )
 
 ###############################################################################
 #                                                                             #
@@ -550,23 +833,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 ###############################################################################
 
 def _orient_mosaic(hdr,ims,ccdNum,origin):
-	im1,im2,im3,im4 = ims
-	# orient the channel images N through E and stack into CCD image
-	outIm = np.vstack([ np.hstack([ np.flipud(np.rot90(im2)),
-	                                np.rot90(im4,3) ]),
-	                    np.hstack([ np.rot90(im1),
-	                                np.fliplr(np.rot90(im3)) ]) ])
-	if origin == 'lower left':
-		pass
-	elif origin == 'center':
-		if ccdNum == 1:
-			outIm = np.fliplr(outIm)
-		elif ccdNum == 2:
-			outIm = np.rot90(outIm,2)
-		elif ccdNum == 3:
-			pass
-		elif ccdNum == 4:
-			outIm = np.flipud(outIm)
+	outIm = bokutil.ccd_join(ims,ccdNum,origin=origin)
 	ny,nx = outIm.shape
 	det_i = (ccdNum-1) // 2
 	det_j = ccdNum % 2
@@ -615,7 +882,10 @@ def _orient_mosaic(hdr,ims,ccdNum,origin):
 			hdr['CRPIX2'] = crpix1
 	return outIm,hdr
 
-def combine_ccds(fileList,**kwargs):
+# XXX should fit this into a BokProcess even if it requires some mungeing
+#     of the way extensions are combined into ccds
+
+def _combine_ccds(f,**kwargs):
 	inputFileMap = kwargs.get('input_map',IdentityNameMap)
 	outputFileMap = kwargs.get('output_map',IdentityNameMap)
 	gainMap = kwargs.get('gain_map')
@@ -634,15 +904,21 @@ def combine_ccds(fileList,**kwargs):
 	tmpFile.close()
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
-	for f in fileList:
+	if True: #for f in fileList:
 		inputFile = inputFileMap(f)
 		outputFile = outputFileMap(f)
+		if kwargs.get('processes',1) > 1:
+			try:
+				pid = multiprocessing.current_process().name.split('-')[1]
+			except:
+				pid = '1'
+			print '[%2s] '%pid,
 		print 'combine: ',inputFile,outputFile
 		inFits = fitsio.FITS(inputFile)
 		if 'CCDJOIN' in inFits[0].read_header():
 			print '%s already combined, skipping' % inputFile
 			inFits.close()
-			continue
+			return
 		if outputFile != inputFile:
 			if os.path.exists(outputFile):
 				if clobber:
@@ -650,7 +926,7 @@ def combine_ccds(fileList,**kwargs):
 				# XXX should be checking header key here?
 				elif ignoreExisting:
 					print '%s already exists, skipping' % outputFile
-					continue
+					return
 				else:
 					raise bokutil.OutputExistsError(
 					                    '%s already exists'%outputFile)
@@ -678,12 +954,12 @@ def combine_ccds(fileList,**kwargs):
 				try:
 					# copy in the nominal gain values from per-amp headers
 					gainKey = 'GAIN%02dA' % int(ext[2:])
-					hdr[gainKey] = hext[gainKey]
+					g0 = hdr[gainKey] = hext[gainKey]
 				except ValueError:
 					pass
 				if gainMap is not None:
 					ampIdx = ampOrder[4*(ccdNum-1)+j] - 1
-					gc1,gc2 = gainMap['corrections'][f][:,ampIdx]
+					gc1,gc2 = gainMap['corrections'][f][ampIdx]
 					sky = gainMap['skyvals'][f][ampIdx]
 					hdr['SKY%02dB'%int(ext[2:])] = sky
 					hdr['GAIN%02dB'%int(ext[2:])] = gc1
@@ -694,6 +970,8 @@ def combine_ccds(fileList,**kwargs):
 						except ValueError:
 							pass
 					im *= gc1 * gc2
+					# the final gain factor
+					hdr['GAIN%02d'%int(ext[2:])] = g0 * gc1 * gc2
 				if flatNorm:
 					_s = bokutil.stats_region('amp_corner_ccdcenter_128')
 					_a = bokutil.array_stats(im[_s],method='mode')
@@ -713,6 +991,16 @@ def combine_ccds(fileList,**kwargs):
 		if outputFile == inputFile:
 			shutil.move(tmpFileName,inputFile)
 
+def _combine_ccds_exc(f,**kwargs):
+	try:
+		_combine_ccds(f,**kwargs)
+	except Exception,e:
+		sys.stderr.write('FAILED: combine %s [%s]\n'%(f,e))
+
+def combine_ccds(fileList,**kwargs):
+	procmap = kwargs.pop('procmap',map)
+	combfunc = partial(_combine_ccds_exc,**kwargs)
+	procmap(combfunc,fileList)
 
 
 ###############################################################################
@@ -770,25 +1058,26 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		self.loThresh = kwargs.get('low_thresh',5.0)
 		self.growThresh = kwargs.get('grow_thresh',1.0)
 		self.binGrowSize = kwargs.get('mask_grow_size',3)
-		self.nSample = kwargs.get('num_sample',4)
+		self.nSample = kwargs.get('num_sample',16)
 		self.nKnots = kwargs.get('num_spline_knots',3)
 		self.splineOrder = kwargs.get('spline_order',3)
-		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'))
+		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'),
+		                                     self.nSample)
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
 		self.clipArgs.setdefault('clip_iters',3)
 		self.clipArgs.setdefault('clip_sig',2.2)
 		self.clipArgs.setdefault('clip_cenfunc',np.ma.mean)
 		self.growKern = None #np.ones((self.binGrowSize,self.binGrowSize),dtype=bool)
+		self.nPad = 10
 		self.noConvert = True
 	def _preprocess(self,fits,f):
-		print 'generating sky mask for ',f
+		self._proclog('generating sky mask for %s' % f)
 	def process_hdu(self,extName,data,hdr):
 		if (data>hdr['SATUR']).sum() > 50000:
 			# if too many pixels are saturated mask the whole damn thing
 			hdr['BADSKY'] = 1
-		n = self.nSample
-		sky,rms = bokutil.array_stats(data[self.statsPix][::n,::n],
+		sky,rms = bokutil.array_stats(data[self.statsPix],
 		                              method='mode',rms=True,
 		                              **self.clipArgs)
 		binnedIm = bokutil.rebin(data,self.nBin)
@@ -814,22 +1103,29 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		# grow the mask from positive deviations
 		binary_dilation(mask,mask=(snr>self.growThresh),iterations=0,
 		                structure=self.growKern,output=mask)
-		# fill in holes in the mask
-		binary_closing(mask,iterations=5,structure=self.growKern,
-		               output=mask)
+		# fill in holes in the mask -- binary closing will lose masked
+		# values at edge, so have to pad the mask first
+		# should also check scipy.ndimage.morphology.binary_fill_holes()...
+		maskpad = np.pad(mask,self.nPad,mode='constant',constant_values=0)
+		binary_closing(maskpad,iterations=5,structure=self.growKern,
+		               output=maskpad)
+		mask[:] |= maskpad[self.nPad:-self.nPad,self.nPad:-self.nPad]
 		# bright star mask
 		bsmask = False # XXX
 		# construct the output array
 		maskIm = bokutil.magnify(mask,self.nBin) | bsmask
 		return maskIm.astype(np.uint8),hdr
 
-class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
+class BokFringePatternStack(bokutil.ClippedMeanStack):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('stats_region','ccd_central_quadrant')
-		kwargs.setdefault('scale','normalize_mode')
-		kwargs.setdefault('nsplit',10)
+		self.nSample = kwargs.get('num_sample',4)
+		#kwargs.setdefault('scale','normalize_mode')
+		kwargs.setdefault('maxmem',5)
 		kwargs.setdefault('fill_value',1.0)
-		super(BokNightSkyFlatStack,self).__init__(**kwargs)
+		super(BokFringePatternStack,self).__init__(**kwargs)
+		self.statsPix = bokutil.stats_region(kwargs.get('stats_region'),
+		                                     self.nSample)
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
 		self.statsMethod = kwargs.get('stats_method','mode')
@@ -839,20 +1135,34 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 		self.smoothingLength = kwargs.get('smoothing_length',0.05)
 		self.rawStackFile = kwargs.get('raw_stack_file')
 		self.rawStackFits = None
-		self.normCCD = 'CCD1'
-		self.headerKey = 'SKYFL'
-	def _preprocess(self,fileList,outFits):
-		self.norms = np.zeros(len(fileList),dtype=np.float32)
-		for i,f in enumerate(fileList):
-			fits = bokutil.BokMefImage(self.inputNameMap(f),
-			                           mask_file=self.maskNameMap(f),
-			                           read_only=True)
-			normpix = fits.get(self.normCCD,self.statsPix)
-			meanVal = bokutil.array_stats(normpix,method=self.statsMethod,
+		self.procmap = kwargs.get('procmap',map)
+		self.headerKey = 'FRG'
+	def _getnorm(self,f):
+		fits = bokutil.BokMefImage(self.inputNameMap(f),
+		                           mask_file=self.maskNameMap(f),
+		                           read_only=True)
+		meanVals = []
+		for extn,data,hdr in fits:
+			meanVal = bokutil.array_stats(data[self.statsPix],
+			                              method=self.statsMethod,
 			                              **self.clipArgs)
-			self.norms[i] = 1/meanVal
-			print 'norm for image %s is %f' % \
-			           (self.inputNameMap(f),meanVal)
+			meanVals.append(meanVal)
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] '%pid,
+		print 'medians for image %s are %.1f %.1f %.1f %.1f' % \
+		           tuple((self.inputNameMap(f),)+tuple(meanVals))
+		return meanVals
+	def _preprocess(self,fileList,outFits):
+		# calculate the norms in subprocesses, need the workaround to
+		# avoid sending a Pool object
+		procmap = self.procmap
+		self.procmap = None
+		norms = procmap(self._getnorm,fileList)
+		self.norms = np.array(norms).astype(np.float32)
+		self.procmap = procmap
 		if self.rawStackFile is not None:
 			print 'writing raw stack to ',self.rawStackFile(outFits._filename)
 			rawFn = self.rawStackFile(outFits._filename)
@@ -868,30 +1178,82 @@ class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
 			_scales = scales[np.newaxis,:]
 		else:
 			_scales = self.norms[np.newaxis,:]
+		_scales = _scales.mean(axis=-1) # XXX averaging across CCDs
 		self.scales = _scales.squeeze()
-		return imCube * _scales
+		return imCube - _scales
 	def _postprocess(self,extName,stack,hdr):
-		# XXX hardcoded params
-		stack = interpolate_masked_pixels(stack,along='rows',method='linear')
-		# ignore the input mask and adopt the interpolation mask;
-		#   nan values mean no interpolation was possible
-		interpMask = np.isnan(stack.data)
-		cleanStack = np.ma.masked_array(stack.data,mask=interpMask)
-		cleanStack = cleanStack.filled(1.0)
+		cleanStack = stack.filled(1.0)
+		interpMask = False
 		if self.rawStackFile is not None:
 			self.rawStackFits.write(cleanStack,extname=extName,header=hdr)
 		cleanStack = spline_filter(cleanStack,self.smoothingLength)
 		# renormalize to unity, using the combined interp and input mask
 		_stack = np.ma.masked_array(cleanStack,mask=interpMask|stack.mask)
-		normpix = sigma_clip(_stack[self.statsPix],iters=2,sig=2.5,
-		                     cenfunc=np.ma.mean)
-		_stack /= normpix.mean()
+		normpix = bokutil.array_clip(_stack[self.statsPix])
+		_stack -= normpix.mean()
 		return _stack,hdr
 	def _cleanup(self):
-		super(BokNightSkyFlatStack,self)._cleanup()
+		super(BokFringePatternStack,self)._cleanup()
 		if self.rawStackFits is not None:
 			self.rawStackFits.close()
 			self.rawStackFits = None
+
+class BokNightSkyFlatStack(bokutil.ClippedMeanStack):
+	def __init__(self,**kwargs):
+		kwargs.setdefault('stats_region','ccd_central_quadrant')
+		kwargs.setdefault('scale','normalize_mode')
+		kwargs.setdefault('maxmem',5)
+		kwargs.setdefault('fill_value',1.0)
+		super(BokNightSkyFlatStack,self).__init__(**kwargs)
+		self.clipArgs = { k:v for k,v in kwargs.items() 
+		                     if k.startswith('clip_') }
+		# override some defaults
+		self.statsPix = bokutil.stats_region(self.statsRegion,8)
+		self.statsMethod = kwargs.get('stats_method','mode')
+		self.clipArgs['clip_iters'] = 3
+		self.clipArgs['clip_sig'] = 2.2
+		self.clipArgs['clip_cenfunc'] = np.ma.mean
+		self.smoothingLength = kwargs.get('smoothing_length',0.05)
+		self.procmap = kwargs.get('procmap',map)
+		self.normCCD = 'CCD1'
+		self.headerKey = 'SKYFL'
+	def _getnorm(self,f):
+		fits = bokutil.BokMefImage(self.inputNameMap(f),
+		                           mask_file=self.maskNameMap(f),
+		                           read_only=True)
+		# XXX have the get the full image and then subsample, because
+		#     fitsio doesn't handle negative slice boundaries
+		normpix = fits.get(self.normCCD)[self.statsPix]
+		meanVal = bokutil.array_stats(normpix,method=self.statsMethod,
+		                              **self.clipArgs)
+		norm = 1/meanVal
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] '%pid,
+		print 'norm for image %s is %f' % \
+		           (self.inputNameMap(f),meanVal)
+		return norm
+	def _preprocess(self,fileList,outFits):
+		# calculate the norms in subprocesses, need the workaround to
+		# avoid sending a Pool object
+		procmap = self.procmap
+		self.procmap = None
+		norms = procmap(self._getnorm,fileList)
+		self.norms = np.array(norms).astype(np.float32)
+		self.procmap = procmap
+	def _rescale(self,imCube,scales=None):
+		if scales is not None:
+			_scales = scales[np.newaxis,:]
+		else:
+			_scales = self.norms[np.newaxis,:]
+		self.scales = _scales.squeeze()
+		return imCube * _scales
+	def _postprocess(self,extName,stack,hdr):
+		# renormalize to unity
+		stack /= bokutil.array_clip(stack[self.statsPix]).mean()
+		return stack,hdr
 
 
 

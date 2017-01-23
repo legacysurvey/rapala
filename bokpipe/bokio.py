@@ -2,9 +2,11 @@
 
 import os
 
-IdentityNameMap = lambda f: f
+def IdentityNameMap(f):
+	return f
 
-NullNameMap = lambda f: None
+def NullNameMap(f):
+	return None
 
 class FileNameMap(object):
 	def __init__(self,newDir=None,newSuffix=None,strip_gz=True):

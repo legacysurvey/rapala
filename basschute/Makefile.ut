@@ -16,45 +16,45 @@ ifndef UTDATE
 $(error UTDATE must be set!)
 endif
 
+all: initproc badpix flats finalproc
+
 initproc:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s oscan,bias2d,flat2d --nousepixflat \
-	                    -vvv $(NPROC)
+	                    -vvv $(XARGS)
 
 # XXX copy in a master bp mask from config dir
 badpix:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
-	                    -s bpmask -b g -vvv
+	                    -s bpmask -b g -vvv $(XARGS)
 
 flats:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s proc1 --prockey TMPPROC \
 	                    --norampcorr --nobiascorr --nosavegain \
-	                    --tmpdirout $(NPROC)
+	                    --noweightmap --tmpdirout $(XARGS)
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    --makeillumcorr \
-	                    --tmpdirin -vvv
+	                    --tmpdirin -vvv $(XARGS)
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s proc2 \
-	                    --nodarkskycorr --skymethod polynomial --skyorder 1 \
-	                    --tmpdirin --tmpdirout -vvv $(NPROC)
+	                    --nodarkskycorr --noweightmap \
+	                    --skymethod polynomial --skyorder 1 \
+	                    --tmpdirin --tmpdirout -vvv $(XARGS)
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s skyflat \
-	                    --tmpdirin --tmpdirout -vvv 
+	                    --tmpdirin --tmpdirout -vvv  $(XARGS)
 
 finalproc:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
-	                    -s proc1 --norampcorr --nobiascorr $(NPROC)
-	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
-	                    -s proc2  $(NPROC)
-	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
-	                    -s wcs,cat -vv
+	                    -s proc1,proc2,wcs,cat \
+	                    --norampcorr --nobiascorr -vvv $(XARGS)
 
 proc:
 	python basschute.py --obsdb $(LOGFILE) -r $(RAWDATA) -u $(UTDATE) \
 	                    -s oscan,proc1,proc2,wcs,cat \
 	                    --norampcorr --nobiascorr \
-	                     -vvv $(XARGS) $(NPROC)
+	                     -vvv $(XARGS) 
 
 redo:
 	make XARGS=-R proc 

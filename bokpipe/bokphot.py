@@ -41,9 +41,9 @@ def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
 	  '-FILTER_NAME',os.path.join(configDir,'default.conv'),
 	  '-STARNNW_NAME',os.path.join(configDir,'default.nnw'),
 	])
-	if verbose > 2:
+	if verbose >= 5:
 		cmd.extend(['-VERBOSE_TYPE','FULL'])
-	elif verbose > 1:
+	elif verbose >= 2:
 		cmd.extend(['-VERBOSE_TYPE','NORMAL'])
 	elif verbose > 0:
 		print 'generating wcs catalog for ',imageFile
@@ -77,8 +77,11 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 	if rename:
 		shutil.move(defPsfFile,psfFile)
 
-def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
-	dopeak = kwargs.get('calc_peak',False)
+def aper_phot(image,hdr,ra,dec,aperRad,mask=None,varim=None,edge_buf=5,
+              **kwargs):
+	bkgmethod = kwargs.get('background')
+	satVal = hdr['SATUR']
+	msk = mask | (image > satVal)
 	w = WCS(hdr)
 	foot = w.calc_footprint()
 	raMin,raMax = foot[:,0].min(),foot[:,0].max()
@@ -91,37 +94,51 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,edge_buf=5,**kwargs):
 	x = x[ii2]
 	y = y[ii2]
 	ii = ii[ii2]
-	bkg = sep.Background(image)
 	nObj,nAper = len(ii),len(aperRad)
 	cts = np.empty((nObj,nAper),dtype=np.float32)
 	ctserr = np.empty((nObj,nAper),dtype=np.float32)
 	flags = np.empty((nObj,nAper),dtype=np.int32)
-	# only data type sep appears to accept
-	if mask is not None:
-		mask = mask.astype(np.int32)
+	nmasked = np.empty(nObj,dtype=np.int32)
+	pkvals = np.empty(nObj,dtype=np.float32)
+	# compute global background fit if necessary
+	if varim is None or bkgmethod=='global':
+		bkg = sep.Background(image)
+	if varim is None:
+		varim = bkg.globalrms**2
+	im = image
+	skyann = None
+	if bkgmethod == 'global':
+		im = image - bkg.back()
+	elif bkgmethod == 'local':
+		skyann = (25.,40.)
+	# perform aperture photometry
 	for j,aper in enumerate(aperRad):
-		c,crms,f = sep.sum_circle(image-bkg.back(),x,y,aper,mask=mask,
-		                          gain=1.0,err=bkg.globalrms)
+		c,crms,f = sep.sum_circle(im,x,y,aper,mask=msk,
+		                          gain=1.0,bkgann=skyann,var=varim)
 		cts[:,j] = c
 		ctserr[:,j] = crms
 		flags[:,j] = f
-	rv = (x,y,ii,cts,ctserr,flags)
-	if dopeak:
-		# a pretty hacky way to do this
-		pkvals = np.array([ image[_y-5:_y+5,_x-5:_x+5].max() 
-		                     for _x,_y in zip(x.astype(int),y.astype(int)) ])
-		rv += (pkvals,)
+	# clean up bad values
+	bad = np.isnan(cts) | np.isnan(ctserr)
+	cts[bad] = 0
+	ctserr[bad] = 0
+	flags[bad] |= 16
+	# additional masking and diagnostics
+	for i,(_x,_y) in enumerate(zip(x.astype(int),y.astype(int))):
+		nmasked[i] = msk[_y-3:_y+3+1,_x-3:_x+3+1].sum() 
+		pkvals[i] = image[_y-3:_y+3+1,_x-3:_x+3+1].max() 
+		if pkvals[i] > satVal:
+			flags[i] |= 4
+	rv = (x,y,ii,cts,ctserr,flags,nmasked,pkvals)
 	return rv
 
-def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
+def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,varIm=None,
 	                aHeadFile=None,**kwargs):
 	from astropy.io.fits import getheader
 	maskIsWhtMap = kwargs.get('mask_is_weight_map',True)
-	phot_cols = ('x','y','objId','counts','countsErr','flags')
-	phot_dtype = ('f4','f4','i4','f4','f4','i4')
-	if kwargs.get('calc_peak',False):
-		phot_cols += ('peakCounts',)
-		phot_dtype += ('f4',)
+	phot_cols = ('x','y','objId','counts','countsErr',
+	             'flags','nMasked','peakCounts')
+	phot_dtype = ('f4','f4','i4','f4','f4','i4','i4','f4')
 	phot_cols += ('ccdNum',)
 	phot_dtype += ('i4',)
 	if aHeadFile is not None:
@@ -139,12 +156,13 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,
 		if badPixMask is None:
 			mask = None
 		else:
-			mask = badPixMask[extn].read()
+			mask = badPixMask[extn]
 			if maskIsWhtMap:
 				mask = (mask==0)
 			else:
 				mask = mask.astype(np.bool)
-		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,**kwargs)
+		varim = varIm[extn] if varIm is not None else None
+		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,varim=varim,**kwargs)
 		n = len(phot[0])
 		if n==0:
 			continue

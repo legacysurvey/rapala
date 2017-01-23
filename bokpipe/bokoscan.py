@@ -8,7 +8,7 @@ from scipy.ndimage.filters import median_filter
 from scipy.interpolate import LSQUnivariateSpline
 import fitsio
 
-from .bokutil import BokProcess,array_clip
+from .bokutil import BokProcess,array_clip,mask_saturation
 
 # argh
 ampOrder = [ 4,  3,  2,  1,  8,  7,  6,  5,  9, 10, 11, 12, 13, 14, 15, 16 ]
@@ -39,6 +39,10 @@ def extract_overscan(data,hdr):
 		overscan_rows = None
 	data = data[y1:y2,x1:x2].astype(np.float32)
 	return ( data,overscan_cols,overscan_rows )
+
+oscan_fit_keywords = ['reject','method','apply_filter','filter_window',
+                      'mask_along','clip_iters','clip_sig',
+                      'spline_nknots','spline_niter']
 
 def fit_overscan(overscan,**kwargs):
 	reject = kwargs.get('reject','sigma_clip')
@@ -106,7 +110,7 @@ def fit_overscan(overscan,**kwargs):
 			oscan_fit = median_filter(oscan_fit,windowSize)
 	return oscan_fit
 
-def overscan_subtract(data,hdr,returnFull=False,**kwargs):
+def overscan_subtract(data,hdr,returnFull=False,row_kwargs=None,**kwargs):
 	data,oscan_cols,oscan_rows = extract_overscan(data,hdr)
 	colbias = fit_overscan(oscan_cols,**kwargs)
 	data[:] -= colbias[:,np.newaxis]
@@ -117,7 +121,9 @@ def overscan_subtract(data,hdr,returnFull=False,**kwargs):
 		_colbias = fit_overscan(oscan_rows[:,-20:],**kwargs)
 		oscan_rows = oscan_rows[:,:-20] - _colbias[:,np.newaxis]
 		# now fit and subtract the overscan rows
-		rowbias = fit_overscan(oscan_rows,along='rows',**kwargs)
+		if row_kwargs is None: 
+			row_kwargs = {'method':'cubic_spline'}
+		rowbias = fit_overscan(oscan_rows,along='rows',**row_kwargs)
 		data[:] -= rowbias[np.newaxis,:data.shape[1]]
 	else:
 		rowbias = None
@@ -155,7 +161,7 @@ class OverscanCollection(object):
 			np.save(self.tmpOscanImgFile,oscan.filled(np.nan))
 		except:
 			np.save(self.tmpOscanImgFile,oscan)
-		np.save(self.tmpOscanResImgFile,resim.filled(-999))
+		np.save(self.tmpOscanResImgFile,resim)
 		self.files.append(os.path.basename(fileName))
 	def write_image(self):
 		self.tmpOscanImgFile.close() # could just reset file pointer?
@@ -186,10 +192,14 @@ class BokOverscanSubtract(BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','OSCNSUB')
 		super(BokOverscanSubtract,self).__init__(**kwargs)
-		self.fit_kwargs = { k:v for k,v in kwargs.items()
-		                     if k in ['reject','method','apply_filter',
-		                              'mask_along','clip_iters','clip_sig',
-		                              'spline_nknots','spline_niter'] }
+		self.fit_kwargs = { k:v 
+		                      for k,v in kwargs.items()
+		                        if k in oscan_fit_keywords }
+		rkwargs = { k.lstrip('row_'):v 
+		              for k,v in kwargs.items()
+		                if k.startswith('row_') 
+		                  and k.lstrip('row_') in oscan_fit_keywords }
+		self.row_fit_kwargs = rkwargs if len(rkwargs)>0 else None
 		self.writeOscanImg = kwargs.get('write_overscan_image',False)
 		self.oscanColsImgFile = kwargs.get('oscan_cols_file')
 		self.oscanRowsImgFile = kwargs.get('oscan_rows_file')
@@ -218,10 +228,12 @@ class BokOverscanSubtract(BokProcess):
 				self.rowImg[extn].close()
 	def _preprocess(self,fits,f):
 		self.curFileName = fits.fileName
-		print 'overscan subtracting ',self.curFileName
+		self._proclog('overscan subtracting %s' % self.curFileName)
 	def process_hdu(self,extName,data,hdr):
 		data,oscan_cols,oscan_rows,colbias,rowbias = \
-		         overscan_subtract(data,hdr,returnFull=True,**self.fit_kwargs)
+		         overscan_subtract(data,hdr,returnFull=True,
+		                           row_kwargs=self.row_fit_kwargs,
+		                           **self.fit_kwargs)
 		# write the output file
 		hdr['OSCANSUB'] = 'method=%s' % self.fit_kwargs.get('method','default')
 		# something changed about what median returns...
@@ -238,4 +250,10 @@ class BokOverscanSubtract(BokProcess):
 		return data,hdr
 	def _finish(self):
 		self._finish_oscan_images()
+
+class BokOverscanSubtractWithSatFix(BokOverscanSubtract):
+	def process_hdu(self,extName,data,hdr):
+		data,mask = mask_saturation(extName,data)
+		return super(BokOverscanSubtractWithSatFix,self).process_hdu(extName,
+		                                                             data,hdr)
 

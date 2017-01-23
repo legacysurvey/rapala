@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 
-import os
+import os,sys
+import types
 from time import time
 from datetime import datetime
 from collections import OrderedDict
+import multiprocessing
 import fitsio
 import numpy as np
+from scipy.ndimage.morphology import binary_closing
 from astropy.stats import sigma_clip
 
 from bokio import *
@@ -88,9 +91,9 @@ def bok_getxy(hdr,coordsys='image',coord=None):
 # be careful - these slices can't be applied to read a subregion using fitsio.
 # i.e., fitsio.FITS(f)[extn][slice] will not work (reads to end of image),
 # but fitsio.FITS(f)[extn].read()[slice] will
-def stats_region(statreg):
+def stats_region(statreg,stride=None):
 	if statreg is None:
-		return np.s_[:,:]
+		return np.s_[::stride,::stride]
 	elif type(statreg) is tuple:
 		x1,x2,y1,y2 = statreg
 	elif statreg == 'amp_central_quadrant':
@@ -110,7 +113,7 @@ def stats_region(statreg):
 		x1,x2,y1,y2 = (1024,-1024,1024,-1024)
 	else:
 		raise ValueError
-	return np.s_[y1:y2,x1:x2]
+	return np.s_[y1:y2:stride,x1:x2:stride]
 
 def _write_stack_header_cards(fileList,cardPrefix):
 	hdr = fitsio.read_header(fileList[0])
@@ -119,11 +122,71 @@ def _write_stack_header_cards(fileList,cardPrefix):
 	hdr['NCOMBINE'] = len(fileList)
 	return hdr
 
-def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
+def rows2slice(rows):
 	if rows is None:
 		s = np.s_[:,:]
 	else:
 		s = np.s_[rows[0]:rows[1],:]
+	return s
+
+def ccd_join(ims,ccdNum,origin='center'):
+	'''Given a set of 4 amplifier images (in numerical order, i.e., CCD1 is
+	       [IM1,IM2,IM3,IM4]), combine them into a single CCD image.
+	     origin='center' means (x,y) = (0,0) is at the corner nearest to
+	            the center of the focal plane.
+	'''
+	im1,im2,im3,im4 = ims
+	# if the arrays are masked, np.[hv]stack will unmask all elements.
+	# but if they are not masked, np.ma.[hv]stack will make them masked.
+	if any([isinstance(im,np.ma.masked_array) for im in ims]):
+		hstack,vstack = np.ma.hstack,np.ma.vstack
+	else:
+		hstack,vstack = np.hstack,np.vstack
+	# orient the channel images N through E and stack into CCD image
+	ccdIm = vstack([ hstack([ np.flipud(np.rot90(im2)),
+	                          np.rot90(im4,3) ]),
+	                 hstack([ np.rot90(im1),
+	                          np.fliplr(np.rot90(im3)) ]) ])
+	if origin == 'lower left':
+		pass
+	elif origin == 'center':
+		if ccdNum == 1:
+			ccdIm = np.fliplr(ccdIm)
+		elif ccdNum == 2:
+			ccdIm = np.rot90(ccdIm,2)
+		elif ccdNum == 3:
+			pass
+		elif ccdNum == 4:
+			ccdIm = np.flipud(ccdIm)
+	return ccdIm
+
+def ccd_split(ccdIm,ccdNum,origin='center'):
+	'''Inverse of ccd_join: given a CCD image, split it into 4 amplifier
+	   images with their original orientation. Returned in numerical order
+	   (i.e., [IM1,IM2,IM3,IM4] for CCD1)'''
+	# see above (ccd_join).
+	if origin == 'lower left':
+		pass
+	elif origin == 'center':
+		if ccdNum == 1:
+			ccdIm = np.fliplr(ccdIm)
+		elif ccdNum == 2:
+			ccdIm = np.rot90(ccdIm,2)
+		elif ccdNum == 3:
+			pass
+		elif ccdNum == 4:
+			ccdIm = np.flipud(ccdIm)
+	tmp1,tmp2 = np.vsplit(ccdIm,2)
+	im2,im4 = np.hsplit(tmp1,2)
+	im1,im3 = np.hsplit(tmp2,2)
+	im2 = np.rot90(np.flipud(im2),-1)
+	im4 = np.rot90(im4,-3)
+	im1 = np.rot90(im1,-1)
+	im3 = np.rot90(np.fliplr(im3),-1)
+	return [im1,im2,im3,im4]
+
+def build_cube(fileList,extn,masks=None,rows=None,badKey=None):
+	s = rows2slice(rows)
 	cube = np.dstack( [ fitsio.FITS(f)[extn][s] for f in fileList ] )
 	_masks = []
 	if masks is not None:
@@ -142,11 +205,6 @@ def build_cube(fileList,extn,masks=None,rows=None,masterMask=None,badKey=None):
 		mask = np.dstack(_masks).astype(np.bool)
 	else:
 		mask = None
-	if masterMask is not None:
-		if mask is None:
-			mask = masterMask[extn][s][:,:,np.newaxis].astype(np.bool)
-		else:
-			mask |= masterMask[extn][s][:,:,np.newaxis].astype(np.bool)
 	cube = np.ma.masked_array(cube,mask)
 	return cube
 
@@ -173,16 +231,28 @@ class TimerLog():
 		itimes = np.diff(self.times)
 		ftimes = itimes / times[-1]
 		tscale = 1.
+		tunit = 'sec'
 		if times[-1] > 5*3600:
 			tscale = 3600.  # -> hours
+			tunit = 'hrs'
 		elif times[-1] > 5*60:
 			tscale = 60.  # -> minutes
+			tunit = 'min'
 		itimes /= tscale
 		times /= tscale
-		print '%20s %8s %8s %8s' % ('stage','time','elapsed','frac')
+		print '%20s %8s %8s %8s [%s]' % ('stage','time','elapsed','frac',tunit)
 		for t in zip(stages,itimes,times,ftimes):
 			print '%20s %8.3f %8.3f %8.3f' % t
 		print
+
+def mask_saturation(extName,data,correct_inverted=True):
+	satVal = {'IM5':55000,'IM7':55000}.get(extName,62000)
+	mask = data > satVal
+	if correct_inverted:
+		filledmask = binary_closing(mask,iterations=20)
+		data[filledmask&~mask] = 65535
+		mask = filledmask
+	return data,mask
 
 class BokMefImage(object):
 	'''A wrapper around fitsio that allows the MEF files to be iterated
@@ -199,6 +269,7 @@ class BokMefImage(object):
 		self.extensions = kwargs.get('extensions')
 		maskFits = kwargs.get('mask_file')
 		headerCards = kwargs.get('add_header',{})
+		self.headerFixes = kwargs.get('header_fixes',[])
 		self.closeFiles = []
 		if self.readOnly:
 			self.fits = fitsio.FITS(self.fileName)
@@ -208,6 +279,10 @@ class BokMefImage(object):
 				self.outFits = self.fits = fitsio.FITS(self.fileName,'rw')
 				self.closeFiles.append(self.fits)
 				self.clobberHdus = True
+				for extNum,hdrfix in self.headerFixes:
+					if extNum == 0:
+						for k,v in hdrfix:
+							self.outFits[0].write_key(k,v)
 				if self.headerKey is not None:
 					self.outFits[0].write_key(self.headerKey,get_timestamp())
 			else:
@@ -228,11 +303,20 @@ class BokMefImage(object):
 					hdr = {}
 				for k,v in headerCards.items():
 					hdr[k] = v
+				for extNum,hdrfix in self.headerFixes:
+					if extNum == 0:
+						for k,v in hdrfix:
+							hdr[k] = v
 				if self.headerKey is not None:
 					hdr[self.headerKey] = get_timestamp()
 				self.outFits.write(None,header=hdr)
 		self.masks = []
 		if maskFits is not None:
+			if not isinstance(maskFits,FakeFITS):
+				try:
+					m = maskFits(fileName)
+				except:
+					m = FakeFITS(maskFits)
 			self.add_mask(maskFits)
 		if self.extensions is None:
 			self.extensions = [ h.get_extname().upper() 
@@ -245,11 +329,11 @@ class BokMefImage(object):
 				raise OutputExistsError('key %s already exists' % 
 				                        self.headerKey)
 	def add_mask(self,maskFits):
-		if type(maskFits) is str:
+		if isinstance(maskFits,basestring):
 			maskFits = fitsio.FITS(maskFits)
 			self.closeFiles.append(maskFits)
-		elif type(maskFits) is not fitsio.fitslib.FITS:
-			return ValueError
+		#elif not isinstance(maskFits,fitsio.FITS):
+		#	return ValueError
 		self.masks.append(maskFits)
 	def update(self,data,header=None,noconvert=False):
 		if self.readOnly:
@@ -257,6 +341,12 @@ class BokMefImage(object):
 		if not noconvert:
 			# should probably instead track down all the upcasts
 			data = data.astype(np.float32)
+		# apply any header fixes
+		if header is not None:
+			for extNum,hdrfix in self.headerFixes:
+				if extNum == self.curExtName:
+					for k,v in hdrfix.items():
+						header[k] = v
 		# I thought this was overwriting existing HDUs, but doesn't seem to..
 		#self.outFits.write(data,extname=self.curExtName,header=header,
 		#                   clobber=self.clobberHdus)
@@ -334,6 +424,54 @@ class BokMefImage(object):
 		for fits in self.closeFiles:
 			fits.close()
 
+# make the instance methods pickleable using code from 
+# https://gist.github.com/bnyeggen/1086393
+
+def _pickle_method(method):
+	func_name = method.im_func.__name__
+	obj = method.im_self
+	cls = method.im_class
+	if func_name.startswith('__') and not func_name.endswith('__'): #deal with mangled names
+		cls_name = cls.__name__.lstrip('_')
+		func_name = '_' + cls_name + func_name
+	return _unpickle_method, (func_name, obj, cls)
+
+def _unpickle_method(func_name, obj, cls):
+	for cls in cls.__mro__:
+		try:
+			func = cls.__dict__[func_name]
+		except KeyError:
+			pass
+		else:
+			break
+	return func.__get__(obj, cls)
+
+import copy_reg
+copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
+
+class FakeFITS(object):
+	'''Make a fake fitsio.FITS class that stores the image data from a FITS
+	   object in a dictionary. This object is pickle-able and so can be used
+	   with the multiprocessing feature in BokProcess, unlike fitsio.FITS.'''
+	def __init__(self,fits):
+		if isinstance(fits,basestring):
+			fits = fitsio.FITS(fits)
+		# this gets accessed for FITS objects, so need to replicate it
+		self._filename = fits._filename
+		self.data = [None] # empty first extension, like FITS MEF
+		self.extMap = {}
+		for extNum,hdu in enumerate(fits[1:],start=1):
+			self.data.append(hdu.read())
+			self.extMap[hdu.get_extname().upper()] = extNum
+	def __getitem__(self,extn):
+		'''index either by extension number or name'''
+		if isinstance(extn,basestring):
+			extn = self.extMap[extn.upper()]
+		return self.data[extn]
+	def close(self):
+		'''need to provide hook for this because fits.close() is used often'''
+		pass
+
 class BokProcess(object):
 	def __init__(self,**kwargs):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
@@ -342,25 +480,33 @@ class BokProcess(object):
 		self.maskNameMap = kwargs.get('mask_map')
 		if self.maskNameMap is None:
 			self.maskNameMap = NullNameMap
-		elif type(self.maskNameMap) is fitsio.fitslib.FITS:
+		elif isinstance(self.maskNameMap,fitsio.FITS):
 			# a master mask instead of a map
 			self.add_mask(self.maskNameMap)
 			self.maskNameMap = NullNameMap
 		self.clobber = kwargs.get('clobber',False)
 		self.readOnly = kwargs.get('read_only',False)
 		self.headerKey = kwargs.get('header_key')
+		self.headerFixes = kwargs.get('header_fixes',{})
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.extensions = kwargs.get('extensions')
 		self.verbose = kwargs.get('verbose',0)
+		self.nProc = kwargs.get('processes',1)
+		self.procMap = kwargs.get('procmap',map)
 		self.noConvert = False
 	def add_mask(self,maskFits):
-		if type(maskFits) is str:
-			maskFits = fitsio.FITS(maskFits)
-			#self.closeFiles.append(maskFits)
-		elif type(maskFits) is not fitsio.fitslib.FITS:
-			return ValueError
+		if not isinstance(maskFits,FakeFITS):
+			try:
+				maskFits = maskFits(None) # assume it is a map
+			except:
+				maskFits = FakeFITS(maskFits)
 		self.masks.append(maskFits)
+	def _proclog(self,s):
+		if self.nProc > 1:
+			pid = multiprocessing.current_process().name.split('-')[1]
+			print '[%2s] '%pid,
+		print s
 	def _preprocess(self,fits,f):
 		pass
 	def process_hdu(self,extName,data,hdr):
@@ -368,34 +514,66 @@ class BokProcess(object):
 	def _postprocess(self,fits,f):
 		pass
 	def _finish(self):
+		return None
+	def _getOutput(self):
+		return None
+	def _ingestOutput(self,procOutput):
+		'''parallel routines may need to collect output from processing
+	       of individual files before finishing.'''
 		pass
+	def process_file(self,f):
+		try:
+			fits = BokMefImage(self.inputNameMap(f),
+			                   output_file=self.outputNameMap(f),
+			                   mask_file=self.maskNameMap(f),
+			                   keep_headers=self.keepHeaders,
+			                   clobber=self.clobber,
+			                   header_key=self.headerKey,
+			                   header_fixes=self.headerFixes.get(f,{}),
+			                   read_only=self.readOnly,
+			                   extensions=self.extensions)
+		except OutputExistsError,msg:
+			if self.ignoreExisting:
+				if self.verbose > 0:
+					_f = self.outputNameMap(f)
+					print '%s already processed by %s'%(_f,self.headerKey)
+				return
+			else:
+				raise OutputExistsError(msg)
+		for maskIm in self.masks:
+			fits.add_mask(maskIm)
+		self._preprocess(fits,f)
+		for extName,data,hdr in fits:
+			data,hdr = self.process_hdu(extName,data,hdr)
+			fits.update(data,hdr,noconvert=self.noConvert)
+		self._postprocess(fits,f)
+		fits.close()
+		return self._getOutput()
+	def _null_result(self,f):
+		return None
+	def _process_file_exc(self,f):
+		try:
+			return self.process_file(f)
+		except Exception,e:
+			sys.stderr.write('ERROR: failed to process %s [%s]\n' %
+			                       (self.inputNameMap(f),e))
+			return self._null_result(f)
+	def _process_file_group(self,fgrp):
+		return map(self._process_file_exc,fgrp)
 	def process_files(self,fileList):
-		for f in fileList:
-			try:
-				fits = BokMefImage(self.inputNameMap(f),
-				                   output_file=self.outputNameMap(f),
-				                   mask_file=self.maskNameMap(f),
-				                   keep_headers=self.keepHeaders,
-				                   clobber=self.clobber,
-				                   header_key=self.headerKey,
-				                   read_only=self.readOnly,
-				                   extensions=self.extensions)
-			except OutputExistsError,msg:
-				if self.ignoreExisting:
-					if self.verbose > 0:
-						_f = self.outputNameMap(f)
-						print '%s already processed by %s'%(_f,self.headerKey)
-					continue
-				else:
-					raise OutputExistsError(msg)
-			for maskIm in self.masks:
-				fits.add_mask(maskIm)
-			self._preprocess(fits,f)
-			for extName,data,hdr in fits:
-				data,hdr = self.process_hdu(extName,data,hdr)
-				fits.update(data,hdr,noconvert=self.noConvert)
-			self._postprocess(fits,f)
-			fits.close()
+		# pool objects can't be pickled so have to save it, remove it from
+		# object, then restore it
+		procMap = self.procMap
+		self.procMap = None
+		if isinstance(fileList[0],types.StringTypes):
+			procOut = procMap(self._process_file_exc,fileList)
+		else:
+			procOut = procMap(self._process_file_group,fileList)
+			procOut = [ out for outgrp in procOut for out in outgrp ]
+		procOut = filter(lambda p: p is not None,procOut)
+		if self.nProc > 1:
+			self._ingestOutput(procOut)
+		self.procMap = procMap
 		self._finish()
 
 class BokMefImageCube(object):
@@ -404,6 +582,7 @@ class BokMefImageCube(object):
 		self.scale = kwargs.get('scale')
 		self.reject = kwargs.get('reject','sigma_clip')
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
+		self.outputNameMap = kwargs.get('output_map',IdentityNameMap)
 		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
 		self.badKey = kwargs.get('header_bad_key')
 		self.expTimeNameMap = kwargs.get('exposure_time_map',NullNameMap)
@@ -412,9 +591,11 @@ class BokMefImageCube(object):
 		self.statsPix = stats_region(self.statsRegion)
 		self.clipArgs = {'iters':kwargs.get('clip_iters',2),
 		                 'sig':kwargs.get('clip_sig',2.5),
-		                 'cenfunc':np.ma.mean}
+		                 'cenfunc':kwargs.get('clip_cenfunc',np.ma.mean)}
 		self.fillValue = kwargs.get('fill_value',np.nan)
-		self.nSplit = kwargs.get('nsplit',1)
+		self.maxMemBytes = self.maxMemGB = kwargs.get('maxmem')
+		if self.maxMemBytes:
+			self.maxMemBytes *= 1024**3
 		self.clobber = kwargs.get('clobber',False)
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
 		self.verbose = kwargs.get('verbose',0)
@@ -423,8 +604,16 @@ class BokMefImageCube(object):
 		self.badPixelMask = None
 		self.scaleKey = kwargs.get('scale_key','IMSCL')
 		self._scales = None
+		self.minNexp = None
 	def set_badpixelmask(self,maskFits):
-		self.badPixelMask = maskFits
+		if isinstance(maskFits,FakeFITS):
+			self.badPixelMask = maskFits
+		else:
+			# hope that either it is a map object or an already-loaded FITS...
+			try:
+				self.badPixelMask = maskFits(None)
+			except:
+				self.badPixelMask = FakeFITS(maskFits)
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
 			pass
@@ -473,6 +662,7 @@ class BokMefImageCube(object):
 				hdr[self.scaleKey+'%03d'%i] = float(s)
 		return stack,hdr
 	def stack(self,fileList,outputFile,weights=None,scales=None,**kwargs):
+		outputFile = self.outputNameMap(outputFile)
 		if os.path.exists(outputFile):
 			if self.clobber:
 				clobberHdus = True
@@ -513,15 +703,19 @@ class BokMefImageCube(object):
 		if extensions is None:
 			_fits = fitsio.FITS(inputFiles[0])
 			extensions = [ h.get_extname() for h in _fits[1:] ]
-		if self.nSplit == 1:
+		if self.maxMemBytes is None:
+			nsplits = 1
+		else:
+			numRows,numCols = 4032,4096
+			nbytes = np.dtype(np.float32).itemsize
+			stacksize = nbytes * numRows * numCols * len(inputFiles)
+			nsplits = stacksize // int(self.maxMemBytes) + 1
+		if nsplits == 1:
 			rowChunks = [None,]
 		else:
-			# hacky way to divide the array, hardcoded number of rows
-			shape = (4032,4096)
-			rowSplit = np.arange(0,shape[0],shape[0]//self.nSplit)
-			rowSplit[-1] = -1 # grow last split to end of array
+			rowsplits = np.linspace(0,numRows,nsplits+1,dtype=np.int32)
 			rowChunks = [ (row1,row2) 
-			         for row1,row2 in zip(rowSplit[:-1],rowSplit[1:]) ]
+			         for row1,row2 in zip(rowsplits[:-1],rowsplits[1:]) ]
 		self._preprocess(fileList,outFits)
 		if self.maskNameMap == NullNameMap:
 			# argh, this is a hacky way to check for masks
@@ -537,12 +731,17 @@ class BokMefImageCube(object):
 			for rows in rowChunks:
 				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
 				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows,
-				                    masterMask=self.badPixelMask,
 				                    badKey=self.badKey)
 				imCube = self._rescale(imCube,scales=scales)
 				imCube = self._reject_pixels(imCube)
 				w = self._load_weights(weights,fileList,extn,rows)
 				_stack = self._stack_cube(imCube,w,**kwargs)
+				if self.badPixelMask is not None:
+					bpmsk = self.badPixelMask[extn][rows2slice(rows)]
+					_stack.mask |= bpmsk.astype(np.bool)
+				if self.minNexp is not None:
+					nexp = np.sum(~imCube.mask,axis=-1)
+					_stack.mask |= nexp < self.minNexp
 				stack.append(_stack)
 				if self.withExpTimeMap:
 					expTime.append(np.sum(~imCube.mask*expTimes,axis=-1))

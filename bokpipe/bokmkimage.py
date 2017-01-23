@@ -1,18 +1,28 @@
 #!/usr/bin/env python
 
 import numpy as np
-from astropy.stats import sigma_clip
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib import rc
+from astropy.stats import sigma_clip
+import astropy.visualization as vis
+from astropy.visualization.mpl_normalize import ImageNormalize
 import fitsio
 
 from . import bokutil
 
 def make_fov_image(fov,pngfn=None,**kwargs):
+	stretch = kwargs.get('stretch','linear')
+	interval = kwargs.get('interval','zscale')
+	imrange = kwargs.get('imrange')
+	contrast = kwargs.get('contrast',0.25)
 	maskFile = kwargs.get('mask')
-	losig = kwargs.get('lo',2.5)
-	hisig = kwargs.get('hi',5.0)
+	if interval == 'rms':
+		try:
+			losig,hisig = imrange
+		except:
+			losig,hisig = (2.5,5.0)
+	#
 	cmap = kwargs.get('cmap','jet')
 	cmap = plt.get_cmap(cmap)
 	cmap.set_bad('w',1.0)
@@ -20,26 +30,35 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	h = 0.455
 	if maskFile is not None:
 		maskFits = fitsio.FITS(maskFile)
-	input_vmin = kwargs.get('vmin')
-	input_vmax = kwargs.get('vmax')
 	rc('text',usetex=False)
 	fig = plt.figure(figsize=(6,6.5))
 	cax = fig.add_axes([0.1,0.04,0.8,0.01])
+	ims = []
 	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
 		im = fov[ccd]['im']
 		if maskFile is not None:
 			im = np.ma.masked_array(im,maskFits[ccd][:,:].astype(bool))
-		if n == 0:
-			i1,i2 = 100//fov['nbin'],1500//fov['nbin']
-			if input_vmin is None and input_vmax is None:
-				background = sigma_clip(im[i1:i2,i1:i2],iters=3,sig=2.2)
-				m,s = background.mean(),background.std()
-				vmin = input_vmin if input_vmin is not None else m-losig*s
-				vmax = input_vmax if input_vmax is not None else m+hisig*s
-			else:
-				vmin = input_vmin
-				vmax = input_vmax
-			norm = colors.Normalize(vmin=vmin,vmax=vmax)
+		ims.append(im)
+	allpix = np.array(ims).flatten()
+	stretch = {
+	  'linear':vis.LinearStretch(),
+	  'histeq':vis.HistEqStretch(allpix),
+	  'asinh':vis.AsinhStretch(),
+	}[stretch]
+	if interval=='zscale':
+		iv = vis.ZScaleInterval(contrast=contrast)
+		vmin,vmax = iv.get_limits(im)
+	elif interval=='rms':
+		nsample = 1000 // nbin
+		background = sigma_clip(im[::nsample],iters=3,sigma=2.2)
+		m,s = background.mean(),background.std()
+		vmin,vmax = m-losig*s,m+hisig*s
+	elif interval=='fixed':
+		vmin,vmax = imrange
+	else:
+		raise ValueError
+	norm = ImageNormalize(vmin=vmin,vmax=vmax,stretch=stretch)
+	for n,(im,ccd) in enumerate(zip(ims,['CCD2','CCD4','CCD1','CCD3'])):
 		if im.ndim == 3:
 			im = im.mean(axis=-1)
 		x = fov[ccd]['x']
@@ -62,7 +81,9 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 		if n == 0:
 			cb = fig.colorbar(_im,cax,orientation='horizontal')
 			cb.ax.tick_params(labelsize=9)
-	title = kwargs.get('title',fov.get('file','')+' '+fov.get('objname',''))
+	tstr = fov.get('file','')+' '+fov.get('objname','')
+	title = kwargs.get('title',tstr)
+	title = title[-60:]
 	fig.text(0.5,0.99,title,ha='center',va='top',size=12)
 	if pngfn is not None:
 		plt.savefig(pngfn)
