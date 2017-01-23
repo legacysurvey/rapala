@@ -46,8 +46,8 @@ export XARGS="-p $NPROC --maxmem $MAXMEM"
 # only objects
 #export XARGS="-p $NPROC --maxmem $MAXMEM --frames 16621-16640"
 
-srun -n 1 -c $NPROC make -f Makefile.ut all
+srun -n 1 -c $NPROC make -f Makefile all
 
-#srun -n 1 -c $NPROC make -f Makefile.ut initproc badpix
-#srun -n 1 -c $NPROC make -f Makefile.ut flats
+#srun -n 1 -c $NPROC make -f Makefile initproc 
+#srun -n 1 -c $NPROC make -f Makefile flats
 
