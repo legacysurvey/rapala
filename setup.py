@@ -8,7 +8,7 @@ except ImportError:  # Python 2.x
     from distutils.command.build_py import build_py
 
 setup(name='rapala',
-      version='0.1',
+      version='0.3',
       description='Bok 90Prime Data Analysis',
       author='Ian McGreer',
       author_email='imcgreer@gmail.com,',
