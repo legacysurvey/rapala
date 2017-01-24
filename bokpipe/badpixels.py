@@ -9,7 +9,7 @@ import fitsio
 from .bokio import FileNameMap
 from .bokutil import rebin,BokMefImage,BokProcess
 from .bokdm import SimpleFileNameMap
-from .bokproc import NormalizeFlat
+from .bokproc import NormalizeFlat,combine_ccds
 
 bok_badcols = {
   'IM11':range(987,994)+range(1837,1839),
@@ -68,7 +68,7 @@ def build_mask_from_flat(flatFile,bpMaskFile,outDir,**kwargs):
 	bpmGen = BadPixelMaskFromFlats(output_map=bpmap,**kwargs)
 	bpmGen.process_files([flatFile,])
 	ccd4map = FileNameMap(outDir,'4')
-	bokproc.combine_ccds([bpMaskFile],output_map=ccd4map,**kwargs)
+	combine_ccds([bpMaskFile],output_map=ccd4map,**kwargs)
 
 
 
