@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os
+import os,shutil
 import glob
 import numpy as np
 from astropy.table import Table
@@ -23,10 +23,18 @@ def set_bass_defaults(args):
 def config_bass_data(dataMap,args,season=None):
 	if args.band is None:
 		dataMap.setFilters(['g','bokr'])
+	dataMap.setFringeFilters(['bokr'])
 	if season:
 		sfx = '_%s' % season
 	else:
 		sfx = ''
+	if args.badpixdir:
+		for sfx2 in ['','_x4']:
+			bpfn = 'BadPixMask%s%s.fits' % (sfx,sfx2)
+			bpfile = os.path.join(args.badpixdir,bpfn)
+			outfile = os.path.join(dataMap.getCalDir(),bpfn)
+			if not os.path.exists(outfile):
+				shutil.copy(bpfile,outfile)
 	dataMap.setCalMap('badpix','master',fileName='BadPixMask%s'%sfx)
 	dataMap.setCalMap('badpix4','master',fileName='BadPixMask%s_x4'%sfx)
 	dataMap.setCalMap('ramp','master',fileName='BiasRamp%s'%sfx)
@@ -71,10 +79,10 @@ class IllumFilter(object):
 		#keep[:] ^= obsDb['utDate'][ii] == '20140612'
 		if keep.sum()==0:
 			return keep
-		elif keep.sum() > maxNImg:
+		elif keep.sum() > self.maxNImg:
 			jj = np.where(keep)[0]
 			np.random.shuffle(jj)
-			keep[jj[self.maxNimg:]] = False
+			keep[jj[self.maxNImg:]] = False
 		print 'selected %d images for illumination correction' % keep.sum()
 		return keep
 
@@ -88,6 +96,8 @@ if __name__=='__main__':
 	                help='rename files')
 	parser.add_argument('--makebpmask',type=str,
 	                help='make quick badpix mask from flat <FILENAME>')
+	parser.add_argument('--badpixdir',type=str,
+	                help='location of bad pixel mask masters')
 	args = parser.parse_args()
 	args = set_bass_defaults(args)
 	dataMap = bokpl.init_data_map(args)

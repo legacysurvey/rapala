@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p regular
-#SBATCH -t 05:00:00
+#SBATCH -t 01:30:00
 #SBATCH -J basschute
 #SBATCH -N 1 
 
@@ -16,38 +16,35 @@
 ##SBATCH -N 1 
 
 cd $SLURM_SUBMIT_DIR   # optional, since this is the default behavior
-##srun -n 1 make
-
-##srun -n 1 make nov15proc
-##srun -n 1 make nov15badpix
-##srun -n 1 make nov15flats
-
-export UTDATE=20160703 
 
 if [ "$NERSC_HOST" == "edison" ]
 then
-	export NPROC=24
+	if [[ -z "$NPROC" ]]; then
+		export NPROC=24
+	fi
 	export MAXMEM=50
-	export BASSRDXDIR=.
 fi
 
 if [ "$NERSC_HOST" == "cori" ]
 then
-	export NPROC=32
-	#export NPROC=10
+	if [[ -z "$NPROC" ]]; then
+		export NPROC=32
+	fi
 	export MAXMEM=100
 fi
 
 echo "redux dir is $BASSRDXDIR"
 
-export XARGS="-p $NPROC --maxmem $MAXMEM"
-# include cals
-#export XARGS="-p $NPROC --maxmem $MAXMEM --frames 16601-16640"
-# only objects
-#export XARGS="-p $NPROC --maxmem $MAXMEM --frames 16621-16640"
+export XARGS="--maxmem $MAXMEM $XARGS"
 
-srun -n 1 -c $NPROC make -f Makefile all
+#srun -n 1 -c $NPROC make quickproc
 
-#srun -n 1 -c $NPROC make -f Makefile initproc 
-#srun -n 1 -c $NPROC make -f Makefile flats
+#srun -n 1 -c $NPROC make all_detrend
+
+#srun -n 1 -c $NPROC make initproc
+srun -n 1 -c $NPROC make badpix
+#srun -n 1 -c $NPROC make proc1 
+#srun -n 1 -c $NPROC make makeillum
+##srun -n 1 -c $NPROC make flats
+#srun -n 1 -c $NPROC make proc2
 

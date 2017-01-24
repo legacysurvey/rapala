@@ -2,26 +2,22 @@
 
 .PHONY: initproc badpix flats proc redo
 
-TOOLS := $(HOME)/dev/rapala/bokpipe/tools
+ifndef DATE
+	$(error DATE must be set!)
+endif
+UTARGS := --night $(DATE)
 
 ifdef LOGFILE
 	LOGARGS := --obsdb $(LOGFILE)
-else
-	LOGARGS := --obsdb config/logs2016.fits
 endif
 
-ifdef RAWDATA
-	DATAARGS := -r $(BASSDATA)/BOK_Raw
+ifndef RAWDATA
+	RAWDATA := $(BASSDATA)/BOK_Raw
 endif
+DATAARGS := -r $(RAWDATA)
 
-ifdef UTDATE
-	UTARGS := -u $(UTDATE)
-else
-$(error UTDATE must be set!)
-endif
-
-ifndef NPROC
-	NPROC := 7
+ifdef NPROC
+	MPARGS = -p $(NPROC)
 endif
 
 ifndef VERBOSE
@@ -32,36 +28,51 @@ ifdef BANDS
 	BANDARGS := -b $(BANDS)
 endif
 
-INITARGS := $(LOGARGS) $(DATAARGS) $(UTARGS) $(BANDARGS) \
-            -p $(NPROC) $(VERBOSE)
+ifdef BASS2015
+	PROCARGS := --nousepixflat --rampcorr --noweightmap
+else
+	PROCARGS := --nousepixflat --fixsaturation --nobiascorr --noweightmap
+endif
 
-all_detrend: initproc badpix proc1 flats proc2
+ifndef DOSKYFRINGE
+	PROCARGS := $(PROCARGS) --noskyflatcorr --nofringecorr
+endif
+
+INITARGS := $(LOGARGS) $(DATAARGS) $(UTARGS) $(BANDARGS) \
+            $(MPARGS) $(VERBOSE) 
+
+all_detrend: initproc badpix proc1 makeillum flats proc2
+
+obsdb:
+	python $(BOKTOOLS)/bokmkobsdb.py -o $(LOGFILE) $(RAWDATA)/$(DATE)
 
 # Overscan-subtract all images, generate 2D biases and dome flats
 initproc:
-	python bokrmpipe.py $(INITARGS) $(PROCARGS) \
+	python basschute.py $(INITARGS) $(PROCARGS) --badpixdir $(BASSDIR) \
 	                    -s oscan,bias2d,flat2d \
 	                    $(XARGS)
 
 # Generate the bias ramp image (<=2015 data)
 biasramp:
-	python bokrmpipe.py $(INITARGS) \
+	python basschute.py $(INITARGS) \
 	                    -s ramp \
 	                    $(XARGS)
 
 # XXX copy in a master bp mask from config dir
 badpix:
-	cp $(BOK90PRIMEOUTDIR)/bokpipe_v0.2/cals/BadPix* $(BOK90PRIMEOUTDIR)/bokpipe_v0.3/cals/
+	python basschute.py $(INITARGS) \
+	                    --makebpmask DomeFlat201611060110g \
+	                    $(XARGS)
 
 # First-round processing: bias/domeflat correction, combine into CCD extensions
 proc1:
-	python bokrmpipe.py $(INITARGS) $(PROCARGS) \
+	python basschute.py $(INITARGS) $(PROCARGS) \
 	                    -s proc1 \
 	                    $(XARGS)
 
 # Make the illumination correction image
 makeillum:
-	python bokrmpipe.py $(INITARGS) \
+	python basschute.py $(INITARGS) \
 	                    -s illum 
 	                    $(XARGS)
 
@@ -71,7 +82,7 @@ makeillum:
 
 #  ... apply the illumination correction to the sky flat images
 flats_illumcorr:
-	python bokrmpipe.py $(INITARGS) \
+	python basschute.py $(INITARGS) \
 	                    -s proc2 --prockey TMPPRO2 \
 	                    --nofringecorr --noskyflatcorr \
 	                    --noskysub --noweightmap \
@@ -80,14 +91,14 @@ flats_illumcorr:
 
 #  ... make fringe masters from sky flat images
 flats_makefringe:
-	python bokrmpipe.py $(INITARGS) \
+	python basschute.py $(INITARGS) \
 	                    -s fringe \
 	                    --tmpdirin --tmpdirout 
 	                    $(XARGS)
 
 # ... apply fringe correction to sky flat images
 flats_fringeskycorr:
-	python bokrmpipe.py $(INITARGS) \
+	python basschute.py $(INITARGS) \
 	                    -s proc2 --prockey TMPPRO3 \
 	                    --noillumcorr --noskyflatcorr --noweightmap \
 	                    --skymethod polynomial --skyorder 1 \
@@ -96,7 +107,7 @@ flats_fringeskycorr:
 
 # ... combine temp processed images to make sky flat
 flats_makeskyflat:
-	python bokrmpipe.py $(INITARGS) \
+	python basschute.py $(INITARGS) \
 	                    -s skyflat \
 	                    --tmpdirin --tmpdirout 
 	                    $(XARGS)
@@ -109,29 +120,35 @@ flats: flats_illumcorr \
 # Second-round processing: apply illumination, skyflat, and fringe corrections
 #  and do sky subtraction
 proc2:
-	python bokrmpipe.py $(INITARGS) $(PROCARGS) \
+	python basschute.py $(INITARGS) $(PROCARGS) \
 	                    -s proc2 \
 	                    $(XARGS)
 
 # Perform individual processing steps as listed in STEPS
 steps:
-	python bokrmpipe.py $(INITARGS) $(PROCARGS) -s $(STEPS) $(XARGS)
+	python basschute.py $(INITARGS) $(PROCARGS) -s $(STEPS) $(XARGS)
 
 # Assuming cals already exist, perform all the processing steps on science ims
 procall:
-	python bokrmpipe.py $(INITARGS) $(PROCARGS) \
+	python basschute.py $(INITARGS) $(PROCARGS) \
 	                    -s oscan,proc1,proc2 -t object \
+	                    $(XARGS)
+
+# quick-processing that doesn't include sky flat / fringe corrections
+quickproc:
+	python basschute.py $(INITARGS) $(PROCARGS) \
+	                    -s oscan,bias2d,flat2d,proc1,illum,proc2 \
 	                    $(XARGS)
 
 
 # Obtain astrometric solutions
 wcs:
-	python bokrmpipe.py $(INITARGS) -s wcs --gaia $(XARGS)
+	python basschute.py $(INITARGS) -s wcs --gaia $(XARGS)
 
 
 # Generate object catalogs and PSF models with sextractor+psfex
 catalogs:
-	python bokrmpipe.py $(INITARGS) -s cat $(XARGS)
+	python basschute.py $(INITARGS) -s cat $(XARGS)
 
 
 #
@@ -140,5 +157,5 @@ catalogs:
 
 # Make PNG images for inspection purposes
 images:
-	python bokrmpipe.py $(INITARGS) --images $(XARGS)
+	python basschute.py $(INITARGS) --images $(XARGS)
 
