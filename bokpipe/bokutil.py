@@ -495,6 +495,7 @@ class BokProcess(object):
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.extensions = kwargs.get('extensions')
 		self.verbose = kwargs.get('verbose',0)
+		self.debug = kwargs.get('debug',False)
 		self.nProc = kwargs.get('processes',1)
 		self.procMap = kwargs.get('procmap',map)
 		self.noConvert = False
@@ -555,12 +556,15 @@ class BokProcess(object):
 	def _null_result(self,f):
 		return None
 	def _process_file_exc(self,f):
-		try:
+		if self.debug:
 			return self.process_file(f)
-		except Exception,e:
-			sys.stderr.write('ERROR: failed to process %s [%s]\n' %
-			                       (self.inputNameMap(f),e))
-			return self._null_result(f)
+		else:
+			try:
+				return self.process_file(f)
+			except Exception,e:
+				sys.stderr.write('ERROR: failed to process %s [%s]\n' %
+				                       (self.inputNameMap(f),e))
+				return self._null_result(f)
 	def _process_file_group(self,fgrp):
 		return map(self._process_file_exc,fgrp)
 	def process_files(self,fileList):

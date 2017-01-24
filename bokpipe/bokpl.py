@@ -564,7 +564,7 @@ def bokpipe(dataMap,**kwargs):
 		procmap = pool.map
 	else:
 		procmap = map
-	pipekwargs = {'clobber':redo,'verbose':verbose,
+	pipekwargs = {'clobber':redo,'verbose':verbose,'debug':debug,
 	              'processes':processes,'procmap':procmap,'maxmem':maxmem}
 	# fixpix is sticking nan's into the images in unmasked pixels (???)
 	fixpix = False #True
@@ -585,7 +585,7 @@ def bokpipe(dataMap,**kwargs):
 		                nobiascorr=kwargs.get('nobiascorr',False),
 		                usepixflat=not kwargs.get('nousepixflat',False),
 		                maxflatcounts=kwargs.get('maxflatcounts'),
-		                debug=debug,**pipekwargs)
+		                **pipekwargs)
 		timerLog('dome flats')
 	if 'ramp' in steps:
 		make_rampcorr_image(dataMap,**pipekwargs)

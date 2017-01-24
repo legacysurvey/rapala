@@ -954,8 +954,9 @@ def _combine_ccds(f,**kwargs):
 			try:
 				# copy in the nominal gain values from per-amp headers
 				gainKey = 'GAIN%02dA' % int(ext[2:])
-				g0 = hdr[gainKey] = hext[gainKey]
-			except ValueError:
+				g0 = hext[gainKey]
+				hdr[gainKey] = g0
+			except:
 				pass
 			if gainMap is not None:
 				ampIdx = ampOrder[4*(ccdNum-1)+j] - 1
@@ -999,7 +1000,10 @@ def _combine_ccds_exc(f,**kwargs):
 
 def combine_ccds(fileList,**kwargs):
 	procmap = kwargs.pop('procmap',map)
-	combfunc = partial(_combine_ccds_exc,**kwargs)
+	if kwargs.get('debug',False):
+		combfunc = partial(_combine_ccds,**kwargs)
+	else:
+		combfunc = partial(_combine_ccds_exc,**kwargs)
 	procmap(combfunc,fileList)
 
 
