@@ -904,92 +904,92 @@ def _combine_ccds(f,**kwargs):
 	tmpFile.close()
 	# do the extensions in numerical order, instead of HDU list order
 	extns = np.array(['IM%d' % ampNum for ampNum in range(1,17)])
-	if True: #for f in fileList:
-		inputFile = inputFileMap(f)
-		outputFile = outputFileMap(f)
-		if kwargs.get('processes',1) > 1:
+	#
+	inputFile = inputFileMap(f)
+	outputFile = outputFileMap(f)
+	if kwargs.get('processes',1) > 1:
+		try:
+			pid = multiprocessing.current_process().name.split('-')[1]
+		except:
+			pid = '1'
+		print '[%2s] '%pid,
+	print 'combine: ',inputFile,outputFile
+	inFits = fitsio.FITS(inputFile)
+	if 'CCDJOIN' in inFits[0].read_header():
+		print '%s already combined, skipping' % inputFile
+		inFits.close()
+		return
+	if outputFile != inputFile:
+		if os.path.exists(outputFile):
+			if clobber:
+				os.unlink(outputFile)
+			# XXX should be checking header key here?
+			elif ignoreExisting:
+				print '%s already exists, skipping' % outputFile
+				return
+			else:
+				raise bokutil.OutputExistsError(
+				                    '%s already exists'%outputFile)
+		outFits = fitsio.FITS(outputFile,'rw')
+	else:
+		# have to use a temporary file to change format
+		if os.path.exists(tmpFileName):
+			os.unlink(tmpFileName)
+		outFits = fitsio.FITS(tmpFileName,'rw')
+	hdr = inFits[0].read_header()
+	hdr['DETSIZE'] = '[1:%d,1:%d]' % (8192,8064) # hardcoded
+	hdr['NEXTEND'] = 4
+	hdr['CCDJOIN'] = bokutil.get_timestamp()
+	outFits.write(None,header=hdr)
+	refSkyCounts = None
+	for ccdNum,extGroup in enumerate(np.hsplit(extns,4),start=1):
+		hdr = inFits[bokCenterAmps[ccdNum-1]].read_header()
+		ccdIms = []
+		satvals = []
+		for j,ext in enumerate(extGroup):
+			im = inFits[ext].read() 
+			hext = inFits[ext].read_header()
+			if _preprocess_ims is not None:
+				im = _preprocess_ims(im,hext,ext)
 			try:
-				pid = multiprocessing.current_process().name.split('-')[1]
-			except:
-				pid = '1'
-			print '[%2s] '%pid,
-		print 'combine: ',inputFile,outputFile
-		inFits = fitsio.FITS(inputFile)
-		if 'CCDJOIN' in inFits[0].read_header():
-			print '%s already combined, skipping' % inputFile
-			inFits.close()
-			return
-		if outputFile != inputFile:
-			if os.path.exists(outputFile):
-				if clobber:
-					os.unlink(outputFile)
-				# XXX should be checking header key here?
-				elif ignoreExisting:
-					print '%s already exists, skipping' % outputFile
-					return
-				else:
-					raise bokutil.OutputExistsError(
-					                    '%s already exists'%outputFile)
-			outFits = fitsio.FITS(outputFile,'rw')
-		else:
-			# have to use a temporary file to change format
-			if os.path.exists(tmpFileName):
-				os.unlink(tmpFileName)
-			outFits = fitsio.FITS(tmpFileName,'rw')
-		hdr = inFits[0].read_header()
-		hdr['DETSIZE'] = '[1:%d,1:%d]' % (8192,8064) # hardcoded
-		hdr['NEXTEND'] = 4
-		hdr['CCDJOIN'] = bokutil.get_timestamp()
-		outFits.write(None,header=hdr)
-		refSkyCounts = None
-		for ccdNum,extGroup in enumerate(np.hsplit(extns,4),start=1):
-			hdr = inFits[bokCenterAmps[ccdNum-1]].read_header()
-			ccdIms = []
-			satvals = []
-			for j,ext in enumerate(extGroup):
-				im = inFits[ext].read() 
-				hext = inFits[ext].read_header()
-				if _preprocess_ims is not None:
-					im = _preprocess_ims(im,hext,ext)
-				try:
-					# copy in the nominal gain values from per-amp headers
-					gainKey = 'GAIN%02dA' % int(ext[2:])
-					g0 = hdr[gainKey] = hext[gainKey]
-				except ValueError:
-					pass
-				if gainMap is not None:
-					ampIdx = ampOrder[4*(ccdNum-1)+j] - 1
-					gc1,gc2 = gainMap['corrections'][f][ampIdx]
-					sky = gainMap['skyvals'][f][ampIdx]
-					hdr['SKY%02dB'%int(ext[2:])] = sky
-					hdr['GAIN%02dB'%int(ext[2:])] = gc1
-					if j==0:
-						hdr['CCDGAIN'] = gc2
-						try:
-							satvals.append(hdr['SATUR']*gc1*gc2)
-						except ValueError:
-							pass
-					im *= gc1 * gc2
-					# the final gain factor
-					hdr['GAIN%02d'%int(ext[2:])] = g0 * gc1 * gc2
-				if flatNorm:
-					_s = bokutil.stats_region('amp_corner_ccdcenter_128')
-					_a = bokutil.array_stats(im[_s],method='mode')
-					im /= _a
-				ccdIms.append(im)
-			# orient the channel images into a mosaic of CCDs and
-			# modify WCS & mosaic keywords
-			outIm,hdr = _orient_mosaic(hdr,ccdIms,ccdNum,origin)
-			if len(satvals)>0:
-				hdr['SATUR'] = np.min(satvals)
-			if True:
-				# For some reason this results in a segfault when running
-				# on NERSC unless the image is copied...
-				outIm = outIm.copy()
-			outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
-		outFits.close()
-		if outputFile == inputFile:
-			shutil.move(tmpFileName,inputFile)
+				# copy in the nominal gain values from per-amp headers
+				gainKey = 'GAIN%02dA' % int(ext[2:])
+				g0 = hdr[gainKey] = hext[gainKey]
+			except ValueError:
+				pass
+			if gainMap is not None:
+				ampIdx = ampOrder[4*(ccdNum-1)+j] - 1
+				gc1,gc2 = gainMap['corrections'][f][ampIdx]
+				sky = gainMap['skyvals'][f][ampIdx]
+				hdr['SKY%02dB'%int(ext[2:])] = sky
+				hdr['GAIN%02dB'%int(ext[2:])] = gc1
+				if j==0:
+					hdr['CCDGAIN'] = gc2
+					try:
+						satvals.append(hdr['SATUR']*gc1*gc2)
+					except ValueError:
+						pass
+				im *= gc1 * gc2
+				# the final gain factor
+				hdr['GAIN%02d'%int(ext[2:])] = g0 * gc1 * gc2
+			if flatNorm:
+				_s = bokutil.stats_region('amp_corner_ccdcenter_128')
+				_a = bokutil.array_stats(im[_s],method='mode')
+				im /= _a
+			ccdIms.append(im)
+		# orient the channel images into a mosaic of CCDs and
+		# modify WCS & mosaic keywords
+		outIm,hdr = _orient_mosaic(hdr,ccdIms,ccdNum,origin)
+		if len(satvals)>0:
+			hdr['SATUR'] = np.min(satvals)
+		if True:
+			# For some reason this results in a segfault when running
+			# on NERSC unless the image is copied...
+			outIm = outIm.copy()
+		outFits.write(outIm,extname='CCD%d'%ccdNum,header=hdr)
+	outFits.close()
+	if outputFile == inputFile:
+		shutil.move(tmpFileName,inputFile)
 
 def _combine_ccds_exc(f,**kwargs):
 	try:
