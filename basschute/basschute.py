@@ -4,6 +4,7 @@ import os
 import glob
 import numpy as np
 from astropy.table import Table
+from astropy.io import fits
 
 from bokpipe import bokpl,bokobsdb
 from bokpipe import __version__ as pipeVersion
@@ -40,6 +41,23 @@ def finish_up(args,dataMap):
 			put_wcs(outf+'.fits')
 			os.remove(outf+'.ahead')
 
+class IllumFilter(object):
+	minNImg = 15
+	maxNImg = 30
+	maxCounts = 10000
+	def __call__(self,obsDb,ii):
+		keep = np.ones(len(ii),dtype=bool)
+		# this whole night is bad due to passing clouds
+		#keep[:] ^= obsDb['utDate'][ii] == '20140612'
+		if keep.sum()==0:
+			return keep
+		elif keep.sum() > maxNImg:
+			jj = np.where(keep)[0]
+			np.random.shuffle(jj)
+			keep[jj[self.maxNimg:]] = False
+		print 'selected %d images for illumination correction' % keep.sum()
+		return keep
+
 if __name__=='__main__':
 	import sys
 	import argparse
@@ -54,8 +72,10 @@ if __name__=='__main__':
 	if args.band is None:
 		dataMap.setFilters(['g','bokr'])
 	dataMap = bokpl.set_master_cals(dataMap)
+	kwargs = {}
+	kwargs['illum_filter_fun'] = IllumFilter()
 	if args.finish:
 		finish_up(args,dataMap)
 	else:
-		bokpl.run_pipe(dataMap,args)
+		bokpl.run_pipe(dataMap,args,**kwargs)
 
