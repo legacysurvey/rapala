@@ -5,6 +5,7 @@ import glob
 import numpy as np
 from astropy.table import Table
 
+from bokpipe.badpixels import build_mask_from_flat
 from bokpipe import bokpl,bokobsdb
 from bokpipe import __version__ as pipeVersion
 
@@ -15,8 +16,20 @@ def set_bass_defaults(args):
 		outdir = os.path.join(os.environ['BASSRDXDIR'],'reduced',pipeVersion)
 		args.output = outdir
 	if args.obsdb is None:
-		args.obsdb = os.path.join('config','basslog.fits')
+		args.obsdb = os.path.join('config','bassobsdb.fits')
 	return args
+
+def config_bass_data(dataMap,args,season=None):
+	if args.band is None:
+		dataMap.setFilters(['g','bokr'])
+	if season:
+		sfx = '_%s' % season
+	else:
+		sfx = ''
+	dataMap.setCalMap('badpix','master',fileName='BadPixMask%s'%sfx)
+	dataMap.setCalMap('badpix4','master',fileName='BadPixMask%s_x4'%sfx)
+	dataMap.setCalMap('ramp','master',fileName='BiasRamp%s'%sfx)
+	return dataMap
 
 def finish_up(args,dataMap):
 	'''rename files and move them to a separate directory'''
@@ -40,6 +53,13 @@ def finish_up(args,dataMap):
 			put_wcs(outf+'.fits')
 			os.remove(outf+'.ahead')
 
+def get_observing_season(dataMap):
+	year = np.unique([ utd[:4] for utd in dataMap.getUtDates() ])
+	if len(year) > 1:
+		raise ValueError("Currently processing only one observing season "
+		                 "at a time is supported")
+	return year[0]
+
 if __name__=='__main__':
 	import sys
 	import argparse
@@ -48,14 +68,21 @@ if __name__=='__main__':
 	parser = bokpl.init_pipeline_args(parser)
 	parser.add_argument('--finish',action='store_true',
 	                help='rename files')
+	parser.add_argument('--makebpmask',type=str,
+	                help='make quick badpix mask from flat <FILENAME>')
 	args = parser.parse_args()
 	args = set_bass_defaults(args)
 	dataMap = bokpl.init_data_map(args)
-	if args.band is None:
-		dataMap.setFilters(['g','bokr'])
-	dataMap = bokpl.set_master_cals(dataMap)
+	season = get_observing_season(dataMap)
+	dataMap = config_bass_data(dataMap,args,season)
 	if args.finish:
 		finish_up(args,dataMap)
+	elif args.makebpmask:
+		build_mask_from_flat(dataMap('cal')(args.makebpmask),
+		                     dataMap.getCalMap('badpix').getFileName(),
+		                     dataMap.getCalDir(),
+		                     verbose=args.verbose,
+		                     debug=args.debug)
 	else:
 		bokpl.run_pipe(dataMap,args)
 
