@@ -595,7 +595,8 @@ class BokMefImageCube(object):
 		self.expTimeNameMap = kwargs.get('exposure_time_map',NullNameMap)
 		self.withExpTimeMap = self.expTimeNameMap != NullNameMap
 		self.statsRegion = kwargs.get('stats_region')
-		self.statsPix = stats_region(self.statsRegion)
+		self.statsStride = kwargs.get('stats_stride')
+		self.statsPix = stats_region(self.statsRegion,self.statsStride)
 		self.clipArgs = {'iters':kwargs.get('clip_iters',2),
 		                 'sig':kwargs.get('clip_sig',2.5),
 		                 'cenfunc':kwargs.get('clip_cenfunc',np.ma.mean)}

@@ -327,9 +327,11 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 		tmpFn = 'tmp'+os.path.basename(outFn)
 		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,tmpFn)
 		stackFun = bokutil.ClippedMeanStack(input_map=dataMap('comb'),
-		                                    scale='normalize_median',
-		                                    clip_iters=3,clip_sig=2.0,
-		                                    **kwargs)
+		                                scale='normalize_mean',
+		                                stats_region='ccd_central_quadrant',
+		                                stats_stride=10,
+		                                clip_iters=3,clip_sig=2.0,
+		                                **kwargs)
 		if max_images is not None:
 			# keep the image list in the same order
 			ii = np.random.randint(0,max_images)
