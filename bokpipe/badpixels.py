@@ -67,7 +67,7 @@ def build_mask_from_flat(flatFile,bpMaskFile,outDir,**kwargs):
 	bpmap = lambda f: os.path.join(outDir,bpMaskFile)
 	bpmGen = BadPixelMaskFromFlats(output_map=bpmap,**kwargs)
 	bpmGen.process_files([flatFile,])
-	ccd4map = FileNameMap(outDir,'4')
+	ccd4map = FileNameMap(outDir,'_x4')
 	combine_ccds([bpMaskFile],output_map=ccd4map,**kwargs)
 
 
