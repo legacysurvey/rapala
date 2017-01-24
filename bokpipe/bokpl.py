@@ -723,6 +723,8 @@ def init_file_args(parser):
 	                help='specify image type to process')
 	parser.add_argument('-u','--utdate',type=str,default=None,
 	                help='UT date(s) to process [default=all]')
+	parser.add_argument('--night',type=str,default=None,
+	                help='night(s) to process [default=all]')
 	return parser
 
 def _load_obsdb(obsdb):
@@ -742,6 +744,8 @@ def init_data_map(args,create_dirs=True):
 	#
 	if args.utdate is not None:
 		dataMap.setUtDates(args.utdate.split(','))
+	elif args.night is not None:
+		dataMap.setUtDirs(args.night.split(','))
 	#
 	if args.band is not None:
 		dataMap.setFilters(args.band.split(','))

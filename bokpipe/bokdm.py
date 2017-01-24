@@ -353,6 +353,17 @@ class BokDataManager(object):
 			self._curUtDate = u
 			yield u
 		self._curUtDate = None
+	def setUtDirs(self,utDirs):
+		allUtDirs = self.getUtDirs()
+		# see setUtDates()
+		dirlist = list(set([ dir for f in utDirs 
+		                           for dir in allUtDirs 
+		                             if dir.startswith(f) ]))
+		# translate the nightly directory list back to utdates
+		utdlist = [ self.obsDb['utDate'][self.obsDb['utDir']==d] 
+		              for d in dirlist ]
+		utdlist = np.unique(np.concatenate(utdlist))
+		self.utDates = sorted(utdlist)
 	def getUtDirs(self):
 		return sorted(np.unique(self.obsDb['utDir']))
 	def setFilters(self,filt):
