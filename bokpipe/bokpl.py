@@ -137,7 +137,8 @@ def _flat_worker_exc(*args,**kwargs):
 
 def make_dome_flats(dataMap,nobiascorr=False,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
-	                usepixflat=True,debug=False,**kwargs):
+	                usepixflat=True,debug=False,
+                    maxflatcounts=None,**kwargs):
 	# need to make sure num processes is reset to 1 before calling these
 	# routines since they will execute from within a subprocess
 	procmap = kwargs.pop('procmap')
@@ -156,6 +157,8 @@ def make_dome_flats(dataMap,nobiascorr=False,
 	                                     input_map=dataMap('bias'),
 	                                     output_map=dataMap('cal'),
 	                                     **_kwargs)
+	if maxflatcounts is not None:
+		flatStack.overExposedFlatCounts = maxflatcounts
 	if usepixflat:
 		if debug:
 			ffmap = SimpleFileNameMap(None,dataMap.procDir,'_fit')
@@ -581,6 +584,7 @@ def bokpipe(dataMap,**kwargs):
 		make_dome_flats(dataMap,writeccdim=writeccdims,
 		                nobiascorr=kwargs.get('nobiascorr',False),
 		                usepixflat=not kwargs.get('nousepixflat',False),
+		                maxflatcounts=kwargs.get('maxflatcounts'),
 		                debug=debug,**pipekwargs)
 		timerLog('dome flats')
 	if 'ramp' in steps:
@@ -845,6 +849,8 @@ def init_pipeline_args(parser):
 	                help='write wcs to headers')
 	parser.add_argument('--wcscheck',action='store_true',
 	                help='make astrometry diagnostic files')
+	parser.add_argument('--maxflatcounts',type=int,
+	                help='maximum counts (ADU) to accept for a flat')
 	return parser
 
 def run_pipe(dataMap,args,**_kwargs):

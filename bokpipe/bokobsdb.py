@@ -82,7 +82,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 		filt = h.get('FILTER','null').strip()
 		if filters is not None and filt not in filters:
 			continue
-		objName = h.get('OBJECT','null').strip()
+		objName = str(h.get('OBJECT','null')).strip()
 		if len(objName)==0:
 			objName = 'null'
 		if objFilter is not None and imageType == 'object' and \

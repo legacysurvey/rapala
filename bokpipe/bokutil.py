@@ -347,6 +347,9 @@ class BokMefImage(object):
 				if extNum == self.curExtName:
 					for k,v in hdrfix.items():
 						header[k] = v
+			# NOAO archive adds these keywords
+			header.delete('BZERO')
+			header.delete('BSCALE')
 		# I thought this was overwriting existing HDUs, but doesn't seem to..
 		#self.outFits.write(data,extname=self.curExtName,header=header,
 		#                   clobber=self.clobberHdus)

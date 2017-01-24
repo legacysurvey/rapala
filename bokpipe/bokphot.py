@@ -13,7 +13,7 @@ from .bokastrom import read_headers
 try:
 	import sep
 except ImportError:
-	print 'sep is not installed, cannot perform aperture photometry routines'
+	pass
 
 configDir = os.path.join(os.path.split(__file__)[0],'config')
 
