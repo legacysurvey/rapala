@@ -136,7 +136,7 @@ procall:
 
 # quick-processing that doesn't include sky flat / fringe corrections
 quickproc:
-	python basschute.py $(INITARGS) $(PROCARGS) \
+	python basschute.py $(INITARGS) $(PROCARGS) --badpixdir $(BASSDIR) \
 	                    -s oscan,bias2d,flat2d,proc1,illum,proc2 \
 	                    $(XARGS)
 

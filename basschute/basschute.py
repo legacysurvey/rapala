@@ -34,6 +34,7 @@ def config_bass_data(dataMap,args,season=None):
 			bpfile = os.path.join(args.badpixdir,bpfn)
 			outfile = os.path.join(dataMap.getCalDir(),bpfn)
 			if not os.path.exists(outfile):
+				print 'copying ',bpfile,' to ',outfile
 				shutil.copy(bpfile,outfile)
 	dataMap.setCalMap('badpix','master',fileName='BadPixMask%s'%sfx)
 	dataMap.setCalMap('badpix4','master',fileName='BadPixMask%s_x4'%sfx)
