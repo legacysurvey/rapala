@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p regular
-#SBATCH -t 01:30:00
+#SBATCH -t 02:30:00
 #SBATCH -J basschute
 #SBATCH -N 1 
 
@@ -37,12 +37,12 @@ echo "redux dir is $BASSRDXDIR"
 
 export XARGS="--maxmem $MAXMEM $XARGS"
 
-#srun -n 1 -c $NPROC make quickproc
+srun -n 1 -c $NPROC make quickproc
 
 #srun -n 1 -c $NPROC make all_detrend
 
 #srun -n 1 -c $NPROC make initproc
-srun -n 1 -c $NPROC make badpix
+#srun -n 1 -c $NPROC make badpix
 #srun -n 1 -c $NPROC make proc1 
 #srun -n 1 -c $NPROC make makeillum
 ##srun -n 1 -c $NPROC make flats
