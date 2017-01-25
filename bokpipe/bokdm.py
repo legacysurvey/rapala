@@ -283,6 +283,7 @@ class BokDataManager(object):
 		self.setInPlace(True)
 		self.firstStep = None
 		self.calDbFile = os.path.join(self.calDir,'caldb.pkl')
+		self.calMap = {}
 		try:
 			self.calDb = load_caldb(self.calDbFile)
 			self._config_cals()
@@ -297,7 +298,6 @@ class BokDataManager(object):
 		self.calTable = {}
 		self.calTable['bias'] = Table(rows=[d[:3] for d in self.calDb['zero']],
 		                              names=('fileName','utDate','mjd'))
-		self.calMap = {}
 		cols = ('fileName','utDate','mjd','filter')
 		for calType in ['bias','flat','illum','fringe','skyflat']:
 			n,k = (3,'zero') if calType == 'bias' else (4,calType)
