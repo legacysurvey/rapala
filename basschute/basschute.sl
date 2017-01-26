@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH -p regular
-#SBATCH -t 02:30:00
+#SBATCH -t 01:30:00
 #SBATCH -J basschute
 #SBATCH -N 1 
 

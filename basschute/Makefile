@@ -9,6 +9,8 @@ UTARGS := --night $(DATE)
 
 ifdef LOGFILE
 	LOGARGS := --obsdb $(LOGFILE)
+else
+	LOGFILE := config/bassobsdb.fits 
 endif
 
 ifndef RAWDATA
@@ -32,10 +34,6 @@ ifdef BASS2015
 	PROCARGS := --nousepixflat --rampcorr --noweightmap
 else
 	PROCARGS := --nousepixflat --fixsaturation --nobiascorr --noweightmap
-endif
-
-ifndef DOSKYFRINGE
-	PROCARGS := $(PROCARGS) --noskyflatcorr --nofringecorr
 endif
 
 INITARGS := $(LOGARGS) $(DATAARGS) $(UTARGS) $(BANDARGS) \
@@ -138,6 +136,7 @@ procall:
 quickproc:
 	python basschute.py $(INITARGS) $(PROCARGS) --badpixdir $(BASSDIR) \
 	                    -s oscan,bias2d,flat2d,proc1,illum,proc2 \
+	                    --noskyflatcorr --nofringecorr --noskysub \
 	                    $(XARGS)
 
 
