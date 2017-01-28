@@ -16,7 +16,7 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	interval = kwargs.get('interval','zscale')
 	imrange = kwargs.get('imrange')
 	contrast = kwargs.get('contrast',0.25)
-	maskFile = kwargs.get('mask')
+	ccdplotorder = ['CCD2','CCD4','CCD1','CCD3']
 	if interval == 'rms':
 		try:
 			losig,hisig = imrange
@@ -28,18 +28,11 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	cmap.set_bad('w',1.0)
 	w = 0.4575
 	h = 0.455
-	if maskFile is not None:
-		maskFits = fitsio.FITS(maskFile)
 	rc('text',usetex=False)
 	fig = plt.figure(figsize=(6,6.5))
 	cax = fig.add_axes([0.1,0.04,0.8,0.01])
-	ims = []
-	for n,ccd in enumerate(['CCD2','CCD4','CCD1','CCD3']):
-		im = fov[ccd]['im']
-		if maskFile is not None:
-			im = np.ma.masked_array(im,maskFits[ccd][:,:].astype(bool))
-		ims.append(im)
-	allpix = np.array(ims).flatten()
+	ims = [ fov[ccd]['im'] for ccd in ccdplotorder ]
+	allpix = np.ma.array(ims).flatten()
 	stretch = {
 	  'linear':vis.LinearStretch(),
 	  'histeq':vis.HistEqStretch(allpix),
@@ -47,10 +40,10 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	}[stretch]
 	if interval=='zscale':
 		iv = vis.ZScaleInterval(contrast=contrast)
-		vmin,vmax = iv.get_limits(im)
+		vmin,vmax = iv.get_limits(allpix)
 	elif interval=='rms':
 		nsample = 1000 // nbin
-		background = sigma_clip(im[::nsample],iters=3,sigma=2.2)
+		background = sigma_clip(allpix[::nsample],iters=3,sigma=2.2)
 		m,s = background.mean(),background.std()
 		vmin,vmax = m-losig*s,m+hisig*s
 	elif interval=='fixed':
@@ -58,7 +51,7 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 	else:
 		raise ValueError
 	norm = ImageNormalize(vmin=vmin,vmax=vmax,stretch=stretch)
-	for n,(im,ccd) in enumerate(zip(ims,['CCD2','CCD4','CCD1','CCD3'])):
+	for n,(im,ccd) in enumerate(zip(ims,ccdplotorder)):
 		if im.ndim == 3:
 			im = im.mean(axis=-1)
 		x = fov[ccd]['x']
@@ -90,7 +83,9 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 		plt.close(fig)
 
 def make_fov_image_fromfile(fileName,pngfn,nbin=1,coordsys='sky',**kwargs):
-	fits = bokutil.BokMefImage(fileName,mask_file=kwargs.get('mask'),
+	fits = bokutil.BokMefImage(fileName,
+	                           mask_file=kwargs.get('mask'),
+	                           mask_type=kwargs.get('mask_type'),
 	                           read_only=True)
 	fov = fits.make_fov_image(nbin,coordsys)
 	fov['file'] = fileName

@@ -15,6 +15,10 @@ parser.add_argument("imgFile",type=str,nargs='?',
                     help="output image file")
 parser.add_argument("--mask",type=str,
                     help="input mask image")
+parser.add_argument("--masksfx",type=str,
+                    help="input mask image sfx (e.g., '.msk.fits')")
+parser.add_argument("--masktype",type=str,default='gtzero',
+                    help="input mask boolean type ([gtzero]|nonzero|zerobad)")
 parser.add_argument("--nbin",type=int,default=1,
                     help="output image file")
 parser.add_argument("--coordsys",type=str,default='sky',
@@ -39,12 +43,20 @@ if args.imgFile:
 else:
 	outFile = args.fitsFile.replace('.fits','.png')
 
+if args.mask:
+	maskf = args.mask
+elif args.masksfx:
+	maskf = args.fitsFile.replace('.fits',args.masksfx)
+else:
+	maskf = None
+
 try:
 	imrange = [float(v) for v in args.imrange.split(',')]
 except:
 	imrange = None
 
-make_fov_image_fromfile(args.fitsFile,outFile,mask=args.mask,
+make_fov_image_fromfile(args.fitsFile,outFile,
+                        mask=maskf,mask_type=args.masktype,
                         nbin=args.nbin,coordsys=args.coordsys,
                         stretch=args.stretch,interval=args.interval,
                         imrange=imrange,contrast=args.contrast,
