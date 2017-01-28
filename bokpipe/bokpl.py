@@ -430,7 +430,8 @@ def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 
 def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
                  nofringecorr=False,noskysub=False,noweightmap=False,
-                 prockey='CCDPRO2',redoskymask=False,save_sky=False,**kwargs):
+                 prockey='CCDPRO2',redoskymask=False,save_sky=False,
+                 divide_exptime=True,**kwargs):
 	#
 	# Second round: illumination, fringe, and skyflat corrections
 	#
@@ -456,7 +457,7 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                             gain_multiply=False,bias=None,flat=None,
 		                             ramp=None,fixpix=False,fringe=fringe,
 		                             illum=illum,skyflat=skyflat,
-		                             divide_exptime=True,
+		                             divide_exptime=divide_exptime,
 		                             **kwargs)
 		proc.process_files(_filesUtdFilt)
 	if not noweightmap and not (noillumcorr and noskyflatcorr):
@@ -468,8 +469,8 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                               gain_multiply=False,bias=None,flat=None,
 		                               ramp=None,fixpix=False,fringe=None,
 		                               illum=illum,skyflat=skyflat,
-		                               divide_exptime=True,asweight=True,
-		                               **kwargs)
+		                               divide_exptime=divide_exptime,
+		                               asweight=True,**kwargs)
 		wtproc.process_files(filesUtdFilt)
 	if noskysub:
 		return
@@ -629,6 +630,7 @@ def bokpipe(dataMap,**kwargs):
 		             prockey=kwargs.get('prockey','CCDPRO2'),
 		             redoskymask=kwargs.get('redoskymask'),
 		             save_sky=kwargs.get('savesky'),
+		             divide_exptime=(not kwargs.get('nodivideexptime',False)),
 		             **pipekwargs)
 		timerLog('process2')
 	if 'wcs' in steps:
@@ -838,6 +840,8 @@ def init_pipeline_args(parser):
 	                help='save sky background fit')
 	parser.add_argument('--noweightmap',action='store_true',
 	                help='do not generate weight maps')
+	parser.add_argument('--nodivideexptime',action='store_true',
+	                help='do not divide by exposure time')
 	parser.add_argument('--prockey',type=str,default=None,
 	                help='set new header key for ccdproc')
 	parser.add_argument('--tmpdirin',action='store_true',
