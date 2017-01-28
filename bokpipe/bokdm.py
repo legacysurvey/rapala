@@ -226,21 +226,26 @@ class CalibratorMap(BokCalibrator):
 class FringeMap(CalibratorMap):
 	'''Special case of CalibratorMap -- fringe images need be scaled to
 	   match input images, but useful to keep the scaling mask locally'''
-	def __init__(self,obsDb,calTab,nameMap=None,sigThresh=1.0):
+	def __init__(self,obsDb,calTab,nameMap=None,maskMap=None,sigThresh=1.0):
 		super(FringeMap,self).__init__(obsDb,calTab,nameMap=nameMap,
 		                               allowMissing=True)
 		self.fringeMask = {}
-		self.statsReg = stats_region('ccd_central_quadrant')
+		self.statsReg = stats_region(None)#'ccd_central_quadrant')
 		self.sigThresh = sigThresh
+		self.maskMap = maskMap
 	def setTarget(self,f):
 		changed = super(FringeMap,self).setTarget(f)
 		if changed:
+			if self.maskMap:
+				self.maskFits = FakeFITS(self.maskMap(f))
 			for extn in ['CCD%d' % i for i in range(1,5)]:
 				im = self.currentFits[extn]
 				mn,sig = array_stats(im[self.statsReg],method='median',
 				                     rms=True,clip=True,
 				                     clip_sig=5.0,clip_iters=1)
 				self.fringeMask[extn] = np.abs((im-mn)/sig) < self.sigThresh
+				self.fringeMask[extn] |= load_mask(self.maskFits[extn],
+				                                   'nonzero')
 	def getFringeScale(self,extn,inputIm):
 		fringeIm = np.ma.array(self.currentFits[extn],
 		                       mask=self.fringeMask[extn])
@@ -295,6 +300,8 @@ class BokDataManager(object):
 			self.obsDb['good'] = np.ones(len(self.obsDb),dtype=bool)
 	def _config_cals(self):
 		self.calNameMap = SimpleFileNameMap(None,self.calDir)
+		# should this be configurable by the user?
+		self.calMaskMaps = {'fringe':self('imgmask')}
 		self.calTable = {}
 		self.calTable['bias'] = Table(rows=[d[:3] for d in self.calDb['zero']],
 		                              names=('fileName','utDate','mjd'))
