@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import argparse
 
 from bokpipe import *
@@ -32,6 +33,12 @@ parser.add_argument("--maxmem",type=int,default=8,
                     help="maximum memory in GB")
 parser.add_argument("-w","--weights",type=str,nargs='+',
                     help="weight images")
+parser.add_argument("--masksfx",type=str,
+                    help="input mask image sfx (e.g., '.msk')")
+parser.add_argument("--maskdir",type=str,default='.',
+                    help="directory where masks are located (default:.)")
+parser.add_argument("--masktype",type=str,default='gtzero',
+                    help="input mask boolean type ([gtzero]|nonzero|zerobad)")
 parser.add_argument('-v','--verbose',action='count',
                     help='increase output verbosity')
 args = parser.parse_args()
@@ -43,6 +50,11 @@ if args.reject:
 	stackPars['reject'] = 'sigma_clip'
 stackPars['maxmem'] = args.maxmem
 stackPars['verbose'] = args.verbose
+
+if args.masksfx:
+	stackPars['mask_map'] = lambda f: os.path.join(args.maskdir,
+	                             f.replace('.fits',args.masksfx+'.fits'))
+	stackPars['mask_type'] = args.masktype
 
 if args.method == 'mean':
 	stackFun = bokutil.ClippedMeanStack(**stackPars)
