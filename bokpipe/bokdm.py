@@ -7,7 +7,7 @@ from numpy.core.defchararray import add as char_add
 from astropy.table import Table
 
 from .bokio import FileNameMap,IdentityNameMap
-from .bokutil import FakeFITS,array_stats,stats_region
+from .bokutil import FakeFITS,array_stats,stats_region,load_mask
 
 ##############################################################################
 #                                                                            #
@@ -107,7 +107,7 @@ def init_cal_db(calDbFile,obsDb,filts,overwrite=False):
 
 default_filenames = {
   'oscan':'','bias':'_b','proc1':'_p','comb':'_c','weight':'.wht',
-  'pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
+  'imgmask':'.dq','pass1cat':'.cat1','skymask':'.skymsk','skyfit':'.sky',
   'sky':'_s','proc2':'_q','wcscat':'.wcscat',
   'cat':'.cat','psf':'.psf'
 }
@@ -305,7 +305,8 @@ class BokDataManager(object):
 				dat = self.calDb[k]
 				self.calTable[calType] = Table(rows=[d[:n] for d in dat],
 				                               names=cols[:n])
-				self.setCalMap(calType,'mjd')
+				self.setCalMap(calType,'mjd',
+				               maskMap=self.calMaskMaps.get(calType))
 			except KeyError:
 				pass
 	def initCalDb(self):
@@ -431,7 +432,7 @@ class BokDataManager(object):
 		                                      'mjd','filter'))
 		self.setCalMap(calType,'mjd')
 		return self.calNameMap(calFn)
-	def setCalMap(self,calType,mapType,fileName=None):
+	def setCalMap(self,calType,mapType,fileName=None,maskMap=None):
 		if mapType == None:
 			self.calMap[calType] = NullCalibrator()
 		elif mapType == 'master':
@@ -440,7 +441,8 @@ class BokDataManager(object):
 			if calType == 'fringe':
 				self.calMap[calType] = FringeMap(self.obsDb,
 				                                 self.calTable[calType],
-				                                 self.calNameMap)
+				                                 self.calNameMap,
+				                                 maskMap=maskMap)
 			else:
 				self.calMap[calType] = CalibratorMap(self.obsDb,
 				                                     self.calTable[calType],
@@ -454,8 +456,8 @@ class BokDataManager(object):
 	def setInPlace(self,inPlace):
 		self.inPlace = inPlace
 		if self.inPlace:
-			self.filesToMap = ['oscan','pass1cat','weight','skymask','skyfit',
-			                   'wcscat','cat','psf']
+			self.filesToMap = ['oscan','pass1cat','weight','imgmask',
+			                   'skymask','skyfit','wcscat','cat','psf']
 		else:
 			self.filesToMap = self.fileSuffixes.keys()
 	def __call__(self,t):

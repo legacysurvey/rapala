@@ -185,7 +185,8 @@ def ccd_split(ccdIm,ccdNum,origin='center'):
 	im3 = np.rot90(np.fliplr(im3),-1)
 	return [im1,im2,im3,im4]
 
-def build_cube(fileList,extn,masks=None,rows=None,badKey=None):
+def build_cube(fileList,extn,masks=None,rows=None,badKey=None,
+               maskType='gtzero'):
 	s = rows2slice(rows)
 	cube = np.dstack( [ fitsio.FITS(f)[extn][s] for f in fileList ] )
 	_masks = []
@@ -196,7 +197,7 @@ def build_cube(fileList,extn,masks=None,rows=None,badKey=None):
 			maskFiles = masks
 		for f in maskFiles:
 			hdu = fitsio.FITS(f)[extn]
-			_masks.append(hdu[s])
+			_masks.append(load_mask(hdu[s],maskType))
 			# hacky to put this special case here...
 			if badKey is not None:
 				hdr = hdu.read_header()
@@ -254,6 +255,18 @@ def mask_saturation(extName,data,correct_inverted=True):
 		mask = filledmask
 	return data,mask
 
+def load_mask(maskIm,maskType):
+	if maskIm.dtype == np.dtype(np.bool):
+		return maskIm
+	elif maskType=='gtzero':
+		return maskIm > 0
+	elif maskType=='nonzero':
+		return maskIm != 0
+	elif maskType=='zerobad':
+		return maskIm == 0
+	else:
+		raise ValueError
+
 class BokMefImage(object):
 	'''A wrapper around fitsio that allows the MEF files to be iterated
 	   over while updating the data arrays and headers either in-place or
@@ -268,6 +281,7 @@ class BokMefImage(object):
 		self.keepHeaders = kwargs.get('keep_headers',True)
 		self.extensions = kwargs.get('extensions')
 		maskFits = kwargs.get('mask_file')
+		maskType = kwargs.get('mask_type','gtzero')
 		headerCards = kwargs.get('add_header',{})
 		self.headerFixes = kwargs.get('header_fixes',[])
 		self.closeFiles = []
@@ -311,13 +325,14 @@ class BokMefImage(object):
 					hdr[self.headerKey] = get_timestamp()
 				self.outFits.write(None,header=hdr)
 		self.masks = []
+		self.maskTypes = []
 		if maskFits is not None:
 			if not isinstance(maskFits,FakeFITS):
 				try:
 					m = maskFits(fileName)
 				except:
 					m = FakeFITS(maskFits)
-			self.add_mask(maskFits)
+			self.add_mask(maskFits,maskType)
 		if self.extensions is None:
 			self.extensions = [ h.get_extname().upper() 
 			                     for h in self.fits[1:] ]
@@ -328,13 +343,14 @@ class BokMefImage(object):
 			if self.headerKey in hdr0:
 				raise OutputExistsError('key %s already exists' % 
 				                        self.headerKey)
-	def add_mask(self,maskFits):
+	def add_mask(self,maskFits,maskType='gtzero'):
 		if isinstance(maskFits,basestring):
 			maskFits = fitsio.FITS(maskFits)
 			self.closeFiles.append(maskFits)
 		#elif not isinstance(maskFits,fitsio.FITS):
 		#	return ValueError
 		self.masks.append(maskFits)
+		self.maskTypes.append(maskType)
 	def update(self,data,header=None,noconvert=False):
 		if self.readOnly:
 			return
@@ -362,9 +378,9 @@ class BokMefImage(object):
 	def _load_masks(self,extName,subset):
 		if subset is None:
 			subset = np.s_[:,:]
-		mask = self.masks[0][extName][subset].astype(np.bool)
-		for m in self.masks[1:]:
-			mask |= m[extName][subset].astype(np.bool)
+		mask = load_mask(self.masks[0][extName][subset],self.maskTypes[0])
+		for m,mtyp in zip(self.masks[1:],self.maskTypes[1:]):
+			mask |= load_mask(m[extName][subset],mtyp)
 		return mask
 	def __iter__(self):
 		for self.curExtName in self.extensions:
@@ -591,6 +607,7 @@ class BokMefImageCube(object):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
 		self.outputNameMap = kwargs.get('output_map',IdentityNameMap)
 		self.maskNameMap = kwargs.get('mask_map',NullNameMap)
+		self.maskType = kwargs.get('mask_type','gtzero')
 		self.badKey = kwargs.get('header_bad_key')
 		self.expTimeNameMap = kwargs.get('exposure_time_map',NullNameMap)
 		self.withExpTimeMap = self.expTimeNameMap != NullNameMap
@@ -739,14 +756,14 @@ class BokMefImageCube(object):
 			for rows in rowChunks:
 				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
 				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows,
-				                    badKey=self.badKey)
+				                    badKey=self.badKey,maskType=self.maskType)
 				imCube = self._rescale(imCube,scales=scales)
 				imCube = self._reject_pixels(imCube)
 				w = self._load_weights(weights,fileList,extn,rows)
 				_stack = self._stack_cube(imCube,w,**kwargs)
 				if self.badPixelMask is not None:
 					bpmsk = self.badPixelMask[extn][rows2slice(rows)]
-					_stack.mask |= bpmsk.astype(np.bool)
+					_stack.mask |= load_mask(bpmsk,'gtzero')
 				if self.minNexp is not None:
 					nexp = np.sum(~imCube.mask,axis=-1)
 					_stack.mask |= nexp < self.minNexp

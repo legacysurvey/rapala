@@ -211,6 +211,7 @@ def balance_gains(dataMap,**kwargs):
 	gainBalance = bokproc.BokCalcGainBalanceFactors(
 	                                     input_map=dataMap('proc1'),
 	                                     mask_map=dataMap.getCalMap('badpix'),
+	                                     outputmask_map=dataMap('imgmask'),
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
 	for utd in dataMap.iterUtDates():
