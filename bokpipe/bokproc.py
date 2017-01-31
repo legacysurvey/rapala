@@ -350,9 +350,20 @@ class BokGenerateDataQualityMasks(bokutil.BokProcess):
 		# but only write out the 4-ccd mask at the end
 		kwargs['read_only'] = True
 		super(BokGenerateDataQualityMasks,self).__init__(**kwargs)
+	def process_file(self,f):
+		# need to overload process_file in order to check for output before
+		# opening input image
+		outf = self.outputNameMap(f)
+		if os.path.exists(outf):
+			if self.clobber:
+				os.unlink(outf)
+			else:
+				self._proclog('data quality mask for %s already exists' % f)
+				return None
+		super(BokGenerateDataQualityMasks,self).process_file(f)
 	def _preprocess(self,fits,f):
-		self._proclog('data quality mask %s' % fits.outFileName)
 		self.hduData = []
+		self._proclog('data quality mask for %s' % f)
 	@staticmethod
 	def _grow_saturated_blobs(ccdIm,saturated,minNsat=1000):
 		yi,xi = np.indices(ccdIm.shape)
