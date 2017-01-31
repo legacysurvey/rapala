@@ -211,7 +211,7 @@ def balance_gains(dataMap,**kwargs):
 	gainBalance = bokproc.BokCalcGainBalanceFactors(
 	                                     input_map=dataMap('proc1'),
 	                                     mask_map=dataMap.getCalMap('badpix'),
-	                                     outputmask_map=dataMap('imgmask'),
+	                                     ccd_mask_map=dataMap('imgmask'),
 	                                                **kwargs)
 	gainMap = {'corrections':{},'skyvals':{}}
 	for utd in dataMap.iterUtDates():
@@ -258,6 +258,14 @@ def files_by_utdfilt(dataMap,imType='object',filt=None):
 def process_all(dataMap,nobiascorr=False,noflatcorr=False,
                 fixpix=False,rampcorr=False,noweightmap=False,
                 nocombine=False,prockey='CCDPROC',**kwargs):
+	# 0. before processing, generate data quality masks: the badpix mask is
+	#    updated to include saturated pixels and regions around bright stars
+	#    are flagged.
+	dqMask = bokproc.BokGenerateDataQualityMasks(
+	                                    input_map=dataMap('oscan'),
+	                                    mask_map=dataMap.getCalMap('badpix'),
+	                                    output_map=dataMap('imgmask'),
+	                                    **kwargs)
 	# 1. basic processing (bias and flat-field correction, fixpix, 
 	#    nominal gain correction
 	bias = None if nobiascorr else dataMap.getCalMap('bias')
@@ -273,6 +281,7 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 	files,filesUtdFilt = files_by_utdfilt(dataMap)
 	if files is None or len(files)==0:
 		return
+	dqMask.process_files(files)
 	proc.process_files(filesUtdFilt)
 	if nocombine:
 		return

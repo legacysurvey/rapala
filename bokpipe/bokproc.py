@@ -339,6 +339,75 @@ class NormalizeFlat(bokutil.BokProcess):
 			                      extname=extName,header=hdr)
 		return normedIm.astype(np.float32),hdr
 
+class BokGenerateDataQualityMasks(bokutil.BokProcess):
+	# setting a relatively low value here because in 2016 a couple of the
+	# amps started overflowing around this ADU level, but this could perhaps
+	# be more refined
+	satVal = 55000
+	def __init__(self,**kwargs):
+		kwargs.setdefault('header_key','DQMASK')
+		# this hack makes it possible to iterate over the 16-amp extensions
+		# but only write out the 4-ccd mask at the end
+		kwargs['read_only'] = True
+		super(BokGenerateDataQualityMasks,self).__init__(**kwargs)
+	def _preprocess(self,fits,f):
+		self._proclog('data quality mask %s' % fits.outFileName)
+		self.hduData = []
+	@staticmethod
+	def _grow_saturated_blobs(ccdIm,saturated,minNsat=1000):
+		yi,xi = np.indices(ccdIm.shape)
+		# identify contiguous blogs associated with saturated pixels 
+		# (i.e., stars) and count the number of saturated pixels in 
+		# each blob, then sort by the largest number (brightest stars)
+		satBlobs = measure.label(saturated,background=0)
+		# create image with nominal mask
+		for blob in range(1,satBlobs.max()+1):
+			nSat = np.sum(satBlobs==blob)
+			if nSat < minNsat:
+				continue
+			# a quick & hokey centering algorithm -- middle of the 
+			# saturated blob!
+			yextent = np.sum(satBlobs==blob,axis=0)
+			# this gets messed up if the bleed trails extend to the end of
+			# the image, leading to an extended pool near the edge
+			xextent = np.sum(np.any(satBlobs==blob,axis=0))
+			if xextent > 4000:
+				yextent[:100] = 0
+				yextent[-100:] = 0
+			jj = np.where(yextent==yextent.max())[0]
+			xc = xi[0,jj].mean()
+			jj = np.where((satBlobs==blob)[:,int(xc)])[0]
+			yc = yi[jj,int(xc)].mean()
+			R = np.sqrt((xi-xc)**2 + (yi-yc)**2)
+			# empirically found to be a reasonable minimum radius
+			rad = pow(10,0.5*(np.log10(nSat)-np.log10(50)) + 1.6)
+			ccdIm[R<rad] = np.ma.masked
+		return ccdIm
+	def process_hdu(self,extName,data,hdr):
+		self.hduData.append(data)
+		return data,hdr
+	def _postprocess(self,fits,f):
+		maskOut = fitsio.FITS(self.outputNameMap(f),'rw')
+		maskOut.write(None,header=fits.get_header(0))
+		for ccdNum,extGroup in enumerate(amp_iterator(),start=1):
+			ims = [ self.hduData[ampNum-1] for ampNum in extGroup ]
+			hdr = fits.get_header(bokCenterAmps[ccdNum-1])
+			ccdIm,hdr = _orient_mosaic(hdr,ims,ccdNum,'center')
+			saturated = (ccdIm > self.satVal) & ~ccdIm.mask
+			maskIm = np.zeros(ccdIm.shape,dtype=np.int8)
+			maskIm[ccdIm.mask] |= 1
+			maskIm[saturated] |= 2
+			# XXX this goes to gaincal? or remove it?
+			# bright stars have swamped the image, mask it all
+			if False: #saturated.sum() > 50000:
+				ccdIm[:,:] = np.ma.masked
+			else:
+				ccdIm = self._grow_saturated_blobs(ccdIm,saturated)
+			# negative value means "warning"
+			maskIm[(maskIm==0)&ccdIm.mask] = -1
+			maskOut.write(maskIm,extname='CCD%d'%ccdNum,header=hdr)
+		maskOut.close()
+
 class BokCCDProcess(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','CCDPROC')
@@ -556,7 +625,6 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	# avoid correcting CCD3 from CCD1, because that is the glowing edge
 	# the result is a CCW rotation starting from CCD1
 	ccdMap = [(1,None,None,None),(2,2,7,'x'),(4,4,13,'y'),(3,14,11,'x')]
-	satVal = 1.4*55000
 	nSplineKnots = 1
 	splineOrder = 2
 	nSplineRejIter = 1
@@ -565,6 +633,8 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('read_only',True)
 		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
+		self.bsMaskNameMap = kwargs.get('ccd_mask_map')
+		self.bsMaskType = kwargs.get('nonzero')
 		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
@@ -618,43 +688,6 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	def process_files(self,files,filters):
 		self.filters = filters
 		super(BokCalcGainBalanceFactors,self).process_files(files)
-	@staticmethod
-	def _grow_saturated_blobs(ccdIm,saturated):
-		yi,xi = np.indices(ccdIm.shape)
-		# identify contiguous blogs associated with saturated pixels 
-		# (i.e., stars) and count the number of saturated pixels in 
-		# each blob, then sort by the largest number (brightest stars)
-		satBlobs = measure.label(saturated,background=0)
-		# create image with nominal mask
-		for blob in range(1,satBlobs.max()+1):
-			nSat = np.sum(satBlobs==blob)
-			if nSat < 1000:
-				continue
-			# a quick & hokey centering algorithm -- middle of the 
-			# saturated blob!
-			yextent = np.sum(satBlobs==blob,axis=0)
-			jj = np.where(yextent==yextent.max())[0]
-			xc = xi[0,jj].mean()
-			jj = np.where((satBlobs==blob)[:,int(xc)])[0]
-			yc = yi[jj,int(xc)].mean()
-			R = np.sqrt((xi-xc)**2 + (yi-yc)**2)
-			# empirically found to be a reasonable minimum radius
-			rad = pow(10,0.5*(np.log10(nSat)-np.log10(50)) + 1.6)
-			ccdIm[R<rad] = np.ma.masked
-		return ccdIm
-	def _apply_bright_star_mask(self):
-		for ccdNum,extGroup in enumerate(amp_iterator(),start=1):
-			ims = [ self.hduData[ampNum-1] for ampNum in extGroup ]
-			ccdIm = bokutil.ccd_join(ims,ccdNum)
-			saturated = (ccdIm > self.satVal) & ~ccdIm.mask
-			# bright stars have swamped the image, mask it all
-			if saturated.sum() > 50000:
-				ccdIm[:,:] = np.ma.masked
-			else:
-				ccdIm = self._grow_saturated_blobs(ccdIm,saturated)
-			ims = bokutil.ccd_split(ccdIm,ccdNum)
-			for ampNum,im in zip(extGroup,ims):
-				self.hduData[ampNum-1].mask |= im.mask
 	def _slice_ok(self,imslice,nslice):
 		return np.sum(imslice.mask)/float(nslice) < self.maskFracThresh
 	def _get_img_slice(self,imslice):
@@ -686,8 +719,16 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		calv = calslice.mean(axis=axis)
 		fratio = np.ma.divide(refv,calv)
 		return bokutil.array_clip(fratio,**self.ratioClipArgs).mean()
+	def _apply_bright_star_mask(self,f):
+		bsMask = fitsio.FITS(self.bsMaskNameMap(f))
+		for ccdNum,extGroup in enumerate(amp_iterator(),start=1):
+			ccdMaskIm = bokutil.load_mask(bsMask['CCD%d'%ccdNum],
+			                              self.bsMaskType)
+			ampMasks = bokutil.ccd_split(ccdMaskIm,ccdNum)
+			for ampNum,ampMask in zip(extGroup,ampMasks):
+				self.hduData[ampNum-1].mask |= ampMask
 	def _postprocess(self,fits,f):
-		self._apply_bright_star_mask()
+		self._apply_bright_star_mask(f)
 		gains = np.zeros(16,dtype=np.float32)
 		# balance the amps
 		for ccdi,extGroup in enumerate(amp_iterator()):
