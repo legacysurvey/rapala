@@ -319,7 +319,7 @@ class BokMefImage(object):
 					hdr[k] = v
 				for extNum,hdrfix in self.headerFixes:
 					if extNum == 0:
-						for k,v in hdrfix:
+						for k,v in hdrfix.items():
 							hdr[k] = v
 				if self.headerKey is not None:
 					hdr[self.headerKey] = get_timestamp()
