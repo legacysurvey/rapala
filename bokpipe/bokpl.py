@@ -369,7 +369,8 @@ def make_fringe_masters(dataMap,byUtd=False,**kwargs):
 	caldir = dataMap.getCalDir()
 	stackin = dataMap('fringe') # XXX
 	fringeStack = bokproc.BokFringePatternStack(input_map=stackin,
-#	                                            mask_map=dataMap('skymask'),
+	                                            mask_map=dataMap('imgmask'),
+	                                            mask_type='nonzero',
 	                       raw_stack_file=bokio.FileNameMap(caldir,'_raw'),
 	                                        header_bad_key='BADSKY',
 	                                            **kwargs)

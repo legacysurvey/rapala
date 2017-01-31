@@ -496,12 +496,14 @@ class BokProcess(object):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
 		self.outputNameMap = kwargs.get('output_map',IdentityNameMap)
 		self.masks = []
+		self.maskTypes = []
 		self.maskNameMap = kwargs.get('mask_map')
+		self.maskType = kwargs.get('mask_type','gtzero')
 		if self.maskNameMap is None:
 			self.maskNameMap = NullNameMap
 		elif isinstance(self.maskNameMap,fitsio.FITS):
 			# a master mask instead of a map
-			self.add_mask(self.maskNameMap)
+			self.add_mask(self.maskNameMap,self.maskType)
 			self.maskNameMap = NullNameMap
 		self.clobber = kwargs.get('clobber',False)
 		self.readOnly = kwargs.get('read_only',False)
@@ -515,13 +517,14 @@ class BokProcess(object):
 		self.nProc = kwargs.get('processes',1)
 		self.procMap = kwargs.get('procmap',map)
 		self.noConvert = False
-	def add_mask(self,maskFits):
+	def add_mask(self,maskFits,maskType):
 		if not isinstance(maskFits,FakeFITS):
 			try:
 				maskFits = maskFits(None) # assume it is a map
 			except:
 				maskFits = FakeFITS(maskFits)
 		self.masks.append(maskFits)
+		self.maskTypes.append(maskType)
 	def _proclog(self,s):
 		if self.nProc > 1:
 			pid = multiprocessing.current_process().name.split('-')[1]
@@ -546,6 +549,7 @@ class BokProcess(object):
 			fits = BokMefImage(self.inputNameMap(f),
 			                   output_file=self.outputNameMap(f),
 			                   mask_file=self.maskNameMap(f),
+			                   mask_type=self.maskType,
 			                   keep_headers=self.keepHeaders,
 			                   clobber=self.clobber,
 			                   header_key=self.headerKey,
@@ -560,8 +564,8 @@ class BokProcess(object):
 				return
 			else:
 				raise OutputExistsError(msg)
-		for maskIm in self.masks:
-			fits.add_mask(maskIm)
+		for maskIm,maskType in zip(self.masks,self.maskTypes):
+			fits.add_mask(maskIm,maskType)
 		self._preprocess(fits,f)
 		for extName,data,hdr in fits:
 			data,hdr = self.process_hdu(extName,data,hdr)
