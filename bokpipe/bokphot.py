@@ -48,10 +48,14 @@ def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
 		cmd.extend(['-VERBOSE_TYPE','NORMAL'])
 	elif verbose > 0:
 		print 'generating wcs catalog for ',imageFile
+	if verbose >= 2:
+		outdev = None
+	else:
+		outdev = open(os.devnull,'w')
 	cmd.append(imageFile)
 	if verbose > 1:
 		print ' '.join(cmd)
-	subprocess.call(cmd)
+	subprocess.call(cmd,stdout=outdev)
 
 def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 	defPsfFile = catFile.replace('.fits','.psf')

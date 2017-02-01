@@ -52,7 +52,7 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	}
 	if verbose >= 5:
 		scamp_pars['VERBOSE_TYPE'] = 'FULL'
-	elif verbose >= 2:
+	elif verbose >= 1:
 		scamp_pars['VERBOSE_TYPE'] = 'NORMAL'
 	if refStarCatFile is not None and os.path.exists(refStarCatFile):
 		scamp_pars['ASTREFCAT_NAME'] = refStarCatFile
@@ -69,11 +69,14 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 	for k,v in kwargs.items():
 		scamp_pars[k] = v
 	scamp_cmd = add_scamp_pars(scamp_pars)
-	if verbose > 1:
-		print ' '.join(scamp_cmd)
-	elif verbose > 0:
+	if verbose >= 1:
 		print 'first pass scamp_solve for ',imageFile
-	rv = subprocess.call(scamp_cmd)
+		outdev = None
+		if verbose >= 2:
+			print ' '.join(scamp_cmd)
+	else:
+		outdev = open(os.devnull,'w')
+	rv = subprocess.call(scamp_cmd,stdout=outdev)
 	tmpAhead = catFile.replace('.fits','.ahead') 
 	shutil.move(headf,tmpAhead)
 	if refStarCatFile is not None and scamp_pars['ASTREF_CATALOG'] != 'FILE':
@@ -113,7 +116,7 @@ def scamp_solve(imageFile,catFile,refStarCatFile=None,
 		print ' '.join(scamp_cmd)
 	elif verbose > 0:
 		print 'second pass scamp_solve for ',imageFile
-	rv = subprocess.call(scamp_cmd)
+	rv = subprocess.call(scamp_cmd,stdout=outdev)
 	shutil.move(headf,wcsFile)
 	os.unlink(tmpAhead)
 	#
