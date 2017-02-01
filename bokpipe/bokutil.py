@@ -517,7 +517,7 @@ class BokProcess(object):
 		self.nProc = kwargs.get('processes',1)
 		self.procMap = kwargs.get('procmap',map)
 		self.noConvert = False
-	def add_mask(self,maskFits,maskType):
+	def add_mask(self,maskFits,maskType='gtzero'):
 		if not isinstance(maskFits,FakeFITS):
 			try:
 				maskFits = maskFits(None) # assume it is a map
