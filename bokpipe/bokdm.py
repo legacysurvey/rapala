@@ -159,7 +159,7 @@ class MasterCalibrator(BokCalibrator):
 		self.masterFits = None
 	def _load_fits(self):
 		if self.masterFits is None:
-			print 'Loading master cal ',self.masterFile
+			print 'Loading master cal ',os.path.basename(self.masterFile)
 			self.masterFits = FakeFITS(self.masterFile)
 	def setTarget(self,f):
 		pass
@@ -206,7 +206,10 @@ class CalibratorMap(BokCalibrator):
 			else:
 				raise ValueError("image %s has no calibration" % f)
 		if cal != self.currentFile:
-			print 'reset cal ',f,cal,self.currentFile
+			calfn = os.path.basename(cal)
+			prevfn = '<None>' if not self.currentFile \
+			                      else os.path.basename(self.currentFile) 
+			print 'reset cal %s %s %s' % (f,calfn,prevfn)
 			if self.currentFits:
 				self.currentFits.close()
 			self.currentFile = cal

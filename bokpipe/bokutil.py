@@ -468,6 +468,14 @@ def _unpickle_method(func_name, obj, cls):
 import copy_reg
 copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
 
+def mplog(msg,nProc=None):
+	if nProc != 1:
+		pname = multiprocessing.current_process().name
+		if not (nProc is None and pname == 'MainProcess'):
+			pid = pname.split('-')[1]
+			print '[%2s] '%pid,
+	print msg
+
 class FakeFITS(object):
 	'''Make a fake fitsio.FITS class that stores the image data from a FITS
 	   object in a dictionary. This object is pickle-able and so can be used
@@ -492,6 +500,7 @@ class FakeFITS(object):
 		pass
 
 class BokProcess(object):
+	_procMsg = '<BokProcess> %s'
 	def __init__(self,**kwargs):
 		self.inputNameMap = kwargs.get('input_map',IdentityNameMap)
 		self.outputNameMap = kwargs.get('output_map',IdentityNameMap)
@@ -525,13 +534,10 @@ class BokProcess(object):
 				maskFits = FakeFITS(maskFits)
 		self.masks.append(maskFits)
 		self.maskTypes.append(maskType)
-	def _proclog(self,s):
-		if self.nProc > 1:
-			pid = multiprocessing.current_process().name.split('-')[1]
-			print '[%2s] '%pid,
-		print s
+	def _proclog(self,f):
+		mplog(self._procMsg % f, self.nProc)
 	def _preprocess(self,fits,f):
-		pass
+		self._proclog(f)
 	def process_hdu(self,extName,data,hdr):
 		raise NotImplementedError
 	def _postprocess(self,fits,f):

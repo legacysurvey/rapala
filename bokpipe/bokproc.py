@@ -344,6 +344,7 @@ class BokGenerateDataQualityMasks(bokutil.BokProcess):
 	# amps started overflowing around this ADU level, but this could perhaps
 	# be more refined
 	satVal = 55000
+	_procMsg = 'data quality mask for %s'
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','DQMASK')
 		# this hack makes it possible to iterate over the 16-amp extensions
@@ -362,8 +363,8 @@ class BokGenerateDataQualityMasks(bokutil.BokProcess):
 				return None
 		super(BokGenerateDataQualityMasks,self).process_file(f)
 	def _preprocess(self,fits,f):
+		super(BokGenerateDataQualityMasks,self)._preprocess(fits,f)
 		self.hduData = []
-		self._proclog('data quality mask for %s' % f)
 	@staticmethod
 	def _grow_saturated_blobs(ccdIm,saturated,minNsat=1000):
 		yi,xi = np.indices(ccdIm.shape)
@@ -420,6 +421,7 @@ class BokGenerateDataQualityMasks(bokutil.BokProcess):
 		maskOut.close()
 
 class BokCCDProcess(bokutil.BokProcess):
+	_procMsg = 'ccdproc %s'
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','CCDPROC')
 		super(BokCCDProcess,self).__init__(**kwargs)
@@ -441,7 +443,7 @@ class BokCCDProcess(bokutil.BokProcess):
 				cal = bokdm.NullCalibrator()
 			self.calib[imType] = cal
 	def _preprocess(self,fits,f):
-		self._proclog('ccdproc %s -> %s' % (fits.fileName,fits.outFileName))
+		super(BokCCDProcess,self)._preprocess(fits,f)
 		hdrCards = {}
 		for imType in self.imTypes:
 			self.calib[imType].setTarget(f)
@@ -521,6 +523,7 @@ class BokCCDProcess(bokutil.BokProcess):
 		return data,hdr
 
 class BokWeightMap(bokutil.BokProcess):
+	_procMsg = 'weight map %s'
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','WHTMAP')
 		super(BokWeightMap,self).__init__(**kwargs)
@@ -534,7 +537,7 @@ class BokWeightMap(bokutil.BokProcess):
 		if self.flat is None:
 			self.flat = bokdm.NullCalibrator()
 	def _preprocess(self,fits,f):
-		self._proclog('weight map %s' % fits.outFileName)
+		super(BokWeightMap,self)._preprocess(fits,f)
 		try:
 			maskFile = self._mask_map(f)
 		except:
@@ -569,6 +572,7 @@ class BokWeightMap(bokutil.BokProcess):
 		return ivar,hdr
 
 class BokSkySubtract(bokutil.BokProcess):
+	_procMsg = 'sky subtracting %s'
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','SKYSUB')
 		super(BokSkySubtract,self).__init__(**kwargs)
@@ -594,8 +598,7 @@ class BokSkySubtract(bokutil.BokProcess):
 		# the gradient
 		self.sky0 = self.skyFit(0,0)
 	def _preprocess(self,fits,f):
-		self._proclog('sky subtracting %s -> %s' % 
-		                       (fits.fileName,fits.outFileName))
+		super(BokSkySubtract,self)._preprocess(fits,f)
 		self._fit_sky_model(fits)
 		if self.skyFitMap is not None:
 			self.skyFits = fitsio.FITS(self.skyFitMap(f),'rw')
@@ -628,6 +631,7 @@ class BokSkySubtract(bokutil.BokProcess):
 ###############################################################################
 
 class BokCalcGainBalanceFactors(bokutil.BokProcess):
+	_procMsg = 'calculating gain balance factors for %s'
 	maskFracThresh = 0.67
 	ampMap = [ ((2,2,None),(2,0,'y'),(2,3,'x'),(0,1,'x')),
 	           ((1,1,None),(1,0,'x'),(1,3,'y'),(3,2,'x')),
@@ -680,12 +684,11 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.allSkyVals = []
 		self.allSkyRms = []
 	def _preprocess(self,fits,f):
+		super(BokCalcGainBalanceFactors,self)._preprocess(fits,f)
 		if self.nProc > 1:
 			# this prevents the return values from _getOutput from piling up
 			# with duplicates when a subprocess is reused
 			self.reset()
-		self._proclog('calculating gain balance factors for %s' % 
-		                  self.inputNameMap(f))
 		self.files.append(f)
 		self.hduData = []
 		self.rawSky = []
@@ -959,16 +962,10 @@ def _combine_ccds(f,**kwargs):
 	#
 	inputFile = inputFileMap(f)
 	outputFile = outputFileMap(f)
-	if kwargs.get('processes',1) > 1:
-		try:
-			pid = multiprocessing.current_process().name.split('-')[1]
-		except:
-			pid = '1'
-		print '[%2s] '%pid,
-	print 'combine: ',inputFile,outputFile
+	bokutil.mplog('combine_ccds: '+f,kwargs.get('processes',1))
 	inFits = fitsio.FITS(inputFile)
 	if 'CCDJOIN' in inFits[0].read_header():
-		print '%s already combined, skipping' % inputFile
+		print '%s already combined, skipping' % f
 		inFits.close()
 		return
 	if outputFile != inputFile:
@@ -1106,6 +1103,7 @@ def mask_bright_stars(im,saturation,minNSat=50):
 	return mask
 
 class BokGenerateSkyFlatMasks(bokutil.BokProcess):
+	_procMsg = 'generating sky mask for %s'
 	def __init__(self,**kwargs):
 		self.nBin = kwargs.get('binSize',4)
 		kwargs.setdefault('header_key','SKYMSK')
@@ -1127,8 +1125,6 @@ class BokGenerateSkyFlatMasks(bokutil.BokProcess):
 		self.growKern = None #np.ones((self.binGrowSize,self.binGrowSize),dtype=bool)
 		self.nPad = 10
 		self.noConvert = True
-	def _preprocess(self,fits,f):
-		self._proclog('generating sky mask for %s' % f)
 	def process_hdu(self,extName,data,hdr):
 		if (data>hdr['SATUR']).sum() > 50000:
 			# if too many pixels are saturated mask the whole damn thing

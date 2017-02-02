@@ -189,6 +189,7 @@ class OverscanCollection(object):
 		return len(self.files)
 
 class BokOverscanSubtract(BokProcess):
+	_procMsg = 'overscan subtracting %s'
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','OSCNSUB')
 		super(BokOverscanSubtract,self).__init__(**kwargs)
@@ -227,8 +228,8 @@ class BokOverscanSubtract(BokProcess):
 					self.rowImg[extn].write_image()
 				self.rowImg[extn].close()
 	def _preprocess(self,fits,f):
+		super(BokOverscanSubtract,self)._preprocess(fits,f)
 		self.curFileName = fits.fileName
-		self._proclog('overscan subtracting %s' % self.curFileName)
 	def process_hdu(self,extName,data,hdr):
 		data,oscan_cols,oscan_rows,colbias,rowbias = \
 		         overscan_subtract(data,hdr,returnFull=True,
