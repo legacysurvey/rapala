@@ -156,7 +156,10 @@ def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
 		hdrs = [ imFits[extName].read_header()
 		                 for extName in ['CCD1','CCD2','CCD3','CCD4'] ]
 		cols['biasDN'].append([ h['OSCANMED'] for h in hdrs ])
-		cols['skyElPerSec'].append(hdrs[0]['SKYVAL'])
+		try:
+			cols['skyElPerSec'].append(hdrs[0]['SKYVAL'])
+		except:
+			cols['skyElPerSec'].append(0)
 		cols['avCcdGain'].append([ np.mean([ h['GAIN%02d'%ampNum]
 		                          for ampNum in (ccdn*4+np.arange(4)+1) ])
 		                            for ccdn,h in enumerate(hdrs) ])
