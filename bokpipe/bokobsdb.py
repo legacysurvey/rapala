@@ -100,14 +100,14 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 		alt,az = h.get('ELEVAT',badfloat),h.get('AZIMUTH',badfloat)
 		try:
 			ha,lst = h['HA'].strip(),h['LST-OBS'].strip()
-		except ValueError:
+		except:
 			ha,lst = '',''
 		try:
 			coord = h['RA'].rstrip()+' '+h['DEC'].rstrip()
 			sc = SkyCoord(coord,unit=(u.hourangle,u.deg))
 			ra = sc.ra.degree
 			dec = sc.dec.degree
-		except ValueError:
+		except:
 			coord,ra,dec = '',badfloat,badfloat
 		try:
 			tObs = Time(h['DATE']+' '+h['UT'],scale='utc')
@@ -118,11 +118,11 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 			# "2014-01-01 12:00:00.000" -> "20140101"
 			utDate = str(tOff.utc).split()[0].replace('-','')
 			mjd = tObs.mjd
-		except ValueError:
+		except:
 			mjd = badfloat
 		try:
 			focA,focB,focC = [float(x) for x in h['FOCUSVAL'].split('*')[1:]]
-		except ValueError:
+		except:
 			focA,focB,focC = badfloat,badfloat,badfloat
 		try:
 			tempstr = r'.*TEMP_F=(.*) HUMID_%=(.*) DEWPOINT_F=(.*)'
