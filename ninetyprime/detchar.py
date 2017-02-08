@@ -433,8 +433,11 @@ def overhead_report(oheads):
 	imt = imt.astype(np.int32)
 	plt.scatter(mjd,dt,c=np.choose(imt,['gray','black','cyan','blue']))
 
-def combined_report(logdir):
-	logfiles = sorted(glob(os.path.join(logdir,'log_*.fits')))
+def combined_report(logdir,utdates):
+	if utdates is None:
+		utdates = '*'
+	logfiles = sorted(glob(os.path.join(logdir,'log_ut%s.fits'%utdates)))
+	print logfiles
 	data1,data2 = [],[]
 	utbreaks1,utbreaks2 = [0,],[0,]
 	oheads = []
@@ -520,5 +523,5 @@ if __name__=='__main__':
 				run_nightly_checks(utdir,args.logdir,args.datadir,
 				                   redo=args.redo)
 	if args.report:
-		combined_report(args.logdir)
+		combined_report(args.logdir,args.utdate)
 
