@@ -18,10 +18,15 @@ parser.add_argument('-u','--utdate',type=str,default=None,
                 help='UT date(s) to include [default=all]')
 parser.add_argument('--night',type=str,default=None,
                 help='night(s) to include [default=all]')
+parser.add_argument('--fields',type=str,
+                help='additional fields to display')
 args = parser.parse_args()
 
 fields = ['frameIndex','fileName','imType',
           'filter','objName','expTime']
+
+if args.fields:
+	fields += args.fields.split(',')
 
 obsdb = Table.read(args.obsdb)
 
