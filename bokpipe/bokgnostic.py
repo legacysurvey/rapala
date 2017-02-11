@@ -164,6 +164,10 @@ def obs_meta_data(dataMap,outFile='obsmetadata.fits'):
 		                          for ampNum in (ccdn*4+np.arange(4)+1) ])
 		                            for ccdn,h in enumerate(hdrs) ])
 		try:
+			cols['fringeScale'].append([ h['FRNGSCL'] for h in hdrs ])
+		except:
+			cols['fringeScale'].append([0]*4)
+		try:
 			if 'TPV' in hdrs[0]['CTYPE1']:
 				wcshdrs = hdrs
 			else:
