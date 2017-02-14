@@ -868,6 +868,8 @@ def init_pipeline_args(parser):
 	                help='make astrometry diagnostic files')
 	parser.add_argument('--maxflatcounts',type=int,
 	                help='maximum counts (ADU) to accept for a flat')
+	parser.add_argument('--cleancals',action='store_true',
+	                help='delete calibration input files')
 	return parser
 
 def run_pipe(dataMap,args,**_kwargs):
@@ -902,6 +904,17 @@ def run_pipe(dataMap,args,**_kwargs):
 	elif args.wcscheck:
 		files = [dataMap('sky')(f) for f in dataMap.getFiles('object')]
 		bokgnostic.run_scamp_diag(files)
+	elif args.cleancals:
+		for calType in ['zero','flat']:
+			files = dataMap.getFiles(calType)
+			if files is None:
+				continue
+			for f in files:
+				try:
+					os.remove(dataMap('oscan')(f))
+					print 'deleted ',f
+				except:
+					pass
 	else:
 		bokpipe(dataMap,**kwargs)
 
