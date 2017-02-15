@@ -649,7 +649,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		kwargs.setdefault('read_only',True)
 		super(BokCalcGainBalanceFactors,self).__init__(**kwargs)
 		self.bsMaskNameMap = kwargs.get('ccd_mask_map')
-		self.bsMaskType = kwargs.get('nonzero')
+		self.bsMaskType = kwargs.get('mask_type','nonzero')
 		self.statsMethod = kwargs.get('stats_method','mode')
 		self.clipArgs = { k:v for k,v in kwargs.items() 
 		                     if k.startswith('clip_') }
@@ -736,7 +736,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	def _apply_bright_star_mask(self,f):
 		bsMask = fitsio.FITS(self.bsMaskNameMap(f))
 		for ccdNum,extGroup in enumerate(amp_iterator(),start=1):
-			ccdMaskIm = bokutil.load_mask(bsMask['CCD%d'%ccdNum],
+			ccdMaskIm = bokutil.load_mask(bsMask['CCD%d'%ccdNum].read(),
 			                              self.bsMaskType)
 			ampMasks = bokutil.ccd_split(ccdMaskIm,ccdNum)
 			for ampNum,ampMask in zip(extGroup,ampMasks):
