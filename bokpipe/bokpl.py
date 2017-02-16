@@ -365,7 +365,8 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 		normFun = lambda arr: arr / np.float32(illum(0,0))
 		illum.write(outFn,opfun=normFun,clobber=True)
 
-def make_fringe_masters(dataMap,byUtd=False,**kwargs):
+def make_fringe_masters(dataMap,byUtd=False,
+                        min_images=10,max_images=None,**kwargs):
 	caldir = dataMap.getCalDir()
 	stackin = dataMap('fringe') # XXX
 	fringeStack = bokproc.BokFringePatternStack(input_map=stackin,
@@ -383,8 +384,9 @@ def make_fringe_masters(dataMap,byUtd=False,**kwargs):
 	for filt,utd in filtAndUtd:
 		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
 		                                with_frames=True)
-		outfn = dataMap.storeCalibrator('fringe',frames)
-		fringeStack.stack(files,outfn)
+		if frames is not None and len(files)>min_images:
+			outfn = dataMap.storeCalibrator('fringe',frames)
+			fringeStack.stack(files,outfn)
 
 def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 	caldir = dataMap.getCalDir()
