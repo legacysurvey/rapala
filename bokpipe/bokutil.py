@@ -633,6 +633,7 @@ class BokMefImageCube(object):
 			self.maxMemBytes *= 1024**3
 		self.clobber = kwargs.get('clobber',False)
 		self.ignoreExisting = kwargs.get('ignore_existing',True)
+		self.deleteFiles = kwargs.get('delete_files',False)
 		self.verbose = kwargs.get('verbose',0)
 		self.headerKey = 'CUBE'
 		self.extensions = None
@@ -710,7 +711,7 @@ class BokMefImageCube(object):
 					raise OutputExistsError("%s already exists" % outputFile)
 		else:
 			clobberHdus = False
-		inputFiles = [ self.inputNameMap(f) for f in fileList ]
+		inputFiles = map(self.inputNameMap,fileList)
 		outFits = fitsio.FITS(outputFile,'rw',clobber=clobberHdus)
 		hdr = _write_stack_header_cards(inputFiles,self.headerKey)
 		outFits.write(None,header=hdr)
@@ -805,6 +806,8 @@ class BokMefImageCube(object):
 			expTimeFits.close()
 		if self.withVariance:
 			varFits.close()
+		if self.deleteFiles:
+			map(os.unlink,inputFiles)
 		self._cleanup()
 	def _cleanup(self):
 		self._scales = None

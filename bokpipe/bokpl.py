@@ -77,7 +77,7 @@ def _bias_worker_exc(*args,**kwargs):
 	return (args[-1][0],True)
 
 def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
-                   writeccdim=False,**kwargs):
+                   writeccdim=False,delete_files=True,**kwargs):
 	# need to make sure num processes is reset to 1 before calling these
 	# routines since they will execute from within a subprocess
 	procmap = kwargs.pop('procmap')
@@ -88,6 +88,7 @@ def make_2d_biases(dataMap,nSkip=2,reject='sigma_clip',
 	                                 output_map=dataMap('cal'),
 	                                 reject=reject,
 	                                 find_rolloffs=True,
+	                                 delete_files=delete_files,
                                      **_kwargs)
 	p_bias_worker = partial(_bias_worker_exc,dataMap,biasStack,
 	                        nSkip,writeccdim,**kwargs)
@@ -138,7 +139,7 @@ def _flat_worker_exc(*args,**kwargs):
 
 def make_dome_flats(dataMap,nobiascorr=False,
                     nSkip=1,reject='sigma_clip',writeccdim=False,
-	                usepixflat=True,debug=False,
+	                usepixflat=True,debug=False,delete_files=True,
                     maxflatcounts=None,**kwargs):
 	# need to make sure num processes is reset to 1 before calling these
 	# routines since they will execute from within a subprocess
@@ -157,6 +158,7 @@ def make_dome_flats(dataMap,nobiascorr=False,
 	flatStack = bokproc.BokDomeFlatStack(reject=reject,
 	                                     input_map=dataMap('bias'),
 	                                     output_map=dataMap('cal'),
+	                                     delete_files=delete_files,
 	                                     **_kwargs)
 	if maxflatcounts is not None:
 		flatStack.overExposedFlatCounts = maxflatcounts
@@ -595,13 +597,16 @@ def bokpipe(dataMap,**kwargs):
 		                  **pipekwargs)
 		timerLog('overscans')
 	if 'bias2d' in steps:
-		make_2d_biases(dataMap,writeccdim=writeccdims,**pipekwargs)
+		make_2d_biases(dataMap,writeccdim=writeccdims,
+		               delete_files=not kwargs.get('keepcalims',False),
+		               **pipekwargs)
 		timerLog('2d biases')
 	if 'flat2d' in steps:
 		make_dome_flats(dataMap,writeccdim=writeccdims,
 		                nobiascorr=kwargs.get('nobiascorr',False),
 		                usepixflat=not kwargs.get('nousepixflat',False),
 		                maxflatcounts=kwargs.get('maxflatcounts'),
+		                delete_files=not kwargs.get('keepcalims',False),
 		                **pipekwargs)
 		timerLog('dome flats')
 	if 'ramp' in steps:
