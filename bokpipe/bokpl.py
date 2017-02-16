@@ -4,6 +4,7 @@ import os
 import re
 import glob
 import shutil
+import subprocess
 from copy import copy
 from functools import partial
 import multiprocessing
@@ -872,6 +873,8 @@ def init_pipeline_args(parser):
 	                help='maximum counts (ADU) to accept for a flat')
 	parser.add_argument('--cleancals',action='store_true',
 	                help='delete calibration input files')
+	parser.add_argument('--compress',action='store_true',
+	                help='compress science images using fpack')
 	return parser
 
 def run_pipe(dataMap,args,**_kwargs):
@@ -904,11 +907,11 @@ def run_pipe(dataMap,args,**_kwargs):
 		make_images(dataMap,*args.imagetype.split(','),
 		            processes=args.processes)
 	elif args.wcscheck:
-		files = [dataMap('sky')(f) for f in dataMap.getFiles('object')]
+		files = map(dataMap('sky'),dataMap.getFiles('object'))
 		bokgnostic.run_scamp_diag(files)
 	elif args.cleancals:
 		for calType in ['zero','flat']:
-			files = dataMap.getFiles(calType)
+			files = dataMap.getFiles(imType=calType)
 			if files is None:
 				continue
 			for f in files:
@@ -917,6 +920,13 @@ def run_pipe(dataMap,args,**_kwargs):
 					print 'deleted ',f
 				except:
 					pass
+	elif args.compress:
+		files = map(dataMap('sky'),dataMap.getFiles('object'))
+		for f in files:
+			if os.path.exists(f):
+				cmd = ['nice','fpack','-D','-Y',f]
+				print ' '.join(cmd)
+				subprocess.call(cmd)
 	else:
 		bokpipe(dataMap,**kwargs)
 
