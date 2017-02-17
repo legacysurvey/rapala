@@ -824,7 +824,7 @@ def init_pipeline_args(parser):
 	                help='process until this step [default=last]')
 	parser.add_argument('-v','--verbose',action='count',
 	                help='increase output verbosity')
-	parser.add_argument('--maxmem',type=float,default=5,
+	parser.add_argument('--maxmem',type=float,default=2,
 	                help='maximum memory in GB for stacking images')
 	parser.add_argument('--calccdims',action='store_true',
 	                help='generate CCD-combined images for calibration data')
