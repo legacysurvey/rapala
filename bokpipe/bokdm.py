@@ -60,7 +60,7 @@ def caldb_store(calDbFile,obsDb,imType,seqs,useFilt=True):
 	for seq in seqs:
 		utd = obsDb['utDate'][seq[0]]
 		filt = obsDb['filter'][seq[0]]
-		mjd = np.mean(obsDb['mjd'][seq])
+		mjd = np.mean(obsDb['mjdStart'][seq])
 		utt = obsDb['utObs'][seq[0]][:5].replace(':','')
 		fileName = '%s%8s%4s' % (pfx,utd,utt)
 		if useFilt:
@@ -189,12 +189,13 @@ class CalibratorMap(BokCalibrator):
 				jj = np.where((obsDb['filter'] == filt) & domap)[0]
 				for j in jj:
 					k = os.path.join(obsDb['utDir'][j],obsDb['fileName'][j])
-					i = np.argmin(np.abs(obsDb['mjd'][j]-calTab['mjd'][ii]))
+					dt = np.abs(obsDb['mjdStart'][j]-calTab['mjd'][ii])
+					i = np.argmin(dt)
 					self.calMap[k] = self.nameMap(calTab['fileName'][ii[i]])
 		else:
 			jj = np.where(domap)[0]
 			for j in jj:
-				i = np.argmin(np.abs(obsDb['mjd'][j]-calTab['mjd']))
+				i = np.argmin(np.abs(obsDb['mjdStart'][j]-calTab['mjd']))
 				k = os.path.join(obsDb['utDir'][j],obsDb['fileName'][j])
 				self.calMap[k] = self.nameMap(calTab['fileName'][i])
 	def setTarget(self,f):
