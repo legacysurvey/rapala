@@ -280,6 +280,7 @@ class BokDataManager(object):
 		self.filt = self.allFilt
 		self.frames = None
 		self.frameList = None
+		self.fileFilter = None
 		self.imType = None
 		self._curUtDate = None
 		self._curFilt = None
@@ -402,6 +403,8 @@ class BokDataManager(object):
 		                     (self.obsDb['fileName']==f) )[0][0]
 		             for utd,f in zip(utDates,fileNames) ]
 		self.setFrameList(frames)
+	def setFileFilter(self,fileFilter):
+		self.fileFilter = fileFilter
 	def setFrameList(self,frames):
 		self.frameList = np.array(frames)
 	def setImageType(self,imType):
@@ -494,9 +497,12 @@ class BokDataManager(object):
 		else:
 			return SimpleFileNameMap(self.rawDir,procDir)
 	def getFiles(self,imType=None,utd=None,filt=None,
-	             im_range=None,filterFun=None,
+	             im_range=None,filterFun=None,includebad=False,
 	             with_objnames=False,with_frames=False,as_sequences=False):
-		file_sel = self.obsDb['good'].copy()
+		if includebad:
+			file_sel = np.ones_like(self.obsDb['good'])
+		else:
+			file_sel = self.obsDb['good'].copy()
 		# select on UT date(s)
 		if utd is not None:
 			if isinstance(utd,basestring):
@@ -539,7 +545,9 @@ class BokDataManager(object):
 			file_sel &= ( (self.obsDb['frameIndex'] >= self.frames[0]) & 
 			              (self.obsDb['frameIndex'] <= self.frames[1]) )
 		# list of objects to exclude
-		if filterFun is not None and file_sel.any():
+		if file_sel.any() and (filterFun or self.fileFilter):
+			if filterFun is None:
+				filterFun = self.fileFilter
 			ii = np.where(file_sel)[0]
 			file_sel[ii] &= filterFun(self.obsDb,ii)
 		# finally check input frame list

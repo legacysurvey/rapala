@@ -631,10 +631,14 @@ def bokpipe(dataMap,**kwargs):
 		                     **pipekwargs)
 		timerLog('illumination corr')
 	if 'fringe' in steps:
-		make_fringe_masters(dataMap,**pipekwargs)
+		make_fringe_masters(dataMap,
+		                    byUtd=not kwargs.get('masterfringe'),
+		                    **pipekwargs)
 		timerLog('fringe masters')
 	if 'skyflat' in steps:
-		make_supersky_flats(dataMap,**pipekwargs)
+		make_supersky_flats(dataMap,
+		                    byUtd=not kwargs.get('masterskyflat'),
+		                    **pipekwargs)
 		timerLog('supersky flats')
 	if 'proc2' in steps:
 		skyArgs = { k.lstrip('sky'):kwargs[k] 
@@ -848,6 +852,10 @@ def init_pipeline_args(parser):
 	                help='do not use normalized pixel flat')
 	parser.add_argument('--noskysub',action='store_true',
 	                help='do not perform sky subtraction')
+	parser.add_argument('--masterfringe',action='store_true',
+	                help='create a single master fringe, instead of nightly')
+	parser.add_argument('--masterskyflat',action='store_true',
+	                help='create a single master skyflat, instead of nightly')
 	parser.add_argument('--skymethod',type=str,default='polynomial',
 	                help='sky subtraction method ([polynomial]|spline)')
 	parser.add_argument('--skyorder',type=int,default=1,
