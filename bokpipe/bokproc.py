@@ -83,7 +83,8 @@ class BokImStat(bokutil.BokProcess):
 	def __init__(self,**kwargs):
 		kwargs.setdefault('read_only',True)
 		super(BokImStat,self).__init__(**kwargs)
-		self.statSec = bokutil.stats_region(kwargs.get('stats_region'))
+		self.statSec = bokutil.stats_region(kwargs.get('stats_region'),
+		                                    kwargs.get('stats_stride'))
 		self.clipArgs = kwargs.get('clip_args',{})
 		self.quickprocess = kwargs.get('quickprocess',False)
 		self.checkbad = kwargs.get('checkbad',False)
