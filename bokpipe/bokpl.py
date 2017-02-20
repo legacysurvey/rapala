@@ -411,6 +411,8 @@ def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 	for filt,utd in filtAndUtd:
 		files,frames = dataMap.getFiles(imType='object',filt=filt,utd=utd,
 		                                with_frames=True)
+		if frames is None:
+			continue
 		_outfn = outfn = dataMap.storeCalibrator('skyflat',frames)
 		if interpFill:
 			_outfn = _outfn.replace('.fits','_raw.fits')
