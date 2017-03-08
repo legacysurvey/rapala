@@ -19,20 +19,24 @@ def _read_file_list(files):
 parser = argparse.ArgumentParser()
 parser.add_argument("inputFiles",type=str,nargs='+',
                     help="input FITS images")
-parser.add_argument("-o","--output",type=str,default="bokstack.fits",
-                    help="output image")
 parser.add_argument("-m","--method",type=str,default="mean",
                     help="stacking method (mean|median|mode)")
-parser.add_argument("-s","--scale",action='store_true',
-#                    default="normalize_median",
-                    help="scale images before combining")
+parser.add_argument("-o","--output",type=str,default="bokstack.fits",
+                    help="output image")
 parser.add_argument("-r","--reject",action='store_true',
 #                    default="sigma_clip",
                     help="apply rejection")
-parser.add_argument("--maxmem",type=int,default=8,
-                    help="maximum memory in GB")
+parser.add_argument("-s","--scale",action='store_true',
+#                    default="normalize_median",
+                    help="scale images before combining")
 parser.add_argument("-w","--weights",type=str,nargs='+',
                     help="weight images")
+parser.add_argument("--exptime",action='store_true',
+                    help="generate exposure time map")
+parser.add_argument("--variance",action='store_true',
+                    help="generate variance image")
+parser.add_argument("--maxmem",type=int,default=8,
+                    help="maximum memory in GB")
 parser.add_argument("--masksfx",type=str,
                     help="input mask image sfx (e.g., '.msk')")
 parser.add_argument("--maskdir",type=str,default='.',
@@ -50,6 +54,12 @@ if args.reject:
 	stackPars['reject'] = 'sigma_clip'
 stackPars['maxmem'] = args.maxmem
 stackPars['verbose'] = args.verbose
+
+if args.exptime:
+	stackPars['exposure_time_map'] = lambda f: f.replace('.fits','_exp.fits')
+
+if args.variance:
+	stackPars['with_variance'] = True
 
 if args.masksfx:
 	stackPars['mask_map'] = lambda f: os.path.join(args.maskdir,
