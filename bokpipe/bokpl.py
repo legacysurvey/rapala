@@ -432,7 +432,7 @@ def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 				statsPix = bokutil.array_clip(data[statsReg],
 				                              clip_iters=2,clip_sig=5.0)
 				snr = np.abs(data-statsPix.mean())/statsPix.std()
-				m = (snr > 20) | (data==1) | expmask
+				m = (snr > 50) | (data==1) | expmask
 				# grow mask
 				binary_dilation(m,mask=(snr>growThresh),iterations=0,
 				                structure=growKern,output=m)
