@@ -451,9 +451,22 @@ def process_all2(dataMap,noillumcorr=False,noskyflatcorr=False,
 	#
 	# Second round: illumination, fringe, and skyflat corrections
 	#
-	fringe = None if nofringecorr else dataMap.getCalMap('fringe')
 	illum = None if noillumcorr else dataMap.getCalMap('illum')
 	skyflat = None if noskyflatcorr else dataMap.getCalMap('skyflat')
+	if nofringecorr:
+		fringe = None
+	else:
+		try:
+			fringe = dataMap.getCalMap('fringe')
+		except KeyError:
+			# no fringe frame exists; however, ignore this failure if
+			# none of the images to be processed require fringe correction
+			files,frames = dataMap.getFiles(imType='object',with_frames=True)
+			filt = np.unique(dataMap.obsDb['filter'][frames])
+			if np.any(np.in1d(filt,dataMap.getFringeFilters())):
+				raise ValueError("Missing fringe correction frame")
+			else:
+				fringe = None
 	# the full list of files to process
 	files,filesUtdFilt = files_by_utdfilt(dataMap)
 	if files is None or len(files)==0:
@@ -465,17 +478,20 @@ def process_all2(dataMap,noillumcorr=False,noskyflatcorr=False,
 		                                 filt=dataMap.getFringeFilters())
 	else:
 		_filesUtdFilt = filesUtdFilt
-	if len(_filesUtdFilt) > 0:
-		proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
-		                             output_map=dataMap('proc2'),
-		                             mask_map=dataMap.getCalMap('badpix4'),
-		                             header_key=prockey,
-		                             gain_multiply=False,bias=None,flat=None,
-		                             ramp=None,fixpix=False,fringe=fringe,
-		                             illum=illum,skyflat=skyflat,
-		                             divide_exptime=divide_exptime,
-		                             **kwargs)
-		proc.process_files(_filesUtdFilt)
+	if _filesUtdFilt is None or len(_filesUtdFilt) == 0:
+		return
+	#
+	proc = bokproc.BokCCDProcess(input_map=dataMap('comb'),
+	                             output_map=dataMap('proc2'),
+	                             mask_map=dataMap.getCalMap('badpix4'),
+	                             header_key=prockey,
+	                             gain_multiply=False,bias=None,flat=None,
+	                             ramp=None,fixpix=False,fringe=fringe,
+	                             illum=illum,skyflat=skyflat,
+	                             divide_exptime=divide_exptime,
+	                             **kwargs)
+	proc.process_files(_filesUtdFilt)
+	#
 	if not noweightmap and not (noillumcorr and noskyflatcorr):
 		# need to process the weight maps in the same fashion
 		wtproc = bokproc.BokCCDProcess(input_map=dataMap('weight'), 
