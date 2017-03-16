@@ -525,6 +525,7 @@ def sky_subtract(dataMap,skyArgs,redoskymask=False,
 		tmpFlatProc = bokproc.BokImArith('/',tmpSkyFlatFile,
 		                                 input_map=dataMap('proc2'),
 		                                 output_map=tmpMap,
+		                                 header_key='TMPFLT',
 		                                 **kwargs)
 		tmpFlatProc.process_files(files)
 		skymaskinput = tmpMap
