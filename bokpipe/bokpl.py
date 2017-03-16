@@ -445,10 +445,9 @@ def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 				fits.update(data.filled(),hdr)
 			fits.close()
 
-def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
-                 nofringecorr=False,noskysub=False,noweightmap=False,
-                 prockey='CCDPRO2',redoskymask=False,save_sky=False,
-                 divide_exptime=True,**kwargs):
+def process_all2(dataMap,noillumcorr=False,noskyflatcorr=False,
+                 nofringecorr=False,noweightmap=False,
+                 prockey='CCDPRO2',divide_exptime=True,**kwargs):
 	#
 	# Second round: illumination, fringe, and skyflat corrections
 	#
@@ -489,20 +488,42 @@ def process_all2(dataMap,skyArgs,noillumcorr=False,noskyflatcorr=False,
 		                               divide_exptime=divide_exptime,
 		                               asweight=True,**kwargs)
 		wtproc.process_files(filesUtdFilt)
-	if noskysub:
+
+def sky_subtract(dataMap,skyArgs,redoskymask=False,
+                 skymaskhack=False,save_sky=False,**kwargs):
+	# the full list of files to process
+	files,filesUtdFilt = files_by_utdfilt(dataMap)
+	if files is None or len(files)==0:
 		return
 	#
-	# Sky subtraction
-	#
+	if skymaskhack:
+		# XXX needs to have --byutd implementation!
+		tmpFn = 'tmpflat'+os.path.basename(files[0])+'.fits' # yuck
+		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,tmpFn)
+		print 'output is ',tmpSkyFlatFile
+		stackFun = bokproc.BokNightSkyFlatStack(input_map=dataMap('proc2'),
+	                                    mask_map=dataMap('imgmask'),
+		                                **kwargs)
+		stackFun.stack(files,tmpSkyFlatFile)
+		tmpMap = bokio.FileRenameMap(dataMap('proc2'),'.tmp')
+		tmpFlatProc = bokproc.BokImArith('/',tmpSkyFlatFile,
+		                                 input_map=dataMap('proc2'),
+		                                 output_map=tmpMap,
+		                                 **kwargs)
+		tmpFlatProc.process_files(files)
+		skymaskinput = tmpMap
+	else:
+		skymaskinput = dataMap('proc2')
 	# Generate sky masks by agressively masking objects
 	skymskkwargs = copy(kwargs) # sky masks are time-consuming so only
 	skymskkwargs['clobber'] = redoskymask  # redo if really necessary
 	skyFlatMask = bokproc.BokGenerateSkyFlatMasks(
-	                                    input_map=dataMap('proc2'),
+	                                    input_map=skymaskinput,
 	                                    output_map=dataMap('skymask'),
 	                                    mask_map=dataMap.getCalMap('badpix4'),
 	                                              **skymskkwargs)
 	skyFlatMask.process_files(files)
+	# Now perform sky subtraction
 	skyfitmap = dataMap('skyfit') if save_sky else None
 	skySub = bokproc.BokSkySubtract(input_map=dataMap('proc2'),
 	                                output_map=dataMap('sky'),
@@ -643,20 +664,24 @@ def bokpipe(dataMap,**kwargs):
 		                    **pipekwargs)
 		timerLog('supersky flats')
 	if 'proc2' in steps:
-		skyArgs = { k.lstrip('sky'):kwargs[k] 
-		                 for k in ['skymethod','skyorder']}
-		process_all2(dataMap,skyArgs,
+		process_all2(dataMap,
 		             noillumcorr=kwargs.get('noillumcorr'),
 		             nofringecorr=kwargs.get('nofringecorr'),
 		             noskyflatcorr=kwargs.get('noskyflatcorr'),
 		             noweightmap=kwargs.get('noweightmap'),
-		             noskysub=kwargs.get('noskysub'),
 		             prockey=kwargs.get('prockey','CCDPRO2'),
-		             redoskymask=kwargs.get('redoskymask'),
-		             save_sky=kwargs.get('savesky'),
 		             divide_exptime=(not kwargs.get('nodivideexptime',False)),
 		             **pipekwargs)
 		timerLog('process2')
+	if 'skysub' in steps:
+		skyArgs = { k.lstrip('sky'):kwargs[k] 
+		                 for k in ['skymethod','skyorder']}
+		sky_subtract(dataMap,skyArgs,
+		             redoskymask=kwargs.get('redoskymask'),
+		             skymaskhack=kwargs.get('flatcorrectbeforeskymask'),
+		             save_sky=kwargs.get('savesky'),
+		             **pipekwargs)
+		timerLog('skysub')
 	if 'wcs' in steps:
 		set_wcs(dataMap,
 		        savewcs=kwargs.get('savewcs',False),
@@ -852,8 +877,6 @@ def init_pipeline_args(parser):
 	                help='do not save per-image gain balance factors')
 	parser.add_argument('--nousepixflat',action='store_true',
 	                help='do not use normalized pixel flat')
-	parser.add_argument('--noskysub',action='store_true',
-	                help='do not perform sky subtraction')
 	parser.add_argument('--masterfringe',action='store_true',
 	                help='create a single master fringe, instead of nightly')
 	parser.add_argument('--masterskyflat',action='store_true',
@@ -864,6 +887,8 @@ def init_pipeline_args(parser):
 	                help='sky subtraction order [default: 1 (linear)]')
 	parser.add_argument('--redoskymask',action='store_true',
 	                help='redo sky mask generation')
+	parser.add_argument('--flatcorrectbeforeskymask',action='store_true',
+	                help='HACK: temp flat correction before sky mask gen.')
 	parser.add_argument('--savesky',action='store_true',
 	                help='save sky background fit')
 	parser.add_argument('--noweightmap',action='store_true',

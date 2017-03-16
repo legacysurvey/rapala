@@ -25,3 +25,10 @@ class FileNameMap(object):
 			fn = fn.replace('.fits',self.newSuffix+'.fits')
 		return os.path.join(newDir,fn)
 
+class FileRenameMap(object):
+	def __init__(self,inputMap,newSuffix):
+		self.inputMap = inputMap
+		self.newSuffix = newSuffix
+	def __call__(self,fileName):
+		return self.inputMap(fileName).replace('.fits',self.newSuffix+'.fits')
+

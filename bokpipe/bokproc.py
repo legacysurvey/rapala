@@ -75,7 +75,7 @@ class BokImArith(bokutil.BokProcess):
 		except:
 			raise ValueError("operation %s not supported" % op)
 		self.operand = operand
-		self.operandFits = fitsio.FITS(self.operand)
+		self.operandFits = bokutil.FakeFITS(self.operand)
 	def process_hdu(self,extName,data,hdr):
 		return self.op(data,self.operandFits[extName][:,:]),hdr
 
