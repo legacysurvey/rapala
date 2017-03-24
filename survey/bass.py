@@ -375,6 +375,51 @@ def obs_summary(which='good',newest=True,tiles=None,
 				pdf.close()
 	return nobs,tileList
 
+def map_to_decam_obstatus(which='good',newest=True):
+	tiledb = load_tiledb()
+	obsdb = load_obsdb(get_obsdb_filename(which,newest))
+	#
+	tid = np.array([int(tid) for tid in tiledb['TID']]).astype(np.int32)
+	tabs = []
+	for p in [1,2,3]:
+		t = Table(dict(TILEID=tid))
+		t['RA'] = tiledb['DRA%d'%p]
+		t['DEC'] = tiledb['DDEC%d'%p]
+		t['PASS'] = np.int16(p)
+		t['EBV_MED'] = tiledb['EBV']
+		tabs.append(t)
+	obstatus = vstack(tabs)
+	#
+	obstatus['G_DONE'] = np.int16(0)
+	obstatus['R_DONE'] = np.int16(0)
+	obstatus['G_DATE'] = '          '
+	obstatus['G_DEPTH'] = np.float32(0)
+	obstatus['R_DATE'] = '          '
+	obstatus['G_EXPNUM'] = np.int32(0)
+	obstatus['R_EXPNUM'] = np.int32(0)
+	obstatus['R_DEPTH'] = np.float32(0)
+	#
+	obsdb = Table(obsdb).group_by(['tileId','ditherId','filter'])
+	for k,g in zip(obsdb.groups.keys,obsdb.groups):
+		tileId,ditherId,filt = k
+		if tileId not in tid:
+			# not a BASS tile
+			continue
+		j = np.where((obstatus['TILEID']==tileId) & 
+		             (obstatus['PASS']==ditherId))[0][0]
+		fn = g['fileName'][-1]
+		expNum = np.int32(fn[1:5]+fn[6:])
+		utDate = Time(g['mjd'][-1],format='mjd').iso[:10]
+		if filt=='g':
+			obstatus['G_DONE'][j] = 1
+			obstatus['G_DATE'][j] = utDate
+			obstatus['G_EXPNUM'][j] = expNum
+		elif filt=='r':
+			obstatus['R_DONE'][j] = 1
+			obstatus['R_DATE'][j] = utDate
+			obstatus['R_EXPNUM'][j] = expNum
+	obstatus.write('bass-tiles_obstatus.fits',overwrite=True)
+
 def load_etc_results_file(resultsf='result.txt'):
 	names = ['fileName','ra','dec','magLimNie','expTime','finalCal',
 	         'skyFlux','skyRms','seeing','airmass','filter',
