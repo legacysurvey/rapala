@@ -306,7 +306,7 @@ def obs_summary(which='good',newest=True,tiles=None,
 					           handletextpad=0,columnspacing=1,
 					           loc='upper center')
 				plt.xlim(85,305)
-				plt.ylim(29,62)
+				plt.ylim(29,78)
 				if _pass==3:
 					plt.xlabel('RA')
 				else:
