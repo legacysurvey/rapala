@@ -340,6 +340,7 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 		tmpFn = 'tmp'+os.path.basename(outFn)
 		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,tmpFn)
 		stackFun = bokutil.ClippedMeanStack(input_map=dataMap('comb'),
+		                                mask_map=dataMap('imgmask'),
 		                                scale='normalize_mean',
 		                                stats_region='ccd_central_quadrant',
 		                                stats_stride=10,
@@ -351,8 +352,11 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 			files = [files[i] for i in ii]
 		print 'stacking %d files for illumination' % (len(files))
 		stackFun.stack(files,tmpSkyFlatFile)
+		# use the stacked image itself as the mask: masked pixels in the stack
+		# are filled with NaNs
 		fits = bokutil.BokMefImage(tmpSkyFlatFile,
-		                           mask_file=dataMap.getCalMap('badpix4'),
+		                           mask_file=tmpSkyFlatFile,
+		                           mask_type='isnumber',
 		                           read_only=True)
 		illum = bokproc.SplineBackgroundFit(fits,nKnots=7,order=3,nbin=8)
 		if iterfit:
