@@ -245,7 +245,7 @@ def balance_gains(dataMap,**kwargs):
 	return gainMap
 
 def files_by_utdfilt(dataMap,imType='object',filt=None):
-	if len(dataMap.utDates) > 20: # XXX >> nProc
+	if dataMap.groupByUtdFilt:
 		if filt is None:
 			filt = dataMap.getFilters()
 		filesUtdFilt = [ dataMap.getFiles(imType=imType,filt=_filt)
@@ -625,6 +625,8 @@ def bokpipe(dataMap,**kwargs):
 		# probably need to wrap it in an object
 		#procmap = partial(pool.map,chunksize=chunkSize)
 		procmap = pool.map
+		if len(dataMap.getUtDates()) > 2*processes:
+			dataMap.groupByUtdFilt = True
 	else:
 		procmap = map
 	pipekwargs = {'clobber':redo,'verbose':verbose,'debug':debug,

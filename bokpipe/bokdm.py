@@ -268,6 +268,7 @@ class FringeMap(CalibratorMap):
 ##############################################################################
 
 class BokDataManager(object):
+	groupByUtdFilt = False
 	def __init__(self,obsDb,rawDir,procDir):
 		self.rawDir = rawDir
 		self.procDir = procDir
