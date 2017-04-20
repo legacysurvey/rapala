@@ -51,7 +51,8 @@ else:
 	maskf = None
 
 try:
-	imrange = [float(v) for v in args.imrange.split(',')]
+	imrange = args.imrange.replace('m','-')
+	imrange = map(float,imrange.split(','))
 except:
 	imrange = None
 
