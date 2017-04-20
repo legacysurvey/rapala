@@ -264,6 +264,8 @@ def load_mask(maskIm,maskType):
 		return maskIm != 0
 	elif maskType=='zerobad':
 		return maskIm == 0
+	elif maskType=='isnumber':
+		return ~np.isfinite(maskIm)
 	else:
 		raise ValueError
 
@@ -327,12 +329,14 @@ class BokMefImage(object):
 		self.masks = []
 		self.maskTypes = []
 		if maskFits is not None:
-			if not isinstance(maskFits,FakeFITS):
+			if isinstance(maskFits,FakeFITS):
+				m = maskFits
+			else:
 				try:
 					m = maskFits(fileName)
 				except:
 					m = FakeFITS(maskFits)
-			self.add_mask(maskFits,maskType)
+			self.add_mask(m,maskType)
 		if self.extensions is None:
 			self.extensions = [ h.get_extname().upper() 
 			                     for h in self.fits[1:] ]

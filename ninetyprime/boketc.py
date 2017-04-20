@@ -127,6 +127,8 @@ if __name__=='__main__':
 	                    help='Linear transparency (alternative to sky extinction)) [default=1.0]')
 	parser.add_argument('-s','--skybackground',type=float,default=None,
 	                    help='Sky background (mag/asec^2) [default=nominal KPNO]')
+	parser.add_argument('--skyeps',type=float,default=None,
+	                    help='Sky background in electrons/s')
 	parser.add_argument('-f','--fwhm',type=float,default=None,
 	                    help='FWHM (arcsec) [default=nominal Bok]')
 	parser.add_argument('-p','--profile',type=str,default='exponential',
@@ -152,12 +154,12 @@ if __name__=='__main__':
 		snr_singleexposure(args.band,args.magnitude,args.exposuretime,
 		                   sky=args.skybackground,fwhm=args.fwhm,
 		                   zpt0=args.zeropoint,profile=args.profile,
-		                   verbose=True)
+		                   skyeps=args.skyeps,verbose=True)
 	else:
 		texp_onsky(args.band,args.airmass,args.ebv,skyextinction,
 		           SNR=args.signaltonoise,
 		           sky=args.skybackground,fwhm=args.fwhm,
 		           zpt0=args.zeropoint,mag=args.magnitude,
 		           profile=args.profile,taversion=args.taversion,
-		           verbose=True)
+		           skyeps=args.skyeps,verbose=True)
 

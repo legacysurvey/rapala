@@ -88,7 +88,7 @@ def build_obsdb(update=False,which='good',newest=True):
 	# the most recently observed tiles that have not been ingested into
 	# the "good" lists yet
 	obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
-	                                      'obsed-[gr]-2016-??-??.txt'))
+	                                      'obsed-[gr]-201[67]-??-??.txt'))
 	# select which observations to use
 	if which=='all':
 		# include all the observed tiles
@@ -206,7 +206,8 @@ def obs_summary(which='good',newest=True,tiles=None,
 			try:
 				i = np.where(tid==row['tileId'])[0][0]
 			except:
-				print 'tile ',row['tileId'],' is not in db'
+				if verbose > 0:
+					print 'tile ',row['tileId'],' is not in db'
 				continue
 			if tiles is not None and row['tileId'] not in tiles:
 				continue
@@ -218,17 +219,17 @@ def obs_summary(which='good',newest=True,tiles=None,
 	tileCov = nobs > 0
 	if tiles is None:
 		nTiles = float(len(tid))
-		dec34 = np.where(tiledb['TDEC']>=34)[0]
-		nTiles34 = float(len(dec34))
+		dec3270 = np.where((tiledb['TDEC']>=32)&(tiledb['TDEC']<=70))[0]
+		nTiles3270 = float(len(dec3270))
 	else:
-		nTiles34 = nTiles = float(len(tiles))
+		nTiles3270 = nTiles = float(len(tiles))
 	print
 	print '  MJDs %d to %d' % (obsdb['mjd'].min(),obsdb['mjd'].max())
 	print
-	print ' '*5,'g band'.center(30,'-'),'  ','r band'.center(30,'-')
+	print ' '*5,'g band'.center(32,'-'),'   ','r band'.center(32,'-')
 	print ' '*5,
-	print '%5s  %5s  %7s  %7s    ' % ('total','uniq','%compl','%(>34d)'),
-	print '%5s  %5s  %7s  %7s' % ('total','uniq','%compl','%(>34d)')
+	print '%5s  %5s  %8s  %8s    ' % ('total','uniq','%compl','%(32-70)'),
+	print '%5s  %5s  %8s  %8s' % ('total','uniq','%compl','%(32-70)')
 	for _j in range(4):
 		if _j < 3:
 			print ' P%d: ' % (_j+1),
@@ -239,8 +240,8 @@ def obs_summary(which='good',newest=True,tiles=None,
 		for i,filt in enumerate('gr'):
 			print '%5d ' % (np.sum(nobs[:,i,j])),
 			print '%5d ' % (np.sum(tileCov[:,i,j])),
-			print '%7.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles/_n),
-			print '%7.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles34/_n),
+			print '%8.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles/_n),
+			print '%8.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles3270/_n),
 			print '  ',
 		print
 	print
@@ -305,7 +306,7 @@ def obs_summary(which='good',newest=True,tiles=None,
 					           handletextpad=0,columnspacing=1,
 					           loc='upper center')
 				plt.xlim(85,305)
-				plt.ylim(29,62)
+				plt.ylim(29,78)
 				if _pass==3:
 					plt.xlabel('RA')
 				else:
@@ -373,6 +374,51 @@ def obs_summary(which='good',newest=True,tiles=None,
 			if saveplot:
 				pdf.close()
 	return nobs,tileList
+
+def map_to_decam_obstatus(which='good',newest=True):
+	tiledb = load_tiledb()
+	obsdb = load_obsdb(get_obsdb_filename(which,newest))
+	#
+	tid = np.array([int(tid) for tid in tiledb['TID']]).astype(np.int32)
+	tabs = []
+	for p in [1,2,3]:
+		t = Table(dict(TILEID=tid))
+		t['RA'] = tiledb['DRA%d'%p]
+		t['DEC'] = tiledb['DDEC%d'%p]
+		t['PASS'] = np.int16(p)
+		t['EBV_MED'] = tiledb['EBV']
+		tabs.append(t)
+	obstatus = vstack(tabs)
+	#
+	obstatus['G_DONE'] = np.int16(0)
+	obstatus['R_DONE'] = np.int16(0)
+	obstatus['G_DATE'] = '          '
+	obstatus['G_DEPTH'] = np.float32(0)
+	obstatus['R_DATE'] = '          '
+	obstatus['G_EXPNUM'] = np.int32(0)
+	obstatus['R_EXPNUM'] = np.int32(0)
+	obstatus['R_DEPTH'] = np.float32(0)
+	#
+	obsdb = Table(obsdb).group_by(['tileId','ditherId','filter'])
+	for k,g in zip(obsdb.groups.keys,obsdb.groups):
+		tileId,ditherId,filt = k
+		if tileId not in tid:
+			# not a BASS tile
+			continue
+		j = np.where((obstatus['TILEID']==tileId) & 
+		             (obstatus['PASS']==ditherId))[0][0]
+		fn = g['fileName'][-1]
+		expNum = np.int32(fn[1:5]+fn[6:])
+		utDate = Time(g['mjd'][-1],format='mjd').iso[:10]
+		if filt=='g':
+			obstatus['G_DONE'][j] = 1
+			obstatus['G_DATE'][j] = utDate
+			obstatus['G_EXPNUM'][j] = expNum
+		elif filt=='r':
+			obstatus['R_DONE'][j] = 1
+			obstatus['R_DATE'][j] = utDate
+			obstatus['R_EXPNUM'][j] = expNum
+	obstatus.write('bass-tiles_obstatus.fits',overwrite=True)
 
 def load_etc_results_file(resultsf='result.txt'):
 	names = ['fileName','ra','dec','magLimNie','expTime','finalCal',
