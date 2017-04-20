@@ -191,8 +191,8 @@ def find_cal_sequences(log,min_len=5):
 	# kind of hacky, just look for a set of flats taken roughly close to
 	# each set of biases (as in, within 20 minutes)
 	max_deltat_minutes = 20.
-	bias_times = np.array([ t['mjd'][s[0]] for s in calseqs['zero'] ])
-	flat_times = np.array([ t['mjd'][s[0]] for s in calseqs['flat'] ])
+	bias_times = np.array([ t['mjdStart'][s[0]] for s in calseqs['zero'] ])
+	flat_times = np.array([ t['mjdStart'][s[0]] for s in calseqs['flat'] ])
 	for bt,bs in zip(bias_times,calseqs['zero']):
 		j = np.argmin(np.abs(bt-flat_times))
 		if 24*60*np.abs(bt-flat_times[j]) < max_deltat_minutes:
@@ -212,6 +212,9 @@ def bias_checks(bias,overscan=False):
 	print 'checking ',fn
 	rv['fileName'][i] = fn
 	fits = _open_fits(bias)
+	if len(fits[1:]) != 16:
+		print 'ERROR: %s has %d img extensions' % (fn,len(fits[1:]))
+		return rv
 	for j,hdu in enumerate(fits[1:]):
 		imNum = 'IM%d' % ampOrder[j]
 		try:
@@ -421,10 +424,10 @@ def bit_report(data,outf,utbreaks=None,save=True):
 		plt.savefig('bass_summary_%s.png'%'bits')
 
 def calc_overheads(logdata):
-	dt = np.diff(logdata['mjd'])*24*3600 - logdata['expTime'][:-1]
+	dt = np.diff(logdata['mjdStart'])*24*3600 - logdata['expTime'][:-1]
 	imt = {'zero':0,'dark':1,'flat':2,'object':3}
 	imts = [imt[img['imType'].strip()] for img in logdata[:-1]]
-	return imts,logdata['mjd'][:-1],dt
+	return imts,logdata['mjdStart'][:-1],dt
 
 def overhead_report(oheads):
 	if type(oheads) is str:
