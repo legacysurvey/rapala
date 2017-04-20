@@ -489,6 +489,9 @@ class BokDataManager(object):
 				if self._tmpInput:
 					procDir = self._tmpDir
 		if t == 'raw':
+			if self._tmpOutput:
+				procDir = self._tmpDir
+			self._tmpInput = True
 			# special case to handle moving files from raw directory
 			return SimpleFileNameMap(self.rawDir,procDir,fromRaw=True)
 		elif t == 'cal':
