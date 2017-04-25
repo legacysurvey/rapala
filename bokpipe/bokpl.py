@@ -565,6 +565,13 @@ def _wcs_worker(dataMap,inputType,savewcs,keepwcscat,
 		except:
 			pid = '1'
 		print '[%2s] WCS: %s' % (pid,imFile)
+		if clobber:
+			# need to get rid of the ahead file *before* running sextractor
+			wcsFile = imageFile.replace('.fits','.ahead')
+			try:
+				os.unlink(wcsFile)
+			except:
+				pass
 		# kwargs sent to the following are added sextractor/scamp parameters
 		#  (e.g., {'VERBOSE':'FULL'}), so remap the pipeline kwargs 
 		bokphot.sextract(imageFile,catFile,

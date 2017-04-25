@@ -398,12 +398,13 @@ class BokDataManager(object):
 		self.frames = frames
 	def setFile(self,fileName,utDate=None):
 		isUtd = True if utDate is None else self.obsDb['utDate']==utDate
-		self.frameList = np.where( isUtd & 
-		                           (self.obsDb['fileName']==fileName) )[0]
+		ii = np.where( isUtd & (self.obsDb['fileName']==fileName) )[0]
+		self.frameList = self.obsDb['frameIndex'][ii]
 	def setFileList(self,utDates,fileNames):
 		frames = [ np.where( (self.obsDb['utDate']==utd) &
 		                     (self.obsDb['fileName']==f) )[0][0]
 		             for utd,f in zip(utDates,fileNames) ]
+		frames = self.obsDb['frameIndex'][np.array(frames)]
 		self.setFrameList(frames)
 	def setFileFilter(self,fileFilter):
 		self.fileFilter = fileFilter
@@ -419,7 +420,8 @@ class BokDataManager(object):
 		if self.refCatDir is None:
 			return None
 		refCatFn = 'scampref_%s.cat' % fieldName
-		return os.path.join(self.refCatDir,refCatFn)
+		refCatF = os.path.join(self.refCatDir,refCatFn)
+		return refCatF if os.path.exists(refCatF) else None
 	def getCalSequences(self,calType):
 		return [ (fn,
 		          [os.path.join(self.obsDb['utDir'][i],
@@ -491,7 +493,7 @@ class BokDataManager(object):
 		if t == 'raw':
 			if self._tmpOutput:
 				procDir = self._tmpDir
-			self._tmpInput = True
+				self._tmpInput = True
 			# special case to handle moving files from raw directory
 			return SimpleFileNameMap(self.rawDir,procDir,fromRaw=True)
 		elif t == 'cal':
@@ -557,9 +559,7 @@ class BokDataManager(object):
 			file_sel[ii] &= filterFun(self.obsDb,ii)
 		# finally check input frame list
 		if self.frameList is not None:
-			isFrame = np.zeros(len(self.obsDb),dtype=bool)
-			isFrame[self.frameList] = True
-			file_sel &= isFrame
+			file_sel &= np.in1d(self.obsDb['frameIndex'],self.frameList)
 		# construct the output file list
 		ii = np.where(file_sel)[0]
 		if len(ii) > 0:
