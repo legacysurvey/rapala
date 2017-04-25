@@ -213,6 +213,9 @@ def bias_checks(bias,overscan=False):
 	print 'checking ',fn
 	rv['fileName'][i] = fn
 	fits = _open_fits(bias)
+	if len(fits[1:]) != 16:
+		print 'ERROR: %s has %d img extensions' % (fn,len(fits[1:]))
+		return rv
 	for j,hdu in enumerate(fits[1:]):
 		imNum = 'IM%d' % ampOrder[j]
 		try:
