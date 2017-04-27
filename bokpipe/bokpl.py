@@ -852,7 +852,8 @@ def init_data_map(args,create_dirs=True):
 				_frames.append(int(_f))
 		dataMap.setFrameList(_frames)
 	elif args.file is not None:
-		dataMap.setFile(args.file)
+		f = args.file.replace('.fits','')
+		dataMap.setFile(f)
 	if args.imtype is not None:
 		dataMap.setImageType(args.imtype)
 	#
