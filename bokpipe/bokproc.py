@@ -4,6 +4,7 @@ import os,sys
 import re
 import shutil
 import tempfile
+from collections import defaultdict
 import multiprocessing
 from functools import partial
 import numpy as np
@@ -18,6 +19,7 @@ from astropy.stats import sigma_clip
 from astropy.modeling import models,fitting
 from astropy.convolution.convolve import convolve
 from astropy.convolution.kernels import Gaussian2DKernel
+from astropy.table import Table
 import fitsio
 
 from .bokio import *
@@ -80,7 +82,7 @@ class BokImArith(bokutil.BokProcess):
 		return self.op(data,self.operandFits[extName][:,:]),hdr
 
 class BokImStat(bokutil.BokProcess):
-	def __init__(self,**kwargs):
+	def __init__(self,fields=['mean'],**kwargs):
 		kwargs.setdefault('read_only',True)
 		super(BokImStat,self).__init__(**kwargs)
 		self.statSec = bokutil.stats_region(kwargs.get('stats_region'),
@@ -88,19 +90,15 @@ class BokImStat(bokutil.BokProcess):
 		self.clipArgs = kwargs.get('clip_args',{})
 		self.quickprocess = kwargs.get('quickprocess',False)
 		self.checkbad = kwargs.get('checkbad',False)
-		self.meanVals = []
-		self.rmsVals = []
-		self.badVals = []
+		self.fields = fields
+		self.reset()
 	def _preprocess(self,fits,f):
-		self.imgMeans = []
-		self.imgStds = []
+		self.imgData = defaultdict(list)
 		self.imgBad = []
 	def process_hdu(self,extName,data,hdr):
 		if self.checkbad:
 			xy = np.indices(data.shape)
-			inf = np.isinf(data)
-			nan = np.isnan(data)
-			data = np.ma.array(data,mask=np.logical_or(inf,nan))
+			data = np.ma.array(data,mask=~np.isfinite(data))
 			#zero = np.ma.less_equal(data,0)
 			self.imgBad.append(xy[:,data.mask])
 		if self.quickprocess:
@@ -109,21 +107,30 @@ class BokImStat(bokutil.BokProcess):
 			                        apply_filter=None)
 		else:
 			pix = data
-		v,s = bokutil.array_stats(pix[self.statSec],method='mean',
-		                          rms=True,clip=True,**self.clipArgs)
-		self.imgMeans.append(v)
-		self.imgStds.append(s)
+		v,pix = bokutil.array_stats(pix[self.statSec],method=self.fields[0],
+		                            retArray=True,clip=True,**self.clipArgs)
+		self.imgData[self.fields[0]].append(v)
+		for k in self.fields[1:]:
+			if k=='std':
+				self.imgData[k].append(pix.std())
+			elif k in ['mean','median','mode']:
+				v = bokutil.array_stats(pix,method=k)
+				self.imgData[k].append(v)
 		return data,hdr
 	def _postprocess(self,fits,f):
-		self.meanVals.append(self.imgMeans)
-		self.rmsVals.append(self.imgStds)
+		for k in self.fields:
+			self.data[k].append(self.imgData[k])
 		self.badVals.append(self.imgBad)
 	def _finish(self):
-		self.meanVals = np.array(self.meanVals)
-		self.rmsVals = np.array(self.rmsVals)
+		self.data = Table(self.data)
+	def _ingestOutput(self,procOut):
+		for p in procOut:
+			for k in self.fields:
+				self.data[k].extend(p[k])
+	def _getOutput(self):
+		return self.data
 	def reset(self):
-		self.meanVals = []
-		self.rmsVals = []
+		self.data = defaultdict(list)
 		self.badVals = []
 
 def interpolate_masked_pixels(data,along='twod',method='linear'):
