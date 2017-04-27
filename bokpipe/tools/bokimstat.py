@@ -6,7 +6,7 @@ import numpy as np
 from astropy.stats import sigma_clip
 import fitsio
 
-from bokpipe.bokproc import BokImStat
+from bokpipe.bokutil import BokImStat
 
 import argparse
 parser = argparse.ArgumentParser()

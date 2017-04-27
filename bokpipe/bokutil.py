@@ -4,12 +4,13 @@ import os,sys
 import types
 from time import time
 from datetime import datetime
-from collections import OrderedDict
+from collections import OrderedDict,defaultdict
 import multiprocessing
 import fitsio
 import numpy as np
 from scipy.ndimage.morphology import binary_closing
 from astropy.stats import sigma_clip
+from astropy.table import Table
 
 from bokio import *
 
@@ -613,6 +614,67 @@ class BokProcess(object):
 		self.procMap = procMap
 		self._finish()
 
+class BokImStat(BokProcess):
+	def __init__(self,fields=['mean'],**kwargs):
+		kwargs.setdefault('read_only',True)
+		super(BokImStat,self).__init__(**kwargs)
+		self.normIm = kwargs.get('norm_im')
+		self.statSec = stats_region(kwargs.get('stats_region'),
+		                            kwargs.get('stats_stride'))
+		self.clipArgs = kwargs.get('clip_args',{})
+		self.quickprocess = kwargs.get('quickprocess',False)
+		self.checkbad = kwargs.get('checkbad',False)
+		self.fields = fields
+		self.reset()
+	def _preprocess(self,fits,f):
+		if self.nProc > 1:
+			# this prevents the return values from _getOutput from piling up
+			# with duplicates when a subprocess is reused
+			self.reset()
+		self.imgData = defaultdict(list)
+		self.imgBad = []
+	def process_hdu(self,extName,data,hdr):
+		if self.checkbad:
+			xy = np.indices(data.shape)
+			data = np.ma.array(data,mask=~np.isfinite(data))
+			#zero = np.ma.less_equal(data,0)
+			self.imgBad.append(xy[:,data.mask])
+		if self.quickprocess:
+			# XXX move this to .bokproc by making a higher-level imstat
+			pix = overscan_subtract(data,hdr,method='mean_value',
+			                        reject='sigma_clip',clip_iters=1,
+			                        apply_filter=None)
+		else:
+			pix = data
+		pix = pix[self.statSec]
+		if self.normIm is not None:
+			pix /= self.normIm[extName][self.statSec]
+		v,pix = array_stats(pix,method=self.fields[0],
+		                    retArray=True,clip=True,**self.clipArgs)
+		self.imgData[self.fields[0]].append(v)
+		for k in self.fields[1:]:
+			if k=='std':
+				self.imgData[k].append(pix.std())
+			elif k in ['mean','median','mode']:
+				v = array_stats(pix,method=k)
+				self.imgData[k].append(v)
+		return data,hdr
+	def _postprocess(self,fits,f):
+		for k in self.fields:
+			self.data[k].append(self.imgData[k])
+		self.badVals.append(self.imgBad)
+	def _finish(self):
+		self.data = Table(self.data)
+	def _getOutput(self):
+		return self.data
+	def _ingestOutput(self,procOut):
+		for p in procOut:
+			for k in self.fields:
+				self.data[k].extend(p[k])
+	def reset(self):
+		self.data = defaultdict(list)
+		self.badVals = []
+
 class BokMefImageCube(object):
 	def __init__(self,**kwargs):
 		self.withVariance = kwargs.get('with_variance',False)
@@ -632,6 +694,8 @@ class BokMefImageCube(object):
 		                 'sig':kwargs.get('clip_sig',2.5),
 		                 'cenfunc':kwargs.get('clip_cenfunc',np.ma.mean)}
 		self.fillValue = kwargs.get('fill_value',np.nan)
+		self.procmap = kwargs.get('procmap',map)
+		self.processes = kwargs.get('processes',1)
 		self.maxMemBytes = self.maxMemGB = kwargs.get('maxmem')
 		if self.maxMemBytes:
 			self.maxMemBytes *= 1024**3
@@ -645,6 +709,11 @@ class BokMefImageCube(object):
 		self.scaleKey = kwargs.get('scale_key','IMSCL')
 		self._scales = None
 		self.minNexp = None
+		if isinstance(self.scale,basestring):
+			self.doNorm,self.scaleMetric = self.scale.split('_')
+			if self.doNorm != 'normalize' \
+			      or self.scaleMetric not in ['mean','median','mode']:
+				raise ValueError("I don't know how to scale by "+self.scale)
 	def set_badpixelmask(self,maskFits):
 		if isinstance(maskFits,FakeFITS):
 			self.badPixelMask = maskFits
@@ -654,13 +723,25 @@ class BokMefImageCube(object):
 				self.badPixelMask = maskFits(None)
 			except:
 				self.badPixelMask = FakeFITS(maskFits)
+	def _getscales(self,inputFiles):
+		normIm = FakeFITS(inputFiles[0])
+		statProc = BokImStat(fields=[self.scaleMetric],
+		                     norm_im=normIm,
+		                     stats_region=self.statsRegion,
+		                     stats_stride=self.statsStride,
+		                     clip_args=self.clipArgs,
+		                     processes=self.processes,procmap=self.procmap)
+		statProc.process_files(inputFiles)
+		imScales = np.array(statProc.data[self.scaleMetric])
+		imScales /= imScales.max(axis=0)
+		return imScales**-1
 	def _rescale(self,imCube,scales=None):
 		if scales is not None:
 			pass
 		elif self.scale is None:
 			return imCube
-		elif self._scales is not None:
-			scales = self._scales
+###		elif self._scales is not None:
+###			scales = self._scales
 		elif self.scale.startswith('normalize'):
 			method = self.scale[self.scale.find('_')+1:]
 			imScales = imCube[self.statsPix] / imCube[self.statsPix+([0],)]
@@ -671,8 +752,7 @@ class BokMefImageCube(object):
 		else:
 			scales = self.scale(imCube)
 		self.scales = scales.squeeze()
-		# save the scales that were used. note that for nsplit>1, this has
-		# the effect of using the scales from the first chunk only.
+		# save the scales that were used for the header card
 		self._scales = scales
 		return imCube * scales
 	def _reject_pixels(self,imCube):
@@ -757,17 +837,26 @@ class BokMefImageCube(object):
 			rowChunks = [ (row1,row2) 
 			         for row1,row2 in zip(rowsplits[:-1],rowsplits[1:]) ]
 		self._preprocess(fileList,outFits)
+		if ( scales is None and nsplits > 1 and \
+		      self.scale.startswith('normalize') ):
+			# have to precompute the scales if the image is being split into
+			# chunks, otherwise the chunks may not fully cover statsReg
+			all_scales = self._getscales(inputFiles)
+		else:
+			all_scales = None
 		if self.maskNameMap == NullNameMap:
 			# argh, this is a hacky way to check for masks
 			masks = None
 		else:
 			masks = [ self.maskNameMap(f) for f in fileList ]
-		for extn in extensions:
+		for ext_j,extn in enumerate(extensions):
 			stack = []
 			if self.withExpTimeMap:
 				expTime = []
 			if self.withVariance:
 				var = []
+			if all_scales is not None:
+				scales = all_scales[:,ext_j]
 			for rows in rowChunks:
 				print '::: %s extn %s <%s>' % (outputFile,extn,rows)
 				imCube = build_cube(inputFiles,extn,masks=masks,rows=rows,
