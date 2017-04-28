@@ -431,7 +431,7 @@ def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 			for ccd,data,hdr in fits:
 				expim = expFits[ccd]
 				# mask underexposed regions
-				expmask = expim < 0.5*np.median(expim[expim>0])
+				expmask = expim < 0.25*np.median(expim[expim>0])
 				# mask large deviations
 				statsPix = bokutil.array_clip(data[statsReg],
 				                              clip_iters=2,clip_sig=5.0)
