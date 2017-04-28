@@ -837,7 +837,8 @@ class BokMefImageCube(object):
 			rowChunks = [ (row1,row2) 
 			         for row1,row2 in zip(rowsplits[:-1],rowsplits[1:]) ]
 		self._preprocess(fileList,outFits)
-		if ( scales is None and nsplits > 1 and \
+		if ( scales is None and nsplits > 1 and 
+		      self.scale is not None and 
 		      self.scale.startswith('normalize') ):
 			# have to precompute the scales if the image is being split into
 			# chunks, otherwise the chunks may not fully cover statsReg
