@@ -18,6 +18,10 @@ except ImportError:
 
 configDir = os.path.join(os.path.split(__file__)[0],'config')
 
+def cmd_extend(cmd,name,val,**kwargs):
+	if name not in kwargs:
+		cmd.extend(['-'+name,val])
+
 def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
              verbose=0,**kwargs):
 	if not clobber and os.path.exists(catFile):
@@ -25,23 +29,25 @@ def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
 			print catFile,' already exists, skipping'
 		return
 	cmd = ['sex','-c',os.path.join(configDir,'bok_extract.sex')]
-	cmd.extend(['-CATALOG_NAME',catFile])
+	for k,v in kwargs.items():
+		cmd.extend(['-'+k,v])
+	cmd_extend(cmd,'CATALOG_NAME',catFile,**kwargs)
 	if full:
-		cmd.extend(['-PARAMETERS_NAME',
-		            os.path.join(configDir,'bok_catalog.par')])
-		cmd.extend(['-PHOT_APERTURES',"7.5,15.0,22.0"])
-		cmd.extend(['-CATALOG_TYPE','FITS_1.0'])
+		cmd_extend(cmd,'PARAMETERS_NAME',
+		            os.path.join(configDir,'bok_catalog.par'),**kwargs)
+		cmd_extend(cmd,'PHOT_APERTURES',"7.5,15.0,22.0",**kwargs)
+		cmd_extend(cmd,'CATALOG_TYPE','FITS_1.0',**kwargs)
 		if psfFile is None:
 			psfFile = catFile.replace('.fits','.psf')
-		cmd.extend(['-PSF_NAME',psfFile])
+		cmd_extend(cmd,'PSF_NAME',psfFile,**kwargs)
 	else:
-		cmd.extend(['-PARAMETERS_NAME',
-		            os.path.join(configDir,'bok_extract.par')])
-		cmd.extend(['-CATALOG_TYPE','FITS_LDAC'])
-	cmd.extend([
-	  '-FILTER_NAME',os.path.join(configDir,'default.conv'),
-	  '-STARNNW_NAME',os.path.join(configDir,'default.nnw'),
-	])
+		cmd_extend(cmd,'PARAMETERS_NAME',
+		            os.path.join(configDir,'bok_extract.par'),**kwargs)
+		cmd_extend(cmd,'CATALOG_TYPE','FITS_LDAC',**kwargs)
+	cmd_extend(cmd,'FILTER_NAME',os.path.join(configDir,'default.conv'),
+	           **kwargs)
+	cmd_extend(cmd,'STARNNW_NAME',os.path.join(configDir,'default.nnw'),
+	           **kwargs)
 	if verbose >= 5:
 		cmd.extend(['-VERBOSE_TYPE','FULL'])
 	elif verbose >= 2:
@@ -57,7 +63,8 @@ def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
 		print ' '.join(cmd)
 	subprocess.call(cmd,stdout=outdev)
 
-def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
+def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,
+              instrument='bok90prime',**kwargs):
 	defPsfFile = catFile.replace('.fits','.psf')
 	if psfFile is not None and psfFile != defPsfFile:
 		rename = True
@@ -69,7 +76,13 @@ def run_psfex(catFile,psfFile=None,clobber=False,verbose=0,**kwargs):
 		if verbose > 0:
 			print psfFile,' already exists, skipping'
 		return
-	cmd = ['psfex','-c',os.path.join(configDir,'bok90.psfex'),catFile]
+	if instrument=='bok90prime':
+		cfgFile = 'bok90.psfex'
+	elif instrument=='cfhtmegacam':
+		cfgFile = 'cfhtmega.psfex'
+	else:
+		raise ValueError
+	cmd = ['psfex','-c',os.path.join(configDir,cfgFile),catFile]
 	if verbose > 2:
 		cmd.extend(['-VERBOSE_TYPE','FULL'])
 	elif verbose > 1:
