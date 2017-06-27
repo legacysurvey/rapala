@@ -71,7 +71,8 @@ def build_obsdb(update=False,which='good',newest=True):
 		tar.extractall(path=bass_dir)
 		tar.close()
 	# the summary files listing the tiles marked as "good"
-	good_files = ['obsed-g-2015-good.txt','obsed-r-2015-good.txt',
+	#good_files = ['obsed-g-2015-good.txt','obsed-r-2015-good.txt',
+	good_files = ['zouhu_obsed-g-2015-good.txt','zouhu_obsed-r-2015-good.txt',
 	              'obsed-g-2016-0102-good.txt','obsed-r-2016-0102-good.txt',
 	              'obsed-g-2016-03-good.txt','obsed-r-2016-03-good.txt',
 	              'obsed-g-2016-04-good.txt','obsed-r-2016-04-good.txt',
@@ -127,7 +128,8 @@ def build_obsdb(update=False,which='good',newest=True):
 		t = Table(arr)
 		t['ditherId'] = t['tileId'] % 10
 		t['tileId'] //= 10
-		t['filter'] = os.path.basename(obsfile)[6]
+		obsfile = os.path.basename(obsfile).replace('zouhu_','')
+		t['filter'] = obsfile[6]
 		# filename is encoded with last 4 digits of JD
 		t['mjd'] = 50000. + np.array([int(d[1:5]) for d in arr['fileName']],
 		                             dtype=np.float32)
@@ -544,6 +546,8 @@ if __name__=='__main__':
 	                    help="also produce summary plot")
 	parser.add_argument("--smallplot",action="store_true",
 	                    help="small summary plot")
+	parser.add_argument("--obstatus",action="store_true",
+	                    help="generate the obstatus file")
 	parser.add_argument("-m","--mjd",type=str,
 	                    help="MJD range (mjd1,mjd2), '*' for any")
 	parser.add_argument("--start2016",action="store_true",
@@ -603,6 +607,8 @@ if __name__=='__main__':
 		            saveplot=args.plotfile,decalsstyle=not args.byfilter,
 		            byfilter=args.byfilter,brightcolors=args.bright,
 		            verbose=args.verbose)
+	elif args.obstatus:
+		map_to_decam_obstatus(which=args.tiles,newest=args.newest)
 	#kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
 	#print kwargs
 	#nersc_archive_list(**kwargs)
