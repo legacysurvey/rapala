@@ -190,7 +190,7 @@ def obs_summary(which='good',newest=True,tiles=None,
                 mjdstart=None,mjdend=None,
                 doplot=False,smallplot=False,saveplot=None,
                 decalsstyle=False,byfilter=False,brightcolors=False,
-                verbose=0):
+                declim1=(32,90),declim2=(32,75),verbose=0):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb(get_obsdb_filename(which,newest))
@@ -220,18 +220,24 @@ def obs_summary(which='good',newest=True,tiles=None,
 				nobs[i,1,row['ditherId']-1] += 1
 	tileCov = nobs > 0
 	if tiles is None:
-		nTiles = float(len(tid))
-		dec3270 = np.where((tiledb['TDEC']>=32)&(tiledb['TDEC']<=70))[0]
-		nTiles3270 = float(len(dec3270))
+		deccut1 = np.where((tiledb['TDEC']>=declim1[0]) &
+		                   (tiledb['TDEC']<=declim1[1]))[0]
+		nTiles1 = float(len(deccut1))
+		deccut2 = np.where((tiledb['TDEC']>=declim2[0]) & 
+		                   (tiledb['TDEC']<=declim2[1]))[0]
+		nTiles2 = float(len(deccut2))
+		print 'cut1(2) has %d(%d) tiles' % (nTiles1,nTiles2)
 	else:
-		nTiles3270 = nTiles = float(len(tiles))
+		nTiles2 = nTiles1 = float(len(tiles))
 	print
 	print '  MJDs %d to %d' % (obsdb['mjd'].min(),obsdb['mjd'].max())
 	print
 	print ' '*5,'g band'.center(32,'-'),'   ','r band'.center(32,'-')
 	print ' '*5,
-	print '%5s  %5s  %8s  %8s    ' % ('total','uniq','%compl','%(32-70)'),
-	print '%5s  %5s  %8s  %8s' % ('total','uniq','%compl','%(32-70)')
+	print '%5s  %5s  %8s  %8s    ' % \
+	      ('total','uniq','%compl','%%(%d-%d)'%declim2),
+	print '%5s  %5s  %8s  %8s' % \
+	      ('total','uniq','%compl','%%(%d-%d)'%declim2)
 	for _j in range(4):
 		if _j < 3:
 			print ' P%d: ' % (_j+1),
@@ -240,10 +246,10 @@ def obs_summary(which='good',newest=True,tiles=None,
 			print 'all: ',
 			j,_n = slice(None),3.0
 		for i,filt in enumerate('gr'):
-			print '%5d ' % (np.sum(nobs[:,i,j])),
-			print '%5d ' % (np.sum(tileCov[:,i,j])),
-			print '%8.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles/_n),
-			print '%8.1f ' % (100*np.sum(tileCov[:,i,j])/nTiles3270/_n),
+			print '%5d ' % (np.sum(nobs[deccut1,i,j])),
+			print '%5d ' % (np.sum(tileCov[deccut1,i,j])),
+			print '%8.1f ' % (100*np.sum(tileCov[deccut1,i,j])/nTiles1/_n),
+			print '%8.1f ' % (100*np.sum(tileCov[deccut2,i,j])/nTiles2/_n),
 			print '  ',
 		print
 	print
@@ -285,7 +291,7 @@ def obs_summary(which='good',newest=True,tiles=None,
 				plt.subplots_adjust(0.11,0.08,0.98,0.98,0.0,0.0)
 				sz1,sz2,sz3,fsz = 7,5,20,11
 			else:
-				fig = plt.figure(figsize=(8,10))
+				fig = plt.figure(figsize=(7,8))
 				plt.subplots_adjust(0.07,0.05,0.98,0.98,0.0,0.0)
 				sz1,sz2,sz3,fsz = 10,12,20,12
 			for _pass in range(1,4):
@@ -562,6 +568,10 @@ if __name__=='__main__':
 	                    help="select tiles within legacy field")
 	parser.add_argument("--byfilter",action="store_true",
 	                    help="plot coverage by filter instead of by pass")
+	parser.add_argument("--decrange1",type=str,default="(32,85)",
+	                    help="declination range of nominal footprint (32,85)")
+	parser.add_argument("--decrange2",type=str,default="(32,75)",
+	                    help="declination range of truncated footprint (32,75)")
 	parser.add_argument("--bright",action="store_true",
 	                    help="plot using higher contrast colors")
 	parser.add_argument("-v","--verbose",action="store_true",
@@ -606,6 +616,7 @@ if __name__=='__main__':
 		            doplot=args.plot,smallplot=args.smallplot,
 		            saveplot=args.plotfile,decalsstyle=not args.byfilter,
 		            byfilter=args.byfilter,brightcolors=args.bright,
+		            declim1=eval(args.decrange1),declim2=eval(args.decrange2),
 		            verbose=args.verbose)
 	elif args.obstatus:
 		map_to_decam_obstatus(which=args.tiles,newest=args.newest)
