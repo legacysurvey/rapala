@@ -28,7 +28,7 @@ args = parser.parse_args()
 
 kwargs = {}
 if args.args is not None:
-	arglist = args.args.split(',')
+	arglist = args.args.split()
 	for a in arglist:
 		k,v = a.split('=')
 		kwargs[k] = v
