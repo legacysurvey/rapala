@@ -499,8 +499,11 @@ def checkarchive(logf,archivef,outfn=None):
 		bassfiles = []
 		with open(archivef) as basslog:
 			for l in basslog:
-				utdfn = re.match('.* /data/primefocus/bass/(.*)\/(.*)\n',l).groups()
-				bassfiles.append(utdfn)
+				try:
+					pat = '.* /data/primefocus/bass/(.*)\/(.*)\n'
+					utdfn = re.match(pat,l).groups()
+				except AttributeError:
+					continue
 				bassfiles.append(utdfn)
 		_archive = Table(rows=bassfiles,names=('utDir','DTACQNAM'))
 		archive = unique(_archive,keys='DTACQNAM')
@@ -516,8 +519,8 @@ def checkarchive(logf,archivef,outfn=None):
 	else:
 		outf = sys.stdout
 	if True:
-		is2016 = [str(utd).startswith('2016') for utd in t['utDir_1']]
-		initmask = np.array(is2016)
+		is2017 = [str(utd).startswith('2017') for utd in t['utDir_1']]
+		initmask = np.array(is2017)
 	# files in archive but not on NERSC
 	not_on_nersc = t['frameIndex'].mask
 	# files on NERSC but not archive (???)
