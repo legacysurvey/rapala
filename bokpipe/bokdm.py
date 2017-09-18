@@ -358,8 +358,14 @@ class BokDataManager(object):
 		                           for utd in self.allUtDates 
 		                             if utd.startswith(f) ]))
 		self.utDates = sorted(utdlist)
-	def getUtDates(self):
-		return self.utDates
+	def getUtDates(self,sciOnly=False):
+		'''sciOnly: only return dates with science images'''
+		if sciOnly:
+			return filter(lambda utd: 
+			                self.getFiles(utd=utd,imType='object') != None,
+			              self.utDates)
+		else:
+			return self.utDates
 	def iterUtDates(self):
 		for u in self.utDates:
 			self._curUtDate = u
