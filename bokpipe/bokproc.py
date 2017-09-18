@@ -598,6 +598,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	splineOrder = 2
 	nSplineRejIter = 1
 	splineRejThresh = 2.5
+	minSplineFit = 10
 	nFillEdge = 3
 	def __init__(self,**kwargs):
 		kwargs.setdefault('read_only',True)
@@ -631,6 +632,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.gainTrendMethod = kwargs.get('gain_trend_meth','spline')
 		assert self.gainTrendMethod in ['median','spline']
 		self.reset()
+		self.maskDb = None
 	def reset(self):
 		self.files = []
 		self.ampRelGains = []
@@ -677,6 +679,13 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		calslice = self._get_img_slice(self.hduData[calExt][s])
 		if refslice is None or calslice is None:
 			print 'could not correct ',which,refExt,calExt
+		# also check whether the CCD is swamped, which likely means the
+		# strip along the edge is unreliable
+		n = self.hduData[refExt].size
+		if not ( self._slice_ok(self.hduData[refExt],n) and
+		         self._slice_ok(self.hduData[calExt],n) ):
+			print 'could not correct ',which,refExt,calExt
+			refslice,calslice = None,None
 		return refslice,calslice
 	def _get_flux_ratio(self,refExt,calExt,edgedir,which):
 		refslice,calslice = self._get_img_slices(refExt,calExt,edgedir,which)
@@ -739,36 +748,53 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		self.ampRelGains = np.array(self.ampRelGains).squeeze()
 		self.ccdRelGains = np.array(self.ccdRelGains).squeeze()
 		self.allSkyVals = np.array(self.allSkyVals).squeeze()
-	def _median_gain_trend(self,gc):
+	def _median_gain_trend(self,gc,xtraMsk):
 		gc = np.ma.array(gc,mask=(gc==0),copy=True)
+		gc.mask |= xtraMsk
 		gc_clip = sigma_clip(gc,iters=2,sigma=2.0,axis=0)
 		gc[:] = gc_clip.mean(axis=0)
 		return gc.filled(0),gc.mask
-	def _spline_gain_trend(self,rawgc):
+	def _spline_gain_trend(self,rawgc,xtraMsk):
 		nimg,ngain = rawgc.shape
 		seqno = np.arange(nimg,dtype=np.float32)
 		gc = np.ma.array(rawgc,mask=(rawgc==0),copy=True)
+		gc.mask |= xtraMsk
 		msk = gc.mask.copy()
 		knots = np.linspace(0,nimg,self.nSplineKnots+2)[1:-1]
 		for j in range(ngain):
 			if np.allclose(gc[:,j],1):
 				# a reference chip
 				continue
-			ii = np.where(~gc[:,j].mask)[0]
+#			ii = np.where(~gc[:,j].mask)[0]
 			rejmask = np.zeros(len(seqno),dtype=np.bool)
+			medclip = True
+			if medclip:
+				gc_clip = sigma_clip(gc[:,j],iters=2,sigma=3.0)
+				rejmask = gc_clip.mask
+			else:
+				rejmask = np.zeros(len(seqno),dtype=np.bool)
+			ii = np.where(~(gc[:,j].mask | rejmask))[0]
 			try:
+				if len(ii) < self.minSplineFit:
+					# fall back to the median fit
+					raise ValueError
 				spfit = LSQUnivariateSpline(seqno[ii],gc[ii,j].filled(),
 				                            knots,bbox=[0,nimg],
 				                            k=self.splineOrder)
 				for iternum in range(self.nSplineRejIter):
-					ii = np.where(~(gc[:,j].mask | rejmask))[0]
+#					ii = np.where(~(gc[:,j].mask | rejmask))[0]
 					resid = gc[ii,j] - spfit(seqno[ii])
 					resrms = np.ma.std(resid)
-					rejmask[ii] |= np.abs(resid/resrms) > self.splineRejThresh
-					ii = np.where(~(gc[:,j].mask | rejmask))[0]
-					spfit = LSQUnivariateSpline(seqno[ii],gc[ii,j].filled(),
-					                            knots,bbox=[0,nimg],
-					                            k=self.splineOrder)
+					isrej = np.abs(resid/resrms) > self.splineRejThresh
+					if isrej.any():
+						rejmask[ii] |= isrej
+						ii = np.where(~(gc[:,j].mask | rejmask))[0]
+						spfit = LSQUnivariateSpline(seqno[ii],
+						                            gc[ii,j].filled(),
+						                            knots,bbox=[0,nimg],
+						                            k=self.splineOrder)
+					else:
+						break
 				gc[:,j] = spfit(seqno)
 				msk[:,j] |= rejmask
 				if ii[0] >= self.nFillEdge:
@@ -795,17 +821,27 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		raw_ampg = self.ampRelGains = np.array(self.ampRelGains)
 		raw_ccdg = self.ccdRelGains = np.array(self.ccdRelGains)
 		filts = np.unique(self.filters)
+		if self.maskDb is not None:
+			nullMsk = np.zeros(16,dtype=bool)
+			ampMsk = np.vstack([ self.maskDb['amp'].get(f,nullMsk)
+			                          for f in self.files ])
+			nullMsk = np.zeros(4,dtype=bool)
+			ccdMsk = np.vstack([ self.maskDb['ccd'].get(f,nullMsk)
+			                          for f in self.files ])
+		else:
+			ampMsk = np.zeros(raw_ampg.shape,dtype=bool)
+			ccdMsk = np.zeros(raw_ccdg.shape,dtype=bool)
 		ampg = np.zeros_like(raw_ampg)
 		ccdg = np.zeros_like(raw_ccdg)
 		for filt in filts:
 			ii = np.where(self.filters == filt)[0]
 			if len(ii)==0: continue
 			if self.gainTrendMethod == 'median':
-				ampg[ii],msk = self._median_gain_trend(raw_ampg[ii])
-				ccdg[ii],msk = self._median_gain_trend(raw_ccdg[ii])
+				ampg[ii],msk = self._median_gain_trend(raw_ampg[ii],ampMsk[ii])
+				ccdg[ii],msk = self._median_gain_trend(raw_ccdg[ii],ccdMsk[ii])
 			elif self.gainTrendMethod == 'spline':
-				ampg[ii],msk = self._spline_gain_trend(raw_ampg[ii])
-				ccdg[ii],msk = self._spline_gain_trend(raw_ccdg[ii])
+				ampg[ii],msk = self._spline_gain_trend(raw_ampg[ii],ampMsk[ii])
+				ccdg[ii],msk = self._spline_gain_trend(raw_ccdg[ii],ccdMsk[ii])
 		# propagate the gain corrections starting from the reference
 		ampgscale = ampg.copy()
 		for ccdi,extGroup in enumerate(amp_iterator()):

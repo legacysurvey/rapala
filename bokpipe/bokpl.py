@@ -209,13 +209,15 @@ def make_rampcorr_image(dataMap,**kwargs):
 	stackFun = bokutil.ClippedMeanStack()
 	stackFun.stack(rampFiles,rampFile)
 
-def balance_gains(dataMap,**kwargs):
+def balance_gains(dataMap,gainMaskDb,**kwargs):
 	# need bright star mask here?
 	gainBalance = bokproc.BokCalcGainBalanceFactors(
 	                                     input_map=dataMap('proc1'),
 	                                     mask_map=dataMap.getCalMap('badpix'),
 	                                     ccd_mask_map=dataMap('imgmask'),
 	                                                **kwargs)
+	if gainMaskDb is not None:
+		gainBalance.maskDb = gainMaskDb
 	gainMap = {'corrections':{},'skyvals':{}}
 	for utd in dataMap.iterUtDates():
 		files,ii = dataMap.getFiles(imType='object',with_frames=True)
@@ -223,7 +225,7 @@ def balance_gains(dataMap,**kwargs):
 			continue
 		filt = dataMap.obsDb['filter'][ii]
 		diagfile = os.path.join(dataMap.getDiagDir(), 'gainbal_%s.npz'%utd)
-		if os.path.exists(diagfile):
+		if os.path.exists(diagfile) and not kwargs.get('debug',False):
 			gainDat = np.load(diagfile)
 			gainCor = gainDat['gainCor']
 			skyV = gainDat['skys']
@@ -260,7 +262,7 @@ def files_by_utdfilt(dataMap,imType='object',filt=None):
 
 def process_all(dataMap,nobiascorr=False,noflatcorr=False,
                 fixpix=False,rampcorr=False,noweightmap=False,
-                nocombine=False,prockey='CCDPROC',**kwargs):
+                nocombine=False,prockey='CCDPROC',gainMaskDb=None,**kwargs):
 	# 0. before processing, generate data quality masks: the badpix mask is
 	#    updated to include saturated pixels and regions around bright stars
 	#    are flagged.
@@ -289,7 +291,7 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 	if nocombine:
 		return
 	# 2. balance gains using background counts
-	gainMap = balance_gains(dataMap,**kwargs)
+	gainMap = balance_gains(dataMap,gainMaskDb,**kwargs)
 	# 3. combine per-amp images (16) into CCD images (4)
 	bokproc.combine_ccds(files,
 	                     input_map=dataMap('proc1'), 
@@ -676,6 +678,7 @@ def bokpipe(dataMap,**kwargs):
 		            nosavegain=kwargs.get('nosavegain',False),
 		            noweightmap=kwargs.get('noweightmap',False),
 		            prockey=kwargs.get('prockey','CCDPROC'),
+		            gainMaskDb=kwargs.get('gainMaskDb'),
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'illum' in steps:
