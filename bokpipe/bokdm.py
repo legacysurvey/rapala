@@ -18,32 +18,28 @@ from .bokutil import FakeFITS,array_stats,stats_region,load_mask
 
 def find_cal_sequences(obsDb,imType,byFilt=True,
                        minLen=5,maxDt=None,filts=None):
-	# first group all the data by night
-	t = obsDb.group_by('utDir')
+	t = obsDb.copy()
 	# frameIndex isn't actually a straight table index, but rather a unique
 	# id. adding a running index makes the group sorting much clearer.
 	t['ii'] = np.arange(len(t))
-	calseqs = []
+	#
 	if byFilt:
-		tgroups = ['imType','filter','expTime']
+		isfilt = np.in1d(t['filter'],filts)
+		tg = ['utDir','filter','expTime']
 	else:
-		tgroups = ['imType','expTime']
+		isfilt = True
+		tg = ['utDir','expTime']
+	# group the selected data by night
+	ii = np.where((t['imType']==imType) & isfilt)[0]
+	t = t[ii].group_by(tg)
+	calseqs = []
 	for ut in t.groups:
-		if filts is None or not byFilt:
-			isfilt = True
-		else:
-			isfilt = np.in1d(ut['filter'],filts)
-		iscal = np.where((ut['imType']==imType) & isfilt)[0]
-		if len(iscal)==0:
+		if len(ut) < minLen:
 			continue
-		ut_type = ut[iscal].group_by(tgroups)
-		for utt in ut_type.groups:
-			if len(utt) < minLen:
-				continue
-			ii = np.arange(len(utt))
-			seqs = np.split(ii,1+np.where(np.diff(utt['ii'])>1)[0])
-			seqs = [ list(utt['ii'][s]) for s in seqs if len(s) >= minLen ]
-			calseqs.extend(seqs)
+		ii = np.arange(len(ut))
+		seqs = np.split(ii,1+np.where(np.diff(ut['ii'])>1)[0])
+		seqs = [ list(ut['ii'][s]) for s in seqs if len(s) >= minLen ]
+		calseqs.extend(seqs)
 	return calseqs
 
 def caldb_store(calDbFile,obsDb,imType,seqs,useFilt=True):
@@ -83,17 +79,18 @@ def write_caldb(calDbFile,calDb):
 	with open(calDbFile,"wb") as caldbf:
 		pickle.dump(calDb,caldbf)
 
-def init_cal_db(calDbFile,obsDb,filts,overwrite=False):
-	if overwrite:
-		try:
-			os.unlink(calDbFile)
-		except:
-			pass
-	biasSeqs = find_cal_sequences(obsDb,'zero',byFilt=False,maxDt=10)
-	flatSeqs = find_cal_sequences(obsDb,'flat',byFilt=True,maxDt=10,
-	                              filts=filts)
-	caldb_store(calDbFile,obsDb,'zero',biasSeqs,useFilt=False)
-	caldb_store(calDbFile,obsDb,'flat',flatSeqs)
+def init_cal_db(calDbFile,obsDb,filts,overwrite=False,update=False):
+	if update:
+		if overwrite:
+			try:
+				os.unlink(calDbFile)
+			except:
+				pass
+		biasSeqs = find_cal_sequences(obsDb,'zero',byFilt=False,maxDt=10)
+		flatSeqs = find_cal_sequences(obsDb,'flat',byFilt=True,maxDt=10,
+		                              filts=filts)
+		caldb_store(calDbFile,obsDb,'zero',biasSeqs,useFilt=False)
+		caldb_store(calDbFile,obsDb,'flat',flatSeqs)
 	return load_caldb(calDbFile)
 
 ##############################################################################
@@ -322,9 +319,10 @@ class BokDataManager(object):
 				               maskMap=self.calMaskMaps.get(calType))
 			except KeyError:
 				pass
-	def initCalDb(self):
+	def initCalDb(self,update=False):
 		if not self.calDb:
-			self.calDb = init_cal_db(self.calDbFile,self.obsDb,self.allFilt)
+			self.calDb = init_cal_db(self.calDbFile,
+			                         self.obsDb,self.allFilt,update=update)
 			self._config_cals()
 	def setProcessSteps(self,steps):
 		# XXX annoyingly hacky way to track where we're at in processing...

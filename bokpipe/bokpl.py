@@ -823,7 +823,7 @@ def _load_obsdb(obsdb):
 		obsDb[k] = np.char.rstrip(obsDb[k])
 	return obsDb
 
-def init_data_map(args,create_dirs=True):
+def init_data_map(args,create_dirs=True,updatecaldb=False):
 	#
 	obsDb = _load_obsdb(args.obsdb)
 	# set up the data map
@@ -866,7 +866,7 @@ def init_data_map(args,create_dirs=True):
 			utdir = os.path.join(dataMap.procDir,_utdir)
 			if not os.path.exists(utdir): os.mkdir(utdir)
 	#
-	dataMap.initCalDb()
+	dataMap.initCalDb(update=updatecaldb)
 	return dataMap
 
 def init_pipeline_args(parser):
