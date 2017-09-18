@@ -622,7 +622,6 @@ class BokImStat(BokProcess):
 		self.statSec = stats_region(kwargs.get('stats_region'),
 		                            kwargs.get('stats_stride'))
 		self.clipArgs = kwargs.get('clip_args',{})
-		self.quickprocess = kwargs.get('quickprocess',False)
 		self.checkbad = kwargs.get('checkbad',False)
 		self.fields = fields
 		self.reset()
@@ -633,19 +632,15 @@ class BokImStat(BokProcess):
 			self.reset()
 		self.imgData = defaultdict(list)
 		self.imgBad = []
+	def _get_pixels(self,data,hdr):
+		return data
 	def process_hdu(self,extName,data,hdr):
 		if self.checkbad:
 			xy = np.indices(data.shape)
 			data = np.ma.array(data,mask=~np.isfinite(data))
 			#zero = np.ma.less_equal(data,0)
 			self.imgBad.append(xy[:,data.mask])
-		if self.quickprocess:
-			# XXX move this to .bokproc by making a higher-level imstat
-			pix = overscan_subtract(data,hdr,method='mean_value',
-			                        reject='sigma_clip',clip_iters=1,
-			                        apply_filter=None)
-		else:
-			pix = data
+		pix = self._get_pixels(data,hdr)
 		pix = pix[self.statSec]
 		if self.normIm is not None:
 			pix /= self.normIm[extName][self.statSec]

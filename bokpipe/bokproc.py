@@ -79,6 +79,13 @@ class BokImArith(bokutil.BokProcess):
 	def process_hdu(self,extName,data,hdr):
 		return self.op(data,self.operandFits[extName][:,:]),hdr
 
+class BokImStatWithPreProcessing(bokutil.BokImStat):
+	def _get_pixels(self,data,hdr):
+		pix = overscan_subtract(data,hdr,method='mean_value',
+		                        reject='sigma_clip',clip_iters=1,
+		                        apply_filter=None)
+		return pix
+
 def interpolate_masked_pixels(data,along='twod',method='linear'):
 	if along=='rows':
 		xx = np.arange(data.shape[1])
