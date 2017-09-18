@@ -192,6 +192,10 @@ class BokOverscanSubtract(BokProcess):
 	_procMsg = 'overscan subtracting %s'
 	def __init__(self,**kwargs):
 		kwargs.setdefault('header_key','OSCNSUB')
+		# forcing the process to iterate over the default extensions handles
+		# some rare cases where images are written with multiple copies of
+		# each extension [ e.g., 'IM4','IM4','IM3','IM3',...]
+		kwargs.setdefault('extensions',bok90mef_extensions)
 		super(BokOverscanSubtract,self).__init__(**kwargs)
 		self.fit_kwargs = { k:v 
 		                      for k,v in kwargs.items()
