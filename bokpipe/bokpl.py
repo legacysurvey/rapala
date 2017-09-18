@@ -424,6 +424,8 @@ def make_supersky_flats(dataMap,byUtd=False,interpFill=True,**kwargs):
 			_outfn = _outfn.replace('.fits','_raw.fits')
 		skyFlatStack.stack(files,_outfn)
 		if interpFill:
+			if os.path.exists(outfn) and not kwargs.get('clobber',False):
+				continue
 			fits = bokutil.BokMefImage(_outfn,
 			                           output_file=outfn,
 			                           mask_file=dataMap.getCalMap('badpix4'))
