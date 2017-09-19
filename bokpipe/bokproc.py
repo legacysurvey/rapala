@@ -828,6 +828,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 				gc[:,j] = sigma_clip(gc[:,j],iters=2,sigma=2.0).mean()
 		return gc.filled(0),msk
 	def calc_mean_corrections(self,**kwargs):
+		gainTrendMethod = kwargs.pop('gainTrendMethod',self.gainTrendMethod)
 		raw_ampg = self.ampRelGains = np.array(self.ampRelGains)
 		raw_ccdg = self.ccdRelGains = np.array(self.ccdRelGains)
 		filts = np.unique(self.filters)
@@ -846,12 +847,12 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		for filt in filts:
 			ii = np.where(self.filters == filt)[0]
 			if len(ii)==0: continue
-			if self.gainTrendMethod == 'median':
+			if gainTrendMethod == 'median':
 				ampg[ii],msk = self._median_gain_trend(raw_ampg[ii],
 				                                       ampMsk[ii])
 				ccdg[ii],msk = self._median_gain_trend(raw_ccdg[ii],
 				                                       ccdMsk[ii])
-			elif self.gainTrendMethod == 'spline':
+			elif gainTrendMethod == 'spline':
 				ampg[ii],msk = self._spline_gain_trend(raw_ampg[ii],
 				                                       ampMsk[ii],
 				                                       **kwargs)
