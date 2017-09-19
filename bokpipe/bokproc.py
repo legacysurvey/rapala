@@ -764,12 +764,13 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 	def _spline_gain_trend(self,rawgc,xtraMsk,**kwargs):
 		splineOrder = kwargs.get('splineOrder',self.splineOrder)
 		nSplineRejIter = kwargs.get('nSplineRejIter',self.nSplineRejIter)
+		nSplineKnots = kwargs.get('nSplineKnots',self.nSplineKnots)
 		nimg,ngain = rawgc.shape
 		seqno = np.arange(nimg,dtype=np.float32)
 		gc = np.ma.array(rawgc,mask=(rawgc==0),copy=True)
 		gc.mask |= xtraMsk
 		msk = gc.mask.copy()
-		knots = np.linspace(0,nimg,self.nSplineKnots+2)[1:-1]
+		knots = np.linspace(0,nimg,nSplineKnots+2)[1:-1]
 		for j in range(ngain):
 			if np.allclose(gc[:,j],1):
 				# a reference chip
