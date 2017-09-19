@@ -209,7 +209,7 @@ def make_rampcorr_image(dataMap,**kwargs):
 	stackFun = bokutil.ClippedMeanStack()
 	stackFun.stack(rampFiles,rampFile)
 
-def balance_gains(dataMap,gainMaskDb,**kwargs):
+def balance_gains(dataMap,gainMaskDb,gainBalCfg,**kwargs):
 	# need bright star mask here?
 	gainBalance = bokproc.BokCalcGainBalanceFactors(
 	                                     input_map=dataMap('proc1'),
@@ -231,7 +231,10 @@ def balance_gains(dataMap,gainMaskDb,**kwargs):
 			skyV = gainDat['skys']
 		else:
 			gainBalance.process_files(files,filt)
-			gainCor = gainBalance.calc_mean_corrections()
+			kwargs = gainBalCfg.get(utd,{})
+			if kwargs.get('verbose',0) > 1:
+				print 'setting gain bal config: ',utd,kwargs
+			gainCor = gainBalance.calc_mean_corrections(**kwargs)
 			ampGainV,ccdGainV,gainCorV,ampTrend,ccdTrend,skyV = \
 			               gainBalance.get_values()
 		for f,gc,skyv in zip(files,gainCor,skyV):
@@ -262,7 +265,8 @@ def files_by_utdfilt(dataMap,imType='object',filt=None):
 
 def process_all(dataMap,nobiascorr=False,noflatcorr=False,
                 fixpix=False,rampcorr=False,noweightmap=False,
-                nocombine=False,prockey='CCDPROC',gainMaskDb=None,**kwargs):
+                nocombine=False,prockey='CCDPROC',
+                gainMaskDb=None,gainBalCfg={},**kwargs):
 	# 0. before processing, generate data quality masks: the badpix mask is
 	#    updated to include saturated pixels and regions around bright stars
 	#    are flagged.
@@ -291,7 +295,7 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 	if nocombine:
 		return
 	# 2. balance gains using background counts
-	gainMap = balance_gains(dataMap,gainMaskDb,**kwargs)
+	gainMap = balance_gains(dataMap,gainMaskDb,gainBalCfg,**kwargs)
 	# 3. combine per-amp images (16) into CCD images (4)
 	bokproc.combine_ccds(files,
 	                     input_map=dataMap('proc1'), 
@@ -681,6 +685,7 @@ def bokpipe(dataMap,**kwargs):
 		            noweightmap=kwargs.get('noweightmap',False),
 		            prockey=kwargs.get('prockey','CCDPROC'),
 		            gainMaskDb=kwargs.get('gainMaskDb'),
+		            gainBalCfg=kwargs.get('gainBalCfg'),
 		            **pipekwargs)
 		timerLog('ccdproc')
 	if 'illum' in steps:

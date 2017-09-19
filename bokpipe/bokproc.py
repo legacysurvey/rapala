@@ -761,7 +761,9 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 		gc_clip = sigma_clip(gc,iters=2,sigma=2.0,axis=0)
 		gc[:] = gc_clip.mean(axis=0)
 		return gc.filled(0),gc.mask
-	def _spline_gain_trend(self,rawgc,xtraMsk):
+	def _spline_gain_trend(self,rawgc,xtraMsk,**kwargs):
+		splineOrder = kwargs.get('splineOrder',self.splineOrder)
+		nSplineRejIter = kwargs.get('nSplineRejIter',self.nSplineRejIter)
 		nimg,ngain = rawgc.shape
 		seqno = np.arange(nimg,dtype=np.float32)
 		gc = np.ma.array(rawgc,mask=(rawgc==0),copy=True)
@@ -787,8 +789,8 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 					raise ValueError
 				spfit = LSQUnivariateSpline(seqno[ii],gc[ii,j].filled(),
 				                            knots,bbox=[0,nimg],
-				                            k=self.splineOrder)
-				for iternum in range(self.nSplineRejIter):
+				                            k=splineOrder)
+				for iternum in range(nSplineRejIter):
 #					ii = np.where(~(gc[:,j].mask | rejmask))[0]
 					resid = gc[ii,j] - spfit(seqno[ii])
 					resrms = np.ma.std(resid)
@@ -799,7 +801,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 						spfit = LSQUnivariateSpline(seqno[ii],
 						                            gc[ii,j].filled(),
 						                            knots,bbox=[0,nimg],
-						                            k=self.splineOrder)
+						                            k=splineOrder)
 					else:
 						break
 				gc[:,j] = spfit(seqno)
@@ -824,7 +826,7 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 				print 'WARNING: spline fit failed, reverting to mean'
 				gc[:,j] = sigma_clip(gc[:,j],iters=2,sigma=2.0).mean()
 		return gc.filled(0),msk
-	def calc_mean_corrections(self):
+	def calc_mean_corrections(self,**kwargs):
 		raw_ampg = self.ampRelGains = np.array(self.ampRelGains)
 		raw_ccdg = self.ccdRelGains = np.array(self.ccdRelGains)
 		filts = np.unique(self.filters)
@@ -844,11 +846,17 @@ class BokCalcGainBalanceFactors(bokutil.BokProcess):
 			ii = np.where(self.filters == filt)[0]
 			if len(ii)==0: continue
 			if self.gainTrendMethod == 'median':
-				ampg[ii],msk = self._median_gain_trend(raw_ampg[ii],ampMsk[ii])
-				ccdg[ii],msk = self._median_gain_trend(raw_ccdg[ii],ccdMsk[ii])
+				ampg[ii],msk = self._median_gain_trend(raw_ampg[ii],
+				                                       ampMsk[ii])
+				ccdg[ii],msk = self._median_gain_trend(raw_ccdg[ii],
+				                                       ccdMsk[ii])
 			elif self.gainTrendMethod == 'spline':
-				ampg[ii],msk = self._spline_gain_trend(raw_ampg[ii],ampMsk[ii])
-				ccdg[ii],msk = self._spline_gain_trend(raw_ccdg[ii],ccdMsk[ii])
+				ampg[ii],msk = self._spline_gain_trend(raw_ampg[ii],
+				                                       ampMsk[ii],
+				                                       **kwargs)
+				ccdg[ii],msk = self._spline_gain_trend(raw_ccdg[ii],
+				                                       ccdMsk[ii],
+				                                       **kwargs)
 		# propagate the gain corrections starting from the reference
 		ampgscale = ampg.copy()
 		for ccdi,extGroup in enumerate(amp_iterator()):
