@@ -33,7 +33,8 @@ except:
 	except:
 		rdxdir = None
 
-tiledb_file = 'bass-newtiles-indesi.fits'
+#tiledb_file = 'bass-newtiles-indesi.fits'
+tiledb_file = 'bass-tiles.fits'
 obsdb_file = 'bass-newtiles-observed.fits'
 
 # filenames get written in weird ways
@@ -190,7 +191,7 @@ def obs_summary(which='good',newest=True,tiles=None,
                 mjdstart=None,mjdend=None,
                 doplot=False,smallplot=False,saveplot=None,
                 decalsstyle=False,byfilter=False,brightcolors=False,
-                declim1=(32,90),declim2=(32,75),verbose=0):
+                declim1=(32,90),declim2=(32,75),stripe82=False,verbose=0):
 	from collections import defaultdict
 	tiledb = load_tiledb()
 	obsdb = load_obsdb(get_obsdb_filename(which,newest))
@@ -285,6 +286,9 @@ def obs_summary(which='good',newest=True,tiles=None,
 	if doplot:
 		import matplotlib.pyplot as plt
 		from matplotlib.backends.backend_pdf import PdfPages
+		TRA = tiledb['TRA']
+		if stripe82:
+			TRA[TRA>150] -= 360
 		if decalsstyle:
 			if smallplot:
 				fig = plt.figure(figsize=(5,6))
@@ -294,15 +298,17 @@ def obs_summary(which='good',newest=True,tiles=None,
 				fig = plt.figure(figsize=(7,8))
 				plt.subplots_adjust(0.07,0.05,0.98,0.98,0.0,0.0)
 				sz1,sz2,sz3,fsz = 10,12,20,12
+			if stripe82:
+				sz2 *= 2
 			for _pass in range(1,4):
 				ax = plt.subplot(3,1,_pass)
 				grsum = tileCov[:,0,_pass-1].astype(np.int) + \
 				        2*(tileCov[:,1,_pass-1].astype(np.int))
 				ii = np.where(grsum==0)[0]
-				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
+				plt.scatter(TRA[ii],tiledb['TDEC'][ii],
 				            marker='+',s=sz1,c='0.7')
 				ii = np.where(grsum>0)[0]
-				plt.scatter(tiledb['TRA'][ii],tiledb['TDEC'][ii],
+				plt.scatter(TRA[ii],tiledb['TDEC'][ii],
 				            marker='s',
 				            c=np.choose(grsum[ii],['0.5','b','y','g']),
 				            edgecolor='none',s=sz2)
@@ -313,15 +319,22 @@ def obs_summary(which='good',newest=True,tiles=None,
 					plt.legend(scatterpoints=1,ncol=3,fontsize=fsz,
 					           handletextpad=0,columnspacing=1,
 					           loc='upper center')
-				plt.xlim(85,305)
-				plt.ylim(29,78)
+				if stripe82:
+					plt.xlim(-15,45)
+					plt.ylim(-3,3)
+				else:
+					plt.xlim(85,305)
+					plt.ylim(29,78)
 				if _pass==3:
 					plt.xlabel('RA')
 				else:
 					ax.xaxis.set_ticklabels([])
 				if _pass==2:
 					plt.ylabel('Dec')
-				plt.text(270,55,'pass %d'%_pass)
+				if stripe82:
+					plt.text(10,1,'pass %d'%_pass)
+				else:
+					plt.text(270,55,'pass %d'%_pass)
 			if saveplot is not None:
 				plt.savefig(saveplot)
 			else:
@@ -575,6 +588,8 @@ if __name__=='__main__':
 	                    help="declination range of nominal footprint (32,85)")
 	parser.add_argument("--decrange2",type=str,default="(32,75)",
 	                    help="declination range of truncated footprint (32,75)")
+	parser.add_argument("--stripe82",action="store_true",
+	                    help="plot stripe 82 coverage")
 	parser.add_argument("--bright",action="store_true",
 	                    help="plot using higher contrast colors")
 	parser.add_argument("-v","--verbose",action="store_true",
@@ -620,7 +635,7 @@ if __name__=='__main__':
 		            saveplot=args.plotfile,decalsstyle=not args.byfilter,
 		            byfilter=args.byfilter,brightcolors=args.bright,
 		            declim1=eval(args.decrange1),declim2=eval(args.decrange2),
-		            verbose=args.verbose)
+		            stripe82=args.stripe82,verbose=args.verbose)
 	elif args.obstatus:
 		map_to_decam_obstatus(which=args.tiles,newest=args.newest)
 	#kwargs = {} if len(sys.argv)==1 else {'dirs':sys.argv[1]}
