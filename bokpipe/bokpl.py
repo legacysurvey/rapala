@@ -602,6 +602,7 @@ def set_wcs(dataMap,inputType='sky',savewcs=False,keepwcscat=True,**kwargs):
 	status = procmap(p_wcs_worker,zip(*filesAndFields))
 
 def _cat_worker(dataMap,inputType,imFile,**kwargs):
+	_kwargs = { k:v for k,v in kwargs.items() if k in ['verbose','clobber'] }
 	try:
 		pid = multiprocessing.current_process().name.split('-')[1]
 	except:
@@ -612,11 +613,12 @@ def _cat_worker(dataMap,inputType,imFile,**kwargs):
 		psfFile = dataMap('psf')(imFile)
 		if not os.path.exists(psfFile):
 			catFile = dataMap('wcscat')(imFile)
-			bokphot.sextract(imageFile,catFile,full=False,**kwargs)
-			bokphot.run_psfex(catFile,psfFile,**kwargs)
+			bokphot.sextract(imageFile,catFile,full=False,**_kwargs)
+			bokphot.run_psfex(catFile,psfFile,**_kwargs)
 		catFile = dataMap('cat')(imFile)
-		bokphot.sextract(imageFile,catFile,psfFile,full=True,**kwargs)
-	except:
+		bokphot.sextract(imageFile,catFile,psfFile,full=True,**_kwargs)
+	except IOError as e:
+		print "FAILED: {0}".format(e.strerror)
 		pass
 
 def make_catalogs(dataMap,inputType='sky',**kwargs):
