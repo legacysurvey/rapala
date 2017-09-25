@@ -21,9 +21,11 @@ def array_clip(arr,axis=None,**kwargs):
 	if axis is not None and axis < 0:
 		axis = len(arr.shape) + axis
 	arr = sigma_clip(arr,axis=axis,
-	                 sigma=kwargs.get('clip_sig',2.5),
-	                 iters=kwargs.get('clip_iters',2),
-	                 cenfunc=kwargs.get('clip_cenfunc',np.ma.mean))
+	                 sigma=kwargs.pop('clip_sig',2.5),
+	                 iters=kwargs.pop('clip_iters',2),
+	                 cenfunc=kwargs.pop('clip_cenfunc',np.ma.mean))
+	if len(kwargs) > 0:
+		print 'WARNING: extra args to array_clip: ',kwargs
 	return arr
 
 def array_stats(arr,axis=None,method='median',clip=True,rms=False,
@@ -685,9 +687,8 @@ class BokMefImageCube(object):
 		self.statsRegion = kwargs.get('stats_region')
 		self.statsStride = kwargs.get('stats_stride')
 		self.statsPix = stats_region(self.statsRegion,self.statsStride)
-		self.clipArgs = {'iters':kwargs.get('clip_iters',2),
-		                 'sig':kwargs.get('clip_sig',2.5),
-		                 'cenfunc':kwargs.get('clip_cenfunc',np.ma.mean)}
+		self.clipArgs = { k:v for k,v in kwargs.items()
+		                        if k.startswith('clip_') }
 		self.fillValue = kwargs.get('fill_value',np.nan)
 		self.procmap = kwargs.get('procmap',map)
 		self.processes = kwargs.get('processes',1)
