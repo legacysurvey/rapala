@@ -2,6 +2,7 @@
 
 import os
 import argparse
+import numpy as np
 
 from bokpipe import *
 
@@ -43,6 +44,12 @@ parser.add_argument("--maskdir",type=str,default='.',
                     help="directory where masks are located (default:.)")
 parser.add_argument("--masktype",type=str,default='gtzero',
                     help="input mask boolean type ([gtzero]|nonzero|zerobad)")
+parser.add_argument("--clip_iters",type=int,
+                    help="number of clipping iterations")
+parser.add_argument("--clip_sig",type=float,
+                    help="clipping sigma threshold")
+parser.add_argument("--clip_median",action='store_true',
+                    help="use median instead of mean when clipping")
 parser.add_argument('-v','--verbose',action='count',
                     help='increase output verbosity')
 args = parser.parse_args()
@@ -52,6 +59,12 @@ if args.scale:
 	stackPars['scale'] = 'normalize_mean'
 if args.reject:
 	stackPars['reject'] = 'sigma_clip'
+if args.clip_iters:
+	stackPars['clip_iters'] = args.clip_iters
+if args.clip_sig:
+	stackPars['clip_sig'] = args.clip_sig
+if args.clip_median:
+	stackPars['clip_cenfunc'] = np.ma.median
 stackPars['maxmem'] = args.maxmem
 stackPars['verbose'] = args.verbose
 
