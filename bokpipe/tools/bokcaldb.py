@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
-import sys
+import os,sys
+import time
 from collections import defaultdict
 import numpy as np
 from astropy.table import Table
@@ -76,7 +77,10 @@ if args.delete:
 	for t in caldb.keys():
 		if t not in newdb:
 			newdb[t] = caldb[t]
-	bkpf = args.caldb.replace('.pkl','_bkp.pkl')
+	newdb = dict(newdb)
+	t = os.path.getmtime(args.caldb)
+	sfx = time.strftime('%Y%m%d%H%M%S',time.gmtime(t))
+	bkpf = args.caldb.replace('.pkl','_%s.pkl'%sfx)
 	write_caldb(bkpf,caldb)
 	write_caldb(args.caldb,newdb)
 
