@@ -347,6 +347,7 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 		tmpSkyFlatFile = os.path.join(dataMap._tmpDir,tmpFn)
 		stackFun = bokutil.ClippedMeanStack(input_map=dataMap('comb'),
 		                                mask_map=dataMap('imgmask'),
+		                                mask_type='nonzero',
 		                                scale='normalize_mean',
 		                                stats_region='ccd_central_quadrant',
 		                                stats_stride=10,
@@ -531,6 +532,7 @@ def sky_subtract(dataMap,skyArgs,redoskymask=False,
 		print 'output is ',tmpSkyFlatFile
 		stackFun = bokproc.BokNightSkyFlatStack(input_map=dataMap('proc2'),
 	                                    mask_map=dataMap('imgmask'),
+	                                    mask_type='nonzero',
 		                                **kwargs)
 		stackFun.stack(files,tmpSkyFlatFile)
 		tmpMap = bokio.FileRenameMap(dataMap('proc2'),'.tmp')
