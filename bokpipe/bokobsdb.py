@@ -191,7 +191,7 @@ def generate_log(dirs,logFile,filters=None,objFilter=None,filePattern=None,
 		if inTable is None:
 			indx = i
 		else:
-			indx = len(inTable) + i
+			indx = inTable['frameIndex'].max() + 1 + i
 		row.extend([indx,utDir,fn,utDate,h.get('DATE-OBS','null')])
 		row.extend([imageType,filt,objName,h.get('EXPTIME',-1)])
 		row.extend([h.get('CCDBIN1',-1),h.get('CCDBIN2',-1),
