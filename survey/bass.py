@@ -324,7 +324,7 @@ def obs_summary(which='good',newest=True,tiles=None,
 					plt.ylim(-3,3)
 				else:
 					plt.xlim(85,305)
-					plt.ylim(29,78)
+					plt.ylim(29,85)
 				if _pass==3:
 					plt.xlabel('RA')
 				else:
@@ -359,7 +359,7 @@ def obs_summary(which='good',newest=True,tiles=None,
 				       c=np.choose(npass[ii],passcolors),
 				       edgecolor='none',s=sz2)
 				plt.xlim(85,305)
-				plt.ylim(29,75)
+				plt.ylim(29,85)
 				plt.title('%s band'%filt,size=14)
 				if filt=='g':
 					plt.ylabel('Dec',size=14)
