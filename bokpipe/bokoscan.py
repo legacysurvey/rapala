@@ -45,14 +45,14 @@ oscan_fit_keywords = ['reject','method','apply_filter','filter_window',
                       'spline_nknots','spline_niter']
 
 def fit_overscan(overscan,**kwargs):
-	reject = kwargs.get('reject','sigma_clip')
-	method = kwargs.get('method','mean')
-	applyFilter = kwargs.get('apply_filter','median')
-	windowSize = kwargs.get('filter_window',31)
-	maskAlong = kwargs.get('mask_along',[0,1,2,-1])
-	along = kwargs.get('along','columns')
-	spline_nknots = kwargs.get('spline_nknots',7)
-	spline_niter = kwargs.get('spline_niter',2)
+	reject = kwargs.pop('reject','sigma_clip')
+	method = kwargs.pop('method','mean')
+	applyFilter = kwargs.pop('apply_filter','median')
+	windowSize = kwargs.pop('filter_window',31)
+	maskAlong = kwargs.pop('mask_along',[0,1,2,-1])
+	along = kwargs.pop('along','columns')
+	spline_nknots = kwargs.pop('spline_nknots',7)
+	spline_niter = kwargs.pop('spline_niter',2)
 	if along == 'rows':
 		# make it look like a column overscan for simplicity
 		overscan = overscan.transpose()
