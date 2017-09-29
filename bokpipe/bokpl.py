@@ -694,6 +694,7 @@ def bokpipe(dataMap,**kwargs):
 		timerLog('ccdproc')
 	if 'illum' in steps:
 		make_illumcorr_image(dataMap,
+		                     byUtd=not kwargs.get('masterillum'),
 		                     filterFun=kwargs.get('illum_filter_fun'),
 		                     **pipekwargs)
 		timerLog('illumination corr')
@@ -922,6 +923,8 @@ def init_pipeline_args(parser):
 	                help='do not save per-image gain balance factors')
 	parser.add_argument('--nousepixflat',action='store_true',
 	                help='do not use normalized pixel flat')
+	parser.add_argument('--masterillum',action='store_true',
+	                help='create a single master illum, instead of nightly')
 	parser.add_argument('--masterfringe',action='store_true',
 	                help='create a single master fringe, instead of nightly')
 	parser.add_argument('--masterskyflat',action='store_true',
