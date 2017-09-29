@@ -321,7 +321,7 @@ def process_all(dataMap,nobiascorr=False,noflatcorr=False,
 
 def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
                          min_images=10,max_images=None,
-                         iterfit=True,**kwargs):
+                         iterfit=True,nKnots1=7,nKnots2=17,**kwargs):
 	redo = kwargs.get('redo',False)
 	verbose = kwargs.get('verbose',0)
 	if byUtd:
@@ -365,7 +365,8 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 		                           mask_file=tmpSkyFlatFile,
 		                           mask_type='isnumber',
 		                           read_only=True)
-		illum = bokproc.SplineBackgroundFit(fits,nKnots=7,order=3,nbin=8)
+		illum = bokproc.SplineBackgroundFit(fits,nKnots=nKnots1,
+		                                    order=3,nbin=8)
 		if iterfit:
 			mask = {}
 			for extn,data,hdr in fits:
@@ -373,9 +374,10 @@ def make_illumcorr_image(dataMap,byUtd=True,filterFun=None,
 				arr = bokutil.array_clip(resid[10:-10:10,10:-10:10])
 				mn = arr.mean()
 				sd = arr.std()
-				mask[extn] = np.abs(resid-mn) > 3*sd
+				mask[extn] = np.ma.greater(np.abs(resid-mn),3*sd)
 			fits.add_mask(mask)
-			illum = bokproc.SplineBackgroundFit(fits,nKnots=17,order=3,nbin=4)
+			illum = bokproc.SplineBackgroundFit(fits,nKnots=nKnots2,
+			                                    order=3,nbin=4)
 		normFun = lambda arr: arr / np.float32(illum(0,0))
 		illum.write(outFn,opfun=normFun,clobber=True)
 
@@ -696,6 +698,8 @@ def bokpipe(dataMap,**kwargs):
 		make_illumcorr_image(dataMap,
 		                     byUtd=not kwargs.get('masterillum'),
 		                     filterFun=kwargs.get('illum_filter_fun'),
+		                     min_images=kwargs.get('min_illum_images',10),
+		                     nKnots2=kwargs.get('illum_nknots2',17),
 		                     **pipekwargs)
 		timerLog('illumination corr')
 	if 'fringe' in steps:
@@ -768,7 +772,7 @@ def make_variance_image(dataMap,f,bpMask,expTime,gains,skyAdu):
 		varIms[extn][badpix] = 0
 	return varIms
 
-def _img_worker(imdir,_fmap,maskmap,fin,**kwargs):
+def _img_worker(imdir,_fmap,maskmap,fin,redo=False,**kwargs):
 	f = _fmap(fin)
 	print f
 	if not os.path.exists(f):
@@ -777,11 +781,11 @@ def _img_worker(imdir,_fmap,maskmap,fin,**kwargs):
 	d,utd = os.path.split(d)
 	imgd = os.path.join(imdir,utd)
 	imgfile = os.path.join(imgd,fn.replace('.fits','.png'))
-	if os.path.exists(imgfile):
+	if not redo and os.path.exists(imgfile):
 		return
 	bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(fin),**kwargs)
 
-def make_images(dataMap,imtype='sky',msktype=None,processes=1):
+def make_images(dataMap,imtype='sky',msktype=None,processes=1,redo=False):
 	import matplotlib.pyplot as plt
 	if processes > 1:
 		pool = multiprocessing.Pool(processes)
@@ -801,7 +805,8 @@ def make_images(dataMap,imtype='sky',msktype=None,processes=1):
 		if not os.path.exists(imgd):
 			os.makedirs(imgd)
 	plt.ioff()
-	p_img_worker = partial(_img_worker,imdir,_fmap,maskmap,contrast=0.5)
+	p_img_worker = partial(_img_worker,imdir,_fmap,maskmap,
+	                       contrast=0.5,redo=redo)
 	procmap(p_img_worker,dataMap.getFiles(imType='object'))
 	plt.ion()
 
@@ -925,6 +930,10 @@ def init_pipeline_args(parser):
 	                help='do not use normalized pixel flat')
 	parser.add_argument('--masterillum',action='store_true',
 	                help='create a single master illum, instead of nightly')
+	parser.add_argument('--min_illum_images',type=int,default=10,
+	                help='minimum number of images for illum corr stack [10]')
+	parser.add_argument('--illum_nknots2',type=int,default=17,
+	                help='number of spline knots for illum corr 2nd fit [17]')
 	parser.add_argument('--masterfringe',action='store_true',
 	                help='create a single master fringe, instead of nightly')
 	parser.add_argument('--masterskyflat',action='store_true',
@@ -993,7 +1002,7 @@ def run_pipe(dataMap,args,**_kwargs):
 	# run pipeline processes
 	if args.images:
 		make_images(dataMap,*args.imagetype.split(','),
-		            processes=args.processes)
+		            processes=args.processes,redo=args.redo)
 	elif args.wcscheck:
 		files = map(dataMap('sky'),dataMap.getFiles('object'))
 		bokgnostic.run_scamp_diag(files)
