@@ -73,7 +73,8 @@ def build_obsdb(update=False,which='good',newest=True):
 		tar.close()
 	# the summary files listing the tiles marked as "good"
 	#good_files = ['obsed-g-2015-good.txt','obsed-r-2015-good.txt',
-	good_files = ['zouhu_obsed-g-2015-good.txt','zouhu_obsed-r-2015-good.txt',
+	#good_files = ['zouhu_obsed-g-2015-good.txt','zouhu_obsed-r-2015-good.txt',
+	good_files = ['nie_obsed-g-2015-good.txt','nie_obsed-r-2015-good.txt',
 	              'obsed-g-2016-0102-good.txt','obsed-r-2016-0102-good.txt',
 	              'obsed-g-2016-03-good.txt','obsed-r-2016-03-good.txt',
 	              'obsed-g-2016-04-good.txt','obsed-r-2016-04-good.txt',
@@ -116,20 +117,30 @@ def build_obsdb(update=False,which='good',newest=True):
 				return int(s)
 			except:
 				return -99
-		arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),('expTime','f4'),
-		                           ('tileId','i4'),('ra','f8'),('dec','f8')],
-		                 converters={0:reform_filename,2:idconv})
-		if arr.size<=1:
-			# for some reason len() freaks out in this case
-			continue
-		if '2015-good' in obsfile:
-			# each line in this file is for a single CCD
-			arr = arr[::4]
+		if 'nie_' in obsfile:
+			arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),
+			                    ('tileId','i4'),('ra','f8'),('dec','f8')],
+			                    converters={0:reform_filename,2:idconv})
+			_,_ii = np.unique(arr['fileName'],return_index=True)
+			arr = arr[_ii]
+			arr = Table(arr)
+			arr['expTime'] = 0.
+		else:
+			arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),('expTime','f4'),
+			                           ('tileId','i4'),('ra','f8'),('dec','f8')],
+			                 converters={0:reform_filename,2:idconv})
+			if arr.size<=1:
+				# for some reason len() freaks out in this case
+				continue
+		#if '2015-good' in obsfile:
+		#	# each line in this file is for a single CCD
+		#	arr = arr[::4]
 		print obsfile,len(arr)
 		t = Table(arr)
 		t['ditherId'] = t['tileId'] % 10
 		t['tileId'] //= 10
 		obsfile = os.path.basename(obsfile).replace('zouhu_','')
+		obsfile = obsfile.replace('nie_','')
 		t['filter'] = obsfile[6]
 		# filename is encoded with last 4 digits of JD
 		t['mjd'] = 50000. + np.array([int(d[1:5]) for d in arr['fileName']],
