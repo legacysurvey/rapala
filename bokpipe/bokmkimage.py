@@ -23,7 +23,7 @@ def make_fov_image(fov,pngfn=None,**kwargs):
 		except:
 			losig,hisig = (2.5,5.0)
 	#
-	cmap = kwargs.get('cmap','jet')
+	cmap = kwargs.get('cmap','viridis')
 	cmap = plt.get_cmap(cmap)
 	cmap.set_bad('w',1.0)
 	w = 0.4575

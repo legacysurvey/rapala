@@ -767,7 +767,7 @@ def make_variance_image(dataMap,f,bpMask,expTime,gains,skyAdu):
 		varIms[extn][badpix] = 0
 	return varIms
 
-def _img_worker(imdir,_fmap,maskmap,fin):
+def _img_worker(imdir,_fmap,maskmap,fin,**kwargs):
 	f = _fmap(fin)
 	print f
 	if not os.path.exists(f):
@@ -778,7 +778,7 @@ def _img_worker(imdir,_fmap,maskmap,fin):
 	imgfile = os.path.join(imgd,fn.replace('.fits','.png'))
 	if os.path.exists(imgfile):
 		return
-	bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(fin))
+	bokmkimage.make_fov_image_fromfile(f,imgfile,mask=maskmap(fin),**kwargs)
 
 def make_images(dataMap,imtype='sky',msktype=None,processes=1):
 	import matplotlib.pyplot as plt
@@ -800,7 +800,7 @@ def make_images(dataMap,imtype='sky',msktype=None,processes=1):
 		if not os.path.exists(imgd):
 			os.makedirs(imgd)
 	plt.ioff()
-	p_img_worker = partial(_img_worker,imdir,_fmap,maskmap)
+	p_img_worker = partial(_img_worker,imdir,_fmap,maskmap,contrast=0.5)
 	procmap(p_img_worker,dataMap.getFiles(imType='object'))
 	plt.ion()
 
