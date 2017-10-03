@@ -105,10 +105,14 @@ def aper_phot(image,hdr,ra,dec,aperRad,mask=None,varim=None,edge_buf=5,
 	raMin,raMax = foot[:,0].min(),foot[:,0].max()
 	decMin,decMax = foot[:,1].min(),foot[:,1].max()
 	ii = np.where((ra>raMin)&(ra<raMax)&(dec>decMin)&(dec<decMax))[0]
+	if len(ii)==0:
+		return None
 	x,y = w.wcs_world2pix(ra[ii],dec[ii],0)
 	ii2 = np.where((x>edge_buf) & (y>edge_buf) & 
 	               (x<image.shape[1]-edge_buf) & 
 	               (y<image.shape[0]-edge_buf))[0]
+	if len(ii2)==0:
+		return None
 	x = x[ii2]
 	y = y[ii2]
 	ii = ii[ii2]
@@ -180,6 +184,8 @@ def aper_phot_image(imageFile,ra,dec,aperRad,badPixMask=None,varIm=None,
 			mask = load_mask(badPixMask[extn],maskType)
 		varim = varIm[extn] if varIm is not None else None
 		phot = aper_phot(im,hdr,ra,dec,aperRad,mask=mask,varim=varim,**kwargs)
+		if phot is None:
+			continue
 		n = len(phot[0])
 		if n==0:
 			continue
