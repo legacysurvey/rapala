@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-__version__ = 'bokpipe_v0.3'
+__version__ = 'bokpipe_v1.0'
 
 from .bokoscan import BokOverscanSubtract
 from .badpixels import build_mask_from_flat
