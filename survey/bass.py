@@ -72,26 +72,18 @@ def build_obsdb(update=False,which='good',newest=True):
 		tar.extractall(path=bass_dir)
 		tar.close()
 	# the summary files listing the tiles marked as "good"
-	#good_files = ['obsed-g-2015-good.txt','obsed-r-2015-good.txt',
-	#good_files = ['zouhu_obsed-g-2015-good.txt','zouhu_obsed-r-2015-good.txt',
-	good_files = ['nie_obsed-g-2015-good.txt','nie_obsed-r-2015-good.txt',
-	              'obsed-g-2016-0102-good.txt','obsed-r-2016-0102-good.txt',
-	              'obsed-g-2016-03-good.txt','obsed-r-2016-03-good.txt',
-	              'obsed-g-2016-04-good.txt','obsed-r-2016-04-good.txt',
-	              'obsed-g-2016-05-good.txt','obsed-r-2016-05-good.txt',
+	good_files = ['bass-dr2-goodtiles-bad2015.txt',
+	              'obsed-g-201707good.txt',
+	              'obsed-r-201707good.txt',
 	]
 	obsfiles_good = [os.path.join(bass_dir,'database',f) for f in good_files]
-	nov15_files = glob.glob(os.path.join(bass_dir,'database',
-	                                     'obsed-[gr]-2015-11-??.txt'))
-	# XXX not actually sure these have been classified but incl. here for now
-	obsfiles_good += nov15_files
 	# the original nightly tile lists archived in "*_old" directories
 	obsfiles_old = glob.glob(os.path.join(bass_dir,'database','201?_old',
 	                                      'obsed-[gr]-????-??-??.txt'))
 	# the most recently observed tiles that have not been ingested into
 	# the "good" lists yet
 	obsfiles_new = glob.glob(os.path.join(bass_dir,'database',
-	                                      'obsed-[gr]-201[67]-??-??.txt'))
+	                                      'obsed-[gr]-201[78]-??-??.txt'))
 	# select which observations to use
 	if which=='all':
 		# include all the observed tiles
@@ -117,14 +109,24 @@ def build_obsdb(update=False,which='good',newest=True):
 				return int(s)
 			except:
 				return -99
-		if 'nie_' in obsfile:
+		if '201707good' in obsfile:
 			arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),
+								('expTime','f4'),
 			                    ('tileId','i4'),('ra','f8'),('dec','f8')],
-			                    converters={0:reform_filename,2:idconv})
+			                    converters={0:reform_filename,3:idconv})
 			_,_ii = np.unique(arr['fileName'],return_index=True)
 			arr = arr[_ii]
 			arr = Table(arr)
-			arr['expTime'] = 0.
+		elif 'bad2015' in obsfile:
+			arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),
+								('expTime','f4'),
+			                    ('tileId','i4'),('ra','f8'),('dec','f8'),
+			                    ('mag','f4'),
+			                    ('pass','i4'),('filter','S1'),('dunno','i4')],
+			                    converters={0:reform_filename,3:idconv})
+			_,_ii = np.unique(arr['fileName'],return_index=True)
+			arr = arr[_ii]
+			arr = Table(arr)
 		else:
 			arr = np.loadtxt(obsfile,dtype=[('fileName','S10'),('expTime','f4'),
 			                           ('tileId','i4'),('ra','f8'),('dec','f8')],
@@ -132,16 +134,13 @@ def build_obsdb(update=False,which='good',newest=True):
 			if arr.size<=1:
 				# for some reason len() freaks out in this case
 				continue
-		#if '2015-good' in obsfile:
-		#	# each line in this file is for a single CCD
-		#	arr = arr[::4]
 		print obsfile,len(arr)
 		t = Table(arr)
 		t['ditherId'] = t['tileId'] % 10
 		t['tileId'] //= 10
-		obsfile = os.path.basename(obsfile).replace('zouhu_','')
-		obsfile = obsfile.replace('nie_','')
-		t['filter'] = obsfile[6]
+		if 'filter' not in t.colnames:
+				filt = os.path.basename(obsfile)[6]
+				t['filter'] = filt
 		# filename is encoded with last 4 digits of JD
 		t['mjd'] = 50000. + np.array([int(d[1:5]) for d in arr['fileName']],
 		                             dtype=np.float32)
