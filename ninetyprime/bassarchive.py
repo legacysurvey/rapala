@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+import sys
 import glob
 import subprocess
 import md5
@@ -33,7 +34,7 @@ def read_archive_log():
 			try:
 				md5h,fn = l.strip().split()
 			except:
-				print "ERROR reading ",l
+				print "BASSARCHIVE: ERROR reading ",l
 				continue
 			fn = os.path.basename(fn)
 			if fn in archivelog and archivelog[fn] != md5h:
@@ -55,7 +56,7 @@ def get_files_to_transfer(currentdirs,archivelog,dtsfiles):
 			if not fn in archivelog:
 				xferfiles.append(f)
 			if dtsfiles is not None and fn not in dtsfiles:
-				print fn
+				print "BASSARCHIVE: {} not on dtskp".format(fn)
 	return xferfiles
 
 if __name__=='__main__':
@@ -89,7 +90,7 @@ if __name__=='__main__':
 	if args.checksize:
 		dtsfiles = check_file_size(args.year)
 	else:
-		dtsfiles = []
+		dtsfiles = None 
 
 	# get the list of files that need to be copied to dtskp
 	xferfiles = get_files_to_transfer(currentdirs,archivelog,dtsfiles)
@@ -107,6 +108,10 @@ if __name__=='__main__':
 		dtsutdirs = ''
 	dtsutdirs = [os.path.basename(d) for d in dtsutdirs.split("\n") ]
 
+	if len(xferfiles) == 0:
+		print 'BASSARCHIVE: nothing to do!'
+		sys.exit(0)
+
 	# Finally do the transfer. Open the archive log files, iterate through
 	# the list of files to transfer, and copy files one-by-one.
 	FNULL = open(os.devnull, 'w')
@@ -117,14 +122,14 @@ if __name__=='__main__':
 			# if the night directory doesn't exist on dtskp, create it
 			if utdir not in dtsutdirs:
 				cmd = ["ssh",dtskp,"mkdir","bass/"+utdir]
-				print cmd
+				print "BASSARCHIVE: "+cmd
 				_ = subprocess.check_output(cmd)
 				dtsutdirs.append(utdir)
 			if args.scp:
 				cmd = ["scp","-r",f,dtskp+":bass/"+utdir+"/"]
 			else:
 				cmd = ["rsync","-av",f,dtskp+":bass/"+utdir+"/"]
-			print ' '.join(cmd)
+			print "BASSARCHIVE: "+(' '.join(cmd))
 			if not args.nocopy:
 				# copy the file and add the MD5 hash to the log file
 				rv = subprocess.call(cmd,stdout=FNULL)
