@@ -5,10 +5,14 @@ import sys
 import glob
 import subprocess
 import md5
+import datetime
 
 archivelogfn = "/home/primefocus/bass/archive/bassarchive.log"
 
 dtskp = "bokpf@dtskp.kpno.noao.edu"
+
+curtime = datetime.datetime.now()
+logpfx = "[{}] ".format(str(curtime)[:-7])
 
 def check_file_size(year=''):
 	'''List the files on the dtskp machine and check the output size in
@@ -34,7 +38,7 @@ def read_archive_log():
 			try:
 				md5h,fn = l.strip().split()
 			except:
-				print "BASSARCHIVE: ERROR reading ",l
+				print logpfx+"ERROR reading ",l
 				continue
 			fn = os.path.basename(fn)
 			if fn in archivelog and archivelog[fn] != md5h:
@@ -56,7 +60,7 @@ def get_files_to_transfer(currentdirs,archivelog,dtsfiles):
 			if not fn in archivelog:
 				xferfiles.append(f)
 			if dtsfiles is not None and fn not in dtsfiles:
-				print "BASSARCHIVE: {} not on dtskp".format(fn)
+				print logpfx+"{} not on dtskp".format(fn)
 	return xferfiles
 
 if __name__=='__main__':
@@ -109,7 +113,7 @@ if __name__=='__main__':
 	dtsutdirs = [os.path.basename(d) for d in dtsutdirs.split("\n") ]
 
 	if len(xferfiles) == 0:
-		print 'BASSARCHIVE: nothing to do!'
+		print logpfx+'nothing to do!'
 		sys.exit(0)
 
 	# Finally do the transfer. Open the archive log files, iterate through
@@ -122,14 +126,14 @@ if __name__=='__main__':
 			# if the night directory doesn't exist on dtskp, create it
 			if utdir not in dtsutdirs:
 				cmd = ["ssh",dtskp,"mkdir","bass/"+utdir]
-				print "BASSARCHIVE: "+(' '.join(cmd))
+				print logpfx+(' '.join(cmd))
 				_ = subprocess.check_output(cmd)
 				dtsutdirs.append(utdir)
 			if args.scp:
 				cmd = ["scp","-r",f,dtskp+":bass/"+utdir+"/"]
 			else:
 				cmd = ["rsync","-av",f,dtskp+":bass/"+utdir+"/"]
-			print "BASSARCHIVE: "+(' '.join(cmd))
+			print logpfx+(' '.join(cmd))
 			if not args.nocopy:
 				# copy the file and add the MD5 hash to the log file
 				rv = subprocess.call(cmd,stdout=FNULL)
