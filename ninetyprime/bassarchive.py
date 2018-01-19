@@ -122,7 +122,7 @@ if __name__=='__main__':
 			# if the night directory doesn't exist on dtskp, create it
 			if utdir not in dtsutdirs:
 				cmd = ["ssh",dtskp,"mkdir","bass/"+utdir]
-				print "BASSARCHIVE: "+cmd
+				print "BASSARCHIVE: "+(' '.join(cmd))
 				_ = subprocess.check_output(cmd)
 				dtsutdirs.append(utdir)
 			if args.scp:
