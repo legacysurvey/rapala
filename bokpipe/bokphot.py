@@ -22,9 +22,12 @@ def cmd_extend(cmd,name,val,**kwargs):
 	if name not in kwargs:
 		cmd.extend(['-'+name,val])
 
-def sextract(imageFile,catFile,psfFile=None,clobber=False,full=False,
+def sextract(imageFile,catFile,psfFile=None,overwrite=False,full=False,
              verbose=0,**kwargs):
-	if not clobber and os.path.exists(catFile):
+	clobber = kwargs.pop('clobber',None) # for backwards compatibility
+	if clobber is not None:
+		overwrite = clobber
+	if not overwrite and os.path.exists(catFile):
 		if verbose > 0:
 			print catFile,' already exists, skipping'
 		return
