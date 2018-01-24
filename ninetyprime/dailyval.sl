@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-##SBATCH -C haswell
+#SBATCH -C haswell
 #SBATCH -p regular
 #SBATCH -t 01:00:00
 

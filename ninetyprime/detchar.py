@@ -194,10 +194,11 @@ def find_cal_sequences(log,min_len=5):
 	mjdk = 'mjd' if 'mjd' in t.colnames else 'mjdStart'
 	bias_times = np.array([ t[mjdk][s[0]] for s in calseqs['zero'] ])
 	flat_times = np.array([ t[mjdk][s[0]] for s in calseqs['flat'] ])
-	for bt,bs in zip(bias_times,calseqs['zero']):
-		j = np.argmin(np.abs(bt-flat_times))
-		if 24*60*np.abs(bt-flat_times[j]) < max_deltat_minutes:
-			calseqs['zero_and_flat'].append((bs,calseqs['flat'][j]))
+	if len(flat_times) > 0:
+		for bt,bs in zip(bias_times,calseqs['zero']):
+			j = np.argmin(np.abs(bt-flat_times))
+			if 24*60*np.abs(bt-flat_times[j]) < max_deltat_minutes:
+				calseqs['zero_and_flat'].append((bs,calseqs['flat'][j]))
 	return calseqs
 
 def bias_checks(bias,overscan=False):
@@ -292,7 +293,7 @@ def run_qa(log,logFits,datadir,nproc=1,dogainrn=True,dobitcheck=True,
 	#
 	# bit integrity check
 	#
-	if dobitcheck:
+	if dobitcheck and len(calseqs['flat'])>0:
 		flats = filePaths[np.concatenate(calseqs['flat'])]
 		nbits = 8
 		bitbit = np.zeros(len(flats),dtype=[('fileName','S35'),
