@@ -14,6 +14,12 @@ from astropy.table import Table
 
 from bokio import *
 
+def fits_name(f):
+	for sfx in ['','.fz','.gz']:
+		if os.path.exists(f+sfx):
+			return f+sfx
+	return f # push failure upstream
+
 # just translates the kwargs
 def array_clip(arr,axis=None,**kwargs):
 	# for some reason in newer version of astropy (>1.1) axis=-1 
@@ -489,7 +495,7 @@ class FakeFITS(object):
 	   with the multiprocessing feature in BokProcess, unlike fitsio.FITS.'''
 	def __init__(self,fits):
 		if isinstance(fits,basestring):
-			fits = fitsio.FITS(fits)
+			fits = fitsio.FITS(fits_name(fits))
 		# this gets accessed for FITS objects, so need to replicate it
 		self._filename = fits._filename
 		self.data = [None] # empty first extension, like FITS MEF
